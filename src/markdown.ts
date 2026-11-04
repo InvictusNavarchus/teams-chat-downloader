@@ -1,7 +1,35 @@
 import TurndownService from "turndown";
 import type { Archive, Message } from "./archive.ts";
 
-export function renderMarkdown(archive: Archive): string {
+type Turn = {
+  day: string;
+  sender: string;
+  senderId: string;
+  start: number;
+  end: number;
+  bodies: string[];
+};
+
+export function renderMarkdown(
+  archive: Archive,
+  timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
+): string {
+  const dateFormat = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  const timeFormat = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const boundary = (value: string) => {
+    const time = Date.parse(value);
+    return `${dateFormat.format(time)}, ${timeFormat.format(time)}`;
+  };
   const converter = new TurndownService({
     headingStyle: "atx",
     codeBlockStyle: "fenced",
@@ -52,9 +80,11 @@ export function renderMarkdown(archive: Archive): string {
       return `\n\n${fence}${language}\n${code}\n${fence}\n\n`;
     },
   });
+  let hasInlineImage = false;
   converter.addRule("unavailable-image", {
     filter: "img",
     replacement: (_content, node) => {
+      hasInlineImage = true;
       const alt = node.getAttribute("alt");
       return `\\[Image not downloaded${alt ? `: ${inline(alt)}` : ""}\\]`;
     },
@@ -83,8 +113,8 @@ export function renderMarkdown(archive: Archive): string {
 
   const sections = [
     "# Chat export",
-    `Chat: ${inline(archive.chatId)}\n\nPeriod: ${inline(archive.window.from)} (inclusive) to ${inline(archive.window.toExclusive)} (exclusive)\n\nMessages: ${archive.messages.length}`,
-    "Media files were not downloaded. Image placeholders refer to source records in the JSON export.",
+    `Period: ${boundary(archive.window.from)} – ${boundary(archive.window.toExclusive)} (end exclusive)`,
+    `Timezone: ${inline(timeZone)} · Messages: ${archive.messages.length}`,
   ];
   // Sort a copy so conversion never changes the source records or their order.
   const messages = [...archive.messages].sort(
@@ -92,11 +122,13 @@ export function renderMarkdown(archive: Archive): string {
       Date.parse(a.originalarrivaltime) - Date.parse(b.originalarrivaltime) ||
       (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
+  const turns: Turn[] = [];
   for (const message of messages) {
+    const from = field(message, "from").trim();
     const sender =
-      field(message, "imdisplayname") ||
-      field(message, "fromDisplayNameInToken") ||
-      field(message, "from") ||
+      field(message, "imdisplayname").trim() ||
+      field(message, "fromDisplayNameInToken").trim() ||
+      from ||
       "Unknown sender";
     const type = field(message, "messagetype");
     const contentType = field(message, "contenttype").toLowerCase();
@@ -104,18 +136,61 @@ export function renderMarkdown(archive: Archive): string {
     const html =
       type.toLowerCase() === "richtext/html" ||
       (!type && ["html", "text/html"].includes(contentType));
-    const content = html
-      ? converter.turndown(source)
-      : escape(source).replace(/\n/g, "  \n");
-    const details = [`Message ID: ${inline(message.id)}`];
-    if (type) details.push(`Type: ${inline(type)}`);
+    hasInlineImage = false;
+    let content = (
+      html ? converter.turndown(source) : escape(source).replace(/\n/g, "  \n")
+    ).trim();
     if (
+      !hasInlineImage &&
       Array.isArray(message.amsreferences) &&
       message.amsreferences.length > 0
     )
-      details.push("Media references retained in JSON; files not downloaded.");
+      content = [content, "\\[Media not downloaded\\]"]
+        .filter(Boolean)
+        .join("\n\n");
+
+    const time = Date.parse(message.originalarrivaltime);
+    const day = dateFormat.format(time);
+    // Unknown authors and non-chat records must not be folded into a speaker turn.
+    const senderId = ["", "text", "richtext/html"].includes(type.toLowerCase())
+      ? from
+      : "";
+    const previous = turns.at(-1);
+    const body = content || "_No text available._";
+    if (
+      previous &&
+      senderId &&
+      previous.senderId === senderId &&
+      previous.sender === sender &&
+      previous.day === day &&
+      time - previous.end <= 5 * 60_000 &&
+      // A daylight-saving clock rollback starts a new turn, not a backwards range.
+      timeFormat.format(time) >= timeFormat.format(previous.end)
+    ) {
+      previous.end = time;
+      previous.bodies.push(body);
+    } else {
+      turns.push({
+        day,
+        sender,
+        senderId,
+        start: time,
+        end: time,
+        bodies: [body],
+      });
+    }
+  }
+  let day: string | undefined;
+  for (const turn of turns) {
+    if (turn.day !== day) {
+      sections.push(`## ${turn.day}`);
+      day = turn.day;
+    }
+    const start = timeFormat.format(turn.start);
+    const end = timeFormat.format(turn.end);
+    const time = start === end ? start : `${start}–${end}`;
     sections.push(
-      `## ${inline(message.originalarrivaltime)} — ${inline(sender)}\n\n${details.join("\n\n")}\n\n${content.trim() || "_No renderable text; see the JSON source._"}`,
+      `**${inline(turn.sender)} · ${time}**\n\n${turn.bodies.join("\n\n")}`,
     );
   }
   if (messages.length === 0) sections.push("_No messages in this period._");

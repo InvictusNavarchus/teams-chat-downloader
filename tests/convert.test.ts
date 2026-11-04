@@ -55,7 +55,11 @@ test("offline CLI converts saved JSON with no credentials or HTTP requests", asy
     ],
     {
       cwd: f.dir,
-      env: { ...process.env, XDG_STATE_HOME: join(f.dir, "missing-state") },
+      env: {
+        ...process.env,
+        XDG_STATE_HOME: join(f.dir, "missing-state"),
+        TZ: "Asia/Jakarta",
+      },
       stdout: "pipe",
       stderr: "pipe",
     },
@@ -73,9 +77,12 @@ test("offline CLI converts saved JSON with no credentials or HTTP requests", asy
     format: "markdown",
     messages: 1,
   });
-  expect(await readFile(join(f.dir, "history.md"), "utf8")).toContain(
-    "Hello **world** &amp; friends.",
-  );
+  const markdown = await readFile(join(f.dir, "history.md"), "utf8");
+  expect(markdown).toContain("Hello **world** &amp; friends.");
+  expect(markdown).toContain("Timezone: Asia/Jakarta");
+  expect(markdown).toContain("**Example sender · 19:00**");
+  expect(markdown).not.toContain("Message ID:");
+  expect(markdown).not.toContain("Type:");
   expect(await readFile(f.input, "utf8")).toBe(f.raw);
 });
 
