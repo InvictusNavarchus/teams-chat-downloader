@@ -128,7 +128,7 @@ Explains the general warning for Blink-feature switches and the first-matching-w
 
 Relates AutomationControlled state to the `navigator.webdriver` result while allowing other automation overrides. This is why the docs say the flag affects the indicator rather than promising that it always forces a particular value or defeats automation detection.
 
-## 6. HTTP cache semantics
+## 6. HTTP cache and retry semantics
 
 ### S16 — HTTP conditional requests
 
@@ -137,6 +137,18 @@ Relates AutomationControlled state to the `navigator.webdriver` result while all
 [RFC 9110: 304 Not Modified](https://httpwg.org/specs/rfc9110.html#status.304)
 
 These define the standard conditional-request behavior. The separate live evidence is that the tested ASM image actually returned `Last-Modified` and honored the condition with `304`. ETag-based revalidation remains an untested extension for this service sample.
+
+### S17 — HTTP rate-limit responses
+
+[RFC 6585: 429 Too Many Requests](https://www.rfc-editor.org/rfc/rfc6585.html#section-4)
+
+Defines `429` and permits `Retry-After` to indicate how long to wait. It does not specify Teams' quotas, how Teams counts requests, or whether a particular private endpoint always returns this status when throttled. No live throttling test was performed.
+
+### S18 — Retry-After syntax and meaning
+
+[RFC 9110: Retry-After](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3)
+
+Defines a delay expressed as seconds or an HTTP date. This supports the future client's response handling; it is not evidence that the investigated Teams endpoints emit this header. Retry limits and concurrency settings remain client implementation decisions.
 
 ## 7. Provenance of local configuration and measurements
 

@@ -13,6 +13,7 @@ The [HTTP reference](02-http-protocol.md) defines observed request behavior. The
 - Download included chat images as usable local files.
 - Avoid downloading the same images again during overlapping/repeated exports.
 - Re-fetching text is acceptable; avoid unnecessary incremental text-sync complexity initially.
+- Minimize API calls during ordinary exports and report request counts, without generating extra traffic to discover rate limits or automation checks.
 - Keep the browser out of ordinary downloading when valid credentials suffice.
 - Use browser login/session management when needed, with renewal behavior still to be established.
 - Write detailed reference documentation before application implementation.
@@ -159,7 +160,54 @@ Do not fetch many pages concurrently: each next cursor depends on the preceding 
 
 Do not use the first timestamp in an array as a stopping condition. The sampled order was not monotonic. Sort after retrieval, with deterministic tie-breaking chosen and tested by the implementation.
 
-Avoid a text-sync database initially. The user is comfortable re-fetching text for the requested period. Correct pagination, preserving fields, and not repeating image downloads matter more than optimizing a small text payload prematurely.
+Avoid a text-sync database initially. The user is comfortable re-fetching text for the requested period, but a small text payload still costs API calls. Apply the agreed request-saving behavior below before deciding whether message-range caching is worth its added complexity.
+
+### 6.1 Agreed request-saving behavior
+
+The user approved these requirements after the initial research documentation. They describe future CLI behavior, not implemented features or newly verified Teams behavior.
+
+- Seek directly to the resolved date window; do not fetch intervening history from the latest message.
+- Use the tested `pageSize=200` for history. This is not a claim that 200 is the service maximum or that every page will contain 200 records.
+- If the user supplies a chat ID, begin the selected-chat export without a directory lookup solely to resolve that ID. Listing and label resolution remain separate operations when requested; a friendly label must not be required to retrieve history by ID.
+- Reuse complete matching cached images without issuing a media request, including a `HEAD` or conditional validation request. A `304` saves body transfer but still costs a request. Revalidation belongs to an explicit refresh path.
+- Fetch history pages sequentially and keep image-download concurrency low and bounded. The exact image-concurrency value remains an implementation choice, not a measured service limit.
+- Retry eligible transient read failures only within a finite policy, honoring applicable server retry guidance. Do not repeatedly retry unchanged rejected credentials.
+
+Lower request counts and lower concurrency serve different purposes: the former avoids unnecessary calls, while the latter limits simultaneous work. Neither establishes that a particular request rate is accepted by Teams.
+
+Keep the original date bounds fixed throughout retrieval and retries, as described above. Re-fetching messages for the complete requested window remains the initial policy; no persistent message-range cache is required by this agreement.
+
+### 6.2 Request accounting
+
+Report request counts from work the user actually requested. Do not send probes, repeat requests, expand date windows, or increase concurrency to discover throttling or automation thresholds.
+
+Count each outbound HTTP request attempt once, including retries and attempts that end in an HTTP or transport error. A count records client attempts, not proof that the server received every request. Local cache lookups are not HTTP requests.
+
+Group attempts by purpose, such as history, directory, media, and authentication/other requests when performed by the HTTP client. Report retry attempts as a subset of the total, not an additional category to add again. A history request counter is distinct from successfully processed page count.
+
+Also report media cache hits, successful downloads, and failures. Deduplicate repeated references to the same logical media key within an export so they do not trigger duplicate downloads. Cache-hit counts should describe distinct media keys reused locally, rather than inflating the count for every repeated reference.
+
+An illustrative summary is:
+
+~~~text
+HTTP attempts: 10 (history: 4, directory: 0, media: 6, other: 0)
+Retry attempts: 0 (included above)
+Images: 30 reused from cache, 6 downloaded, 0 failed
+~~~
+
+These numbers are examples, not measurements or a quota. Report available counters on interrupted/failed exports too, with the actual completion status. Do not print credentials, authenticated URLs, or raw cursors to explain a count.
+
+Browser-generated login traffic is outside the ordinary HTTP export counters unless separately instrumented. Do not label HTTP-client counts as all account or browser traffic.
+
+### 6.3 Throttling and validation boundaries
+
+Teams' rate limits and automation checks for these private endpoints remain unknown. No request budget, safe requests-per-second value, or exemption from checks was established by the research.
+
+If an ordinary export receives `429`, honor a supplied `Retry-After`; the HTTP standard permits that header on a rate-limit response. Its value can be a delay in seconds or an HTTP date. Use bounded backoff when applicable guidance is absent, and retain cancellation and a finite retry limit. See [HTTP sources S17–S18](06-sources.md#s17--http-rate-limit-responses).
+
+If retries are exhausted, report the failure and retain completed cached media. Do not treat throttling as an empty history window or a successful complete export. A response requiring user interaction should be surfaced rather than repeatedly retried as a transient read failure.
+
+Validate scheduling, retry handling, and counters with synthetic responses. Observe live counts only during ordinary user-requested exports. Reconsider message-range caching if those ordinary counts justify it; accepting a text re-fetch does not mean request count is irrelevant.
 
 ## 7. Image discovery and downloads
 
@@ -268,6 +316,7 @@ Recommended export metadata includes:
 - Invocation time and completion/interruption status.
 - Page count, record count, unique-message count, and deduplication policy.
 - Counts of media references, cache hits, downloads, and failures.
+- HTTP request attempts by purpose and retry-attempt count, with the accounting scope defined in section 6.2.
 - A clear distinction between service-reported exhaustion and independent proof of historical completeness.
 
 Do not include credentials or raw authenticated pagination URLs in a shareable export manifest.

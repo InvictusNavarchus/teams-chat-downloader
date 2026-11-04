@@ -233,12 +233,35 @@ These are meaningful behavior checks to add when implementation exists. They sho
 
 These checks should verify behavior and observed failure modes, not merely duplicate the implementation's internal steps.
 
+### 9.5 Request efficiency, accounting, and throttling
+
+These checks implement the user-approved requirements in [CLI design sections 6.1–6.3](04-cli-design.md#61-agreed-request-saving-behavior). Use synthetic/sanitized responses and a controlled clock where necessary. Do not generate live traffic to find Teams' rate limits or automation thresholds.
+
+| Check | Failure it should catch |
+| --- | --- |
+| A supplied chat ID reaches history without an incidental directory lookup | Spending a directory request merely to resolve an already supplied ID |
+| The first request seeks the chosen window and uses the tested page size of 200 | Fetching intervening history or unnecessarily shrinking pages |
+| Continuation requests are sequential and retain fixed bounds | Parallel cursor misuse or scope changes during retrieval |
+| A repeated/overlapping export re-fetches requested text but makes zero requests for complete cached images | Confusing image caching with message-range caching or silently revalidating every image |
+| Repeated references to one uncached logical media key cause one download | Duplicate media requests within one export |
+| Concurrent image downloads never exceed the chosen small bound | Unbounded media request bursts |
+| Explicit refresh counts a conditional media request even when it returns `304` | Reporting a body-free response as zero API calls |
+| Counters include failed attempts and retries once, with retry count identified as a subset | Under-counting failures or double-counting retries in the total |
+| Cache hits count distinct reused media keys and issue no HTTP request | Inflated cache-hit counts or hidden validation requests |
+| Interrupted exports report partial counts and truthful completion status | Losing useful diagnostics or reporting incomplete work as success |
+| A synthetic `429` with delay-seconds or HTTP-date `Retry-After` delays the next attempt accordingly | Ignoring server retry guidance or parsing only one valid header form |
+| Missing retry guidance uses bounded backoff and a finite attempt limit; cancellation prevents further attempts | Retry storms, endless waits, or ignored cancellation |
+| An unchanged authentication rejection or interaction requirement does not trigger repeated transient retries | Repeated requests that cannot recover without new credentials or user action |
+| Request summaries exclude secrets and distinguish HTTP-client counts from browser login traffic | Credential exposure or a misleading claim to count all account traffic |
+
+No specific retry count, concurrency value, or requests-per-second threshold has been verified for Teams. Choose explicit client limits during implementation and test that they are enforced; do not describe those settings as a known safe service quota.
+
 ## 10. Suggested implementation sequence
 
 1. Settle the small set of product semantics and credential persistence choices.
 2. Resolve minimal directory request details, participant labels, and basic raw-message image-reference mapping.
-3. Implement and validate an HTTP-only bounded text export with explicit supplied credential state.
-4. Add the persistent image cache and a small tested set of image representations.
+3. Implement and validate an HTTP-only bounded text export with explicit supplied credential state, request counters, and bounded retry handling.
+4. Add the persistent image cache and a small tested set of image representations, checking that cache hits make no network requests and media concurrency stays bounded.
 5. Add the optional interactive login helper and demonstrate a cold-start export without a running browser.
 6. Expand rendering, media coverage, renewal, or checkpointing only as the selected scope requires.
 
