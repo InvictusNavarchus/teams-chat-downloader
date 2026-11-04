@@ -1,0 +1,86 @@
+import { cac } from "cac";
+import { z } from "zod";
+import { loadCredentials } from "./credentials.ts";
+import { AppError, errorMessage, validationError } from "./errors.ts";
+import { exportChat } from "./export.ts";
+import { createHttp, requestStats } from "./http.ts";
+import { resolveExportOptions } from "./options.ts";
+import { historyProgress, listChats } from "./teams.ts";
+
+export async function runCli(argv = process.argv): Promise<number> {
+  const cli = cac("teams");
+  const stats = requestStats();
+  const progress = historyProgress();
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  const http = createHttp({ stats, signal: controller.signal });
+  cli
+    .command("export", "Export one chat to JSON (message history only)")
+    .option("--chat <id>", "Raw chat ID")
+    .option("--credentials <file>", "Private credential JSON file")
+    .option(
+      "--out <file>",
+      "New output JSON file; existing files are never overwritten",
+    )
+    .option("--last <duration>", "Rolling duration, for example 7d")
+    .option("--since <timestamp>", "Start timestamp through invocation time")
+    .option("--from <timestamp>", "Inclusive start timestamp with Z or offset")
+    .option("--to <timestamp>", "Exclusive end timestamp with Z or offset")
+    .action(async (raw: Record<string, unknown>) => {
+      const { "--": _trailing, ...input } = raw;
+      const options = resolveExportOptions(input);
+      const credentials = await loadCredentials(options.credentials);
+      console.log(
+        JSON.stringify(
+          await exportChat(
+            options,
+            credentials,
+            http,
+            stats,
+            progress,
+            controller.signal,
+          ),
+        ),
+      );
+    });
+  cli
+    .command("chats", "List chat IDs and available titles as JSON")
+    .option("--credentials <file>", "Private credential JSON file")
+    .action(async (raw: Record<string, unknown>) => {
+      const result = z.string().min(1).safeParse(raw.credentials);
+      if (!result.success) throw validationError("--credentials", result.error);
+      const credentials = await loadCredentials(result.data);
+      console.log(JSON.stringify(await listChats(http, credentials), null, 2));
+    });
+  cli.help();
+  cli.version("0.1.0");
+  process.on("SIGINT", cancel);
+  process.on("SIGTERM", cancel);
+  try {
+    cli.parse(argv, { run: false });
+    if (!cli.matchedCommand && !cli.options.help && !cli.options.version) {
+      if (cli.args.length) throw new AppError("Unknown command; use --help.");
+      cli.outputHelp();
+      return 0;
+    }
+    await cli.runMatchedCommand();
+    return 0;
+  } catch (error) {
+    // CAC's syntax errors do not include remote bodies or credential values.
+    const message =
+      error instanceof Error && error.name === "CACError"
+        ? error.message
+        : errorMessage(error);
+    console.error(message);
+    return controller.signal.aborted ? 130 : 1;
+  } finally {
+    process.off("SIGINT", cancel);
+    process.off("SIGTERM", cancel);
+    if (stats.total > 0)
+      console.error(
+        `HTTP attempts: ${stats.total} (history: ${stats.history}, directory: ${stats.directory}); retries: ${stats.retries} included. History pages: ${progress.pages}.`,
+      );
+  }
+}
+
+if (import.meta.main) process.exitCode = await runCli();

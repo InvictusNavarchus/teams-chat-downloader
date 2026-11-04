@@ -1,19 +1,74 @@
 # Teams Chat Download
 
-A planned CLI for exporting one-to-one and group chats from **Microsoft Teams Free with a personal Microsoft account** (`teams.live.com`).
+A Bun CLI for exporting chat history from **Microsoft Teams Free with a personal Microsoft account** (`teams.live.com`).
 
 The intended workflow is to select a chat, export a chosen date range, and download its images with a persistent cache so overlapping exports can reuse media.
 
 ## Project status
 
-The project is in the research and design stage. No CLI, exporter, login helper, or credential store has been implemented, and there are no installation or usage commands yet.
+The first implementation supports listing chat IDs and exporting one chat's message history to JSON using supplied credentials. It uses strict TypeScript, CAC, Zod, and Ky. Source message fields are preserved, including rich text and unknown fields; the CLI does not render them yet.
 
-The investigation verified direct HTTP requests for chat listing, historical messages, pagination, and image downloads. Playwright is intended to help with interactive login and credential acquisition. Credential renewal, participant-name lookup, and mapping message media references to download URLs still need investigation.
+Image downloading/caching, a login command, automatic credential renewal, and friendly one-to-one name lookup are still to come. Exported JSON explicitly records that media was not downloaded. There is no browser dependency in the implemented export path.
+
+## Setup
+
+The implementation was tested with Bun **1.3.14**. Install dependencies with the committed lockfile:
+
+```sh
+bun install --frozen-lockfile
+bun run teams --help
+```
+
+Create a private directory and copy the credential template:
+
+```sh
+mkdir -p -m 700 .private
+cp examples/credentials.example.json .private/credentials.json
+chmod 600 .private/credentials.json
+```
+
+Replace the placeholders locally with credentials captured from your signed-in Teams session. `historyAuthentication` is the **complete captured `Authentication` header value**; `directoryToken` is the captured `x-skypetoken` value. Each command only requires its own service credential. `accountId` is your stable local account label, not a token or a verified Microsoft identity.
+
+This release loads an explicit JSON file; it does not automate credential capture or renewal. See the [authentication reference](docs/03-authentication-and-browser.md) for the observed browser setup and capture sources. Credential files with group/other permissions are rejected on Unix. The `.private/`, `exports/`, and browser-artifact directories are ignored by Git.
+
+## Usage
+
+List chat IDs and available group titles as JSON:
+
+```sh
+bun run teams chats --credentials .private/credentials.json
+```
+
+One-to-one names have an explicit unresolved fallback. If Teams reports a partial directory, the command fails rather than presenting it as a complete listing.
+
+Export a rolling seven-day window, or select an older period directly:
+
+```sh
+bun run teams export --credentials .private/credentials.json --chat '<raw-chat-id>' --last 7d --out exports/last-week.json
+bun run teams export --credentials .private/credentials.json --chat '<raw-chat-id>' --from '2026-08-01T00:00:00Z' --to '2026-08-08T00:00:00Z' --out exports/august.json
+```
+
+Choose exactly one of `--last Nd`, `--since <timestamp>`, or `--from <timestamp> --to <timestamp>`. Full timestamps must include `Z` or an offset and use at most millisecond precision; date-only values are rejected. The start is inclusive and the end exclusive. `--last 7d` means 168 hours ending at one captured invocation time. Filtering and sorting use `originalarrivaltime`.
+
+`--chat` accepts the raw ID printed by `chats`. An export with an explicit ID makes no directory request. History pages use the tested size of 200 and preserve the original bounds on continuation. Identical duplicates are removed; conflicting records for one ID, invalid payloads, unexpected destinations, non-progress, and out-of-window messages fail explicitly.
+
+The output is one JSON file containing source messages and a versioned manifest with window, completion, pagination, and request counts. Existing files are never overwritten. The file is published only after retrieval and writing finish; a failed run leaves no new complete-looking export. Retrieval currently holds the chosen window in memory and has no durable resume checkpoint.
+
+Successful commands write JSON to stdout. Request summaries and errors go to stderr. Each HTTP operation allows two retries for eligible read failures, has a 15-second attempt timeout and a 60-second total deadline, and honors applicable server wait guidance without shortening it. Redirects are refused. These are client settings, not known Teams quotas. SIGINT/SIGTERM cancels further requests.
+
+## Development and verification
+
+```sh
+bun run typecheck
+bun run test
+```
+
+Offline tests use synthetic responses for pagination, validation, retries, cancellation, and output publication. An ordinary live check listed 15 chats with one directory request and exported 5 messages from a seven-day window with one history request, without retries. The browser remained open; a browser-closed check is still outstanding. See [E17](docs/01-findings-and-evidence.md#e17--first-bun-cli-live-check).
 
 ## Documentation
 
 Start with the [research reference](docs/README.md) for the findings, protocol details, browser setup, proposed CLI design, validation plan, and sources. It distinguishes verified behavior from proposals and unresolved questions and serves as the implementation reference.
 
-The [architecture plan](docs/07-architecture.md) records the agreed Bun, TypeScript, CAC, Zod, and Ky stack, module responsibilities, and the proposed first implementation milestone.
+The [architecture plan](docs/07-architecture.md) records module responsibilities, implementation defaults, and later milestones.
 
 The findings concern private Teams endpoints observed on one account. They are not a published Microsoft API contract.

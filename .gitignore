@@ -1,0 +1,7 @@
+/node_modules/
+/.playwright-mcp/
+/.private/
+/exports/
+.env
+.env.*
+!.env.example

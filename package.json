@@ -1,0 +1,22 @@
+{
+  "name": "teams-chat-download",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "teams": "bun src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "format": "biome format --write"
+  },
+  "dependencies": {
+    "cac": "7.1.0",
+    "ky": "2.2.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.5",
+    "@types/bun": "1.4.4",
+    "typescript": "7.0.2"
+  }
+}

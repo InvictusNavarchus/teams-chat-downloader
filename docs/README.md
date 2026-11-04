@@ -4,7 +4,7 @@
 
 Research date: **2026-11-04**. Target: **Microsoft Teams Free with a personal Microsoft account**, using `teams.live.com`.
 
-This workspace contains the research and proposed design for a chat export tool. **No exporter, login helper, credential store, or CLI has been implemented.** Command examples describe a possible future interface.
+This directory contains the research and design reference for the chat export tool. **The first HTTP CLI is now implemented:** see the [project README](../README.md) for actual commands and limitations. The design examples below include later features and are not all implemented; login and image caching remain future work.
 
 ## Main conclusion
 
@@ -24,7 +24,7 @@ The evidence is from live, read-only HTTP experiments against one signed-in pers
 | [Proposed CLI design](04-cli-design.md) | User workflow, implementation boundaries, date semantics, media caching, outputs, and failure handling |
 | [Validation and open questions](05-validation-and-open-questions.md) | Untested behavior, implementation acceptance checks, and a practical order for resolving gaps |
 | [Sources](06-sources.md) | Primary documentation and upstream source references; distinction between public documentation and private endpoint observations |
-| [Architecture plan](07-architecture.md) | Agreed stack, module responsibilities, validation, Ky request policy, storage boundaries, and proposed implementation milestones |
+| [Architecture plan](07-architecture.md) | Agreed stack, module responsibilities, validation, Ky request policy, storage boundaries, and implementation milestones |
 
 ## Evidence rules
 
@@ -70,8 +70,8 @@ The command name, exact flags, output formats, credential persistence backend, a
 - No live credentials, cookies, bearer values, raw cursors, real chat IDs, participant names, message bodies, or downloaded private images are included in these documents.
 - HTTP examples use placeholders. Field inventories and measured counts are evidence, not complete schemas.
 - Existing `.playwright-mcp/` files are investigation artifacts, not sanitized fixtures or the authoritative reference. They may contain private browsing information; they were not copied into these documents.
-- There is no `package.json` or application test suite. The Git repository was initialized after the documentation pass to version these research references; existing `.playwright-mcp/` artifacts remain untracked.
+- A Bun package, lockfile, TypeScript source, and synthetic test suite now accompany the references. Existing `.playwright-mcp/` artifacts remain outside source control, as do private credential state and exports.
 
 ## Working constraints
 
-Implementation requires a separate explicit instruction from the user. For future JavaScript/TypeScript work, the supplied project instructions require Bun, ES modules, scoped changes, and appropriate verification. Do not install packages, start a development server, alter the global MCP setup, or create application code merely because a design example appears here.
+The user authorized the first implementation after the architecture discussion. Further work still follows the supplied project instructions: Bun, ES modules, scoped changes, and appropriate verification. Design examples alone do not authorize expanding scope, starting a development server, or changing the global MCP setup.

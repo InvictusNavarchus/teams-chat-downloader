@@ -28,7 +28,7 @@ The normal exporter should not require a running browser, Playwright MCP connect
 
 The successful experiments were hosted by MCP for convenience. They used server-side global `fetch()` and explicitly supplied the needed credential; this differs from browser-side `page.evaluate(() => fetch(...))` or a Playwright API request context sharing browser cookies.
 
-**Unknown:** the complete cold-start behavior of a future standalone Bun process. The HTTP exchange has been proven, but no packaged application or credential loading path exists yet.
+**Implemented:** the Bun CLI loads an explicit private JSON file and performs history and directory reads without a Playwright connection (E17). The browser remained open during the live check. Browser-closed acceptance, reusable capture, and automatic renewal remain unverified or unimplemented; see the project README for the file format.
 
 ## 2. Three distinct authentication surfaces
 
@@ -306,7 +306,7 @@ The shell environment could not inspect the desktop session as though it were th
 | Playwright library | Browser control and network inspection APIs; also a separate HTTP request API | Possible implementation dependency for the optional login helper |
 | Playwright MCP | Structured tool interface for an agent to control/inspect a browser | Used for investigation; not required for normal exports |
 | Official `playwright-cli` | Shell commands, daemon sessions, snapshots, network inspection, and custom Playwright snippets | Possible alternative interactive login/investigation interface; not required for normal exports |
-| Future `teams` CLI | Product-specific listing, selection, period export, caching, and failure reporting | Not implemented; command name is illustrative |
+| Project `teams` CLI | Product-specific listing, bounded history export, and request reporting | First supplied-credential HTTP slice implemented; login, media caching, and friendly name lookup remain future work |
 
 The official CLI's lower agent-context overhead does not establish faster HTTP downloads or solve Teams authentication/pagination automatically.
 

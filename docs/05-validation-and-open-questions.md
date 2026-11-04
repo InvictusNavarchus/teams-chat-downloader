@@ -2,7 +2,7 @@
 
 Research date: **2026-11-04**. This file separates already completed investigation checks from tests that a future implementation still needs.
 
-No executable test suite, package configuration, sanitized payload-fixture collection, or application code exists yet. This document is a plan, not a test run report for an exporter.
+A Bun CLI, pinned package configuration, and synthetic test suite now implement the first bounded-history slice. Use `bun run typecheck` and `bun run test` for current results. This document also retains checks for later features; inclusion in a table does not mean a media/login feature or its test already exists.
 
 ## 1. Completed investigation checks
 
@@ -27,6 +27,7 @@ No executable test suite, package configuration, sanitized payload-fixture colle
 | One-to-one historical seeking | October window returned 186 messages directly | E15 |
 | Exact timestamp boundaries | Start and end both included the reference message at exact millisecond equality | E16 |
 | Short-term first-page repeat | Repeated group first-page query returned the same 200 IDs | E13 |
+| First standalone Bun CLI | Listed 15 chats and exported 5 messages from a seven-day window, one request each, no retries | E17 |
 
 See the complete [evidence ledger](01-findings-and-evidence.md) for timestamps, counts, controls, and limitations.
 
@@ -51,7 +52,7 @@ Further work should be driven by the selected product scope. It is unnecessary t
 
 **Known:** the complete observed query template is now recorded in the HTTP reference, and replay with `x-skypetoken` alone worked. Required versus optional query keys were not isolated.
 
-**Needed:** verify the documented request in the standalone client and, if simplifying it is useful, isolate which options are required for the supported account type. The existing full template can be the initial implementation baseline; query minimization is not a prerequisite. This should be a focused read test, not broad endpoint guessing.
+**Implemented:** the standalone `chats` command uses this template; E17 returned 15 records with one request. Query minimization remains optional and is not a prerequisite. Partial directory flags are surfaced as a failure until continuation is supported.
 
 **Do not assume:** the `/updates` endpoint can replace the initial listing, or that an empty update means no chats exist.
 
@@ -73,23 +74,23 @@ Further work should be driven by the selected product scope. It is unnecessary t
 
 ### Q04 — Credential acquisition and persistence
 
-**Known:** manual login plus temporary observation yielded working header/cookie material.
+**Known:** manual login plus temporary observation yielded working header/cookie material. The CLI now validates and loads an explicit private credential JSON file; automatic acquisition and renewal are not implemented.
 
-**Needed:** choose the login helper interface and profile ownership, capture the required credential set reproducibly, decide persistence, and validate each service without exposing secrets in output. The user's approval of a future implementation should cover the selected persistence behavior.
+**Needed:** choose the login helper interface and profile ownership, capture the required credential set reproducibly, and investigate renewal. File input is the first revisable persistence choice; any later backend must preserve service separation and avoid exposing secrets.
 
 **Do not assume:** extracting browser cookies alone captures the history token, or that copying a browser state file automatically makes application-generated headers available to an HTTP client.
 
 ### Q05 — Standalone execution
 
-**Known:** ordinary server-side Fetch requests worked in the MCP process without browser-side execution.
+**Known:** ordinary server-side Fetch requests worked in the MCP process without browser-side execution. E17 additionally verified the actual Bun CLI's saved-file loading, directory read, and bounded single-page history export.
 
-**Needed:** run the chosen Bun-based implementation from saved credential state with the browser/MCP closed, and verify one directory read, a bounded history read with continuation, and a cached/uncached media read.
+**Needed:** repeat with the browser/MCP closed, verify a live bounded history read with continuation in the CLI, and later verify cached/uncached media reads. The browser remained open during E17.
 
-**Do not assume:** the research snippet itself is a packaged tool or that credentials stored by one process have already been made available to another.
+**Do not assume:** the earlier research snippets establish every CLI behavior, or that the single-page check proves browser-closed operation or live multi-page traversal.
 
 ### Q06 — Product semantics
 
-Before finalizing the interface, decide timezone/date-only input rules, filtering timestamp, output format, image defaults, partial-export behavior, and overwrite semantics. These are design decisions, not private API discoveries.
+The first slice uses explicit-offset timestamps, half-open windows, arrival-time filtering, one JSON document, and no overwrite. These are revisable implementation defaults, not additional planning gates. Image defaults and partial-media behavior remain later decisions. See the actual usage in the project README.
 
 See [proposed CLI design](04-cli-design.md#12-decisions-still-to-make-before-final-cli-behavior).
 
@@ -181,7 +182,7 @@ The tested image is sufficient evidence to start a focused inline-image implemen
 
 ## 9. Regression checks for future implementation
 
-These are meaningful behavior checks to add when implementation exists. They should use synthetic/sanitized data where live access is unnecessary.
+These are behavior checks for the implementation. The existing synthetic suite covers the initial HTTP/history slice; media, rendering, and durable persistence checks remain future work. Use synthetic/sanitized data where live access is unnecessary.
 
 ### 9.1 Request construction and dates
 
@@ -258,7 +259,7 @@ No specific retry count, concurrency value, or requests-per-second threshold has
 
 ## 10. Suggested implementation sequence
 
-1. Use the [architecture plan](07-architecture.md) to settle the remaining product semantics, credential input, and first milestone scope.
+1. Use the implemented defaults in the [architecture plan](07-architecture.md); revisit input/output choices when a concrete requirement warrants it rather than treating them as planning gates.
 2. Resolve minimal directory request details, participant labels, and basic raw-message image-reference mapping.
 3. Implement and validate an HTTP-only bounded text export with explicit supplied credential state, request counters, and bounded retry handling.
 4. Add the persistent image cache and a small tested set of image representations, checking that cache hits make no network requests and media concurrency stays bounded.

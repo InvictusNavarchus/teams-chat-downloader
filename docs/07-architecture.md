@@ -1,10 +1,10 @@
 # CLI architecture plan
 
-Plan date: **2026-11-04**. Status: **documentation only; no application code exists**.
+Plan date: **2026-11-04**. Status: **first HTTP CLI implemented**. The [project README](../README.md) documents actual commands and current limitations.
 
 This document records the stack agreed during architecture discussion and the recommended implementation structure. The [HTTP protocol reference](02-http-protocol.md) remains authoritative for observed Teams behavior. The [CLI design](04-cli-design.md) contains the user requirements and product proposals; the [validation plan](05-validation-and-open-questions.md) contains the detailed regression checks.
 
-**Agreed direction** means a selected technology or requirement, not a working implementation. **Proposed** decisions below still need to be settled before implementing the affected behavior. Nothing here establishes a new Teams API capability.
+**Agreed direction** means a selected technology or requirement. **Implemented** defaults below describe the first slice; they can be revised as the product develops. **Proposed** decisions concern later behavior. Nothing here establishes a new Teams API capability.
 
 ## 1. Stack and reasons
 
@@ -17,11 +17,11 @@ This document records the stack agreed during architecture discussion and the re
 | Tests | Bun's built-in `bun:test` | Tests run in the same runtime as the CLI |
 | Interactive authentication | Separate Playwright helper | Browser interaction is needed for credential acquisition, not every export |
 
-Ordinary TypeScript execution does not replace static type checking or runtime payload validation. Provide a dedicated `typecheck` script, invoked through `bun run typecheck`. Select its backing checker and compatible development dependencies when scaffolding; do not assume a newer Bun feature is available on the installed runtime.
+Ordinary TypeScript execution does not replace static type checking or runtime payload validation. The dedicated `bun run typecheck` script invokes `tsc --noEmit`, independently of Zod's runtime checks and without requiring a newer Bun type-checking feature.
 
 Use one package and direct imports/exports. Keep module boundaries as ordinary functions and explicit dependencies; no dependency-injection container or plugin framework is needed. A file-plus-JSON media index is the initial storage proposal, not an agreed database requirement.
 
-The upstream references are [S19–S22](06-sources.md#9-application-stack). Ky behavior was reviewed against **v2.2.0**, not assumed from the development branch. This is a reviewed version, not a dependency pin or a claim about the npm distribution tag. Before installing, verify current stable versions, select compatible versions, and commit the resulting Bun lockfile. No packages were installed during this planning task.
+The upstream references are [S19–S22](06-sources.md#9-application-stack). Registry stable versions were checked before installation. The first implementation pins CAC **7.1.0**, Zod **4.6.7**, Ky **2.2.0**, TypeScript **7.0.2**, Bun types **1.4.4**, and Biome **2.6.5**, with a Bun lockfile. Type checking uses `tsc --noEmit`; runtime/tests were verified on Bun **1.3.14**. Recheck stable versions when changing dependencies.
 
 ## 2. Responsibilities and data flow
 
@@ -119,22 +119,22 @@ Download to temporary files, validate, then promote complete entries. Publish me
 
 Retain useful source fields and keep derived output separate. Raw messages remain private data even when credentials are excluded. JSON is the recommended first output; HTML/Markdown rendering and sanitization can follow once their scope is selected. File output must distinguish interrupted work from complete results and avoid accidentally overwriting a previous export.
 
-## 6. Proposed first implementation milestone
+## 6. First implementation milestone
 
-**Recommendation, not yet approved scope:** one bounded text export by supplied chat ID, using explicitly supplied credentials and producing JSON plus run metadata. Add the media adapter/cache and browser login helper as subsequent milestones. This exercises the difficult pagination and request policy without first requiring complete name lookup or browser renewal.
+**Implemented after user authorization:** bounded history export by supplied chat ID, explicit private credential JSON, and one JSON output document with source messages and run metadata. A basic `chats` command lists IDs and available titles, with unresolved one-to-one name fallbacks and explicit failure on partial directory data. Media caching and the browser login helper remain subsequent milestones.
 
-Before implementing that milestone, settle:
+The first slice uses these revisable defaults:
 
 | Decision | Recommended starting point | Current status |
 | --- | --- | --- |
-| Credential input | A validated, explicit private credential source; keep secret values out of command-line arguments | Backend and input interface unresolved |
-| Date semantics | Half-open UTC millisecond window; full timestamps require `Z` or an offset; `--last 7d` is 168 hours | Proposed; date-only values can be deferred rather than guessed |
-| Filtering timestamp | `originalarrivaltime`, preserving the other source timestamps | Proposed from the measured behavior |
-| Output | JSON with a versioned manifest, explicit destination, and no overwrite by default | Proposed; final layout and partial-output handling unresolved |
-| Initial scope | Supplied chat ID and explicit re-login when needed | Proposed; does not remove later chat listing, images, or login requirements |
-| Operational settings | Explicit finite retry/deadline settings; small bounded media concurrency when images are added | Values to choose and test during implementation |
+| Credential input | `--credentials` points to versioned JSON with a local account label and optional service-specific tokens | Implemented; Unix group/other permissions rejected; no automatic capture or renewal |
+| Date semantics | Half-open UTC millisecond window; full timestamps require `Z` or an offset; `--last 7d` is 168 hours | Implemented; date-only and submillisecond inputs rejected |
+| Filtering timestamp | `originalarrivaltime`, preserving the other source timestamps | Implemented; unexpected out-of-window responses fail |
+| Output | One JSON document with a versioned manifest, explicit destination, and no overwrite | Implemented; atomic publication after success; no partial export file or durable resume |
+| Initial scope | Supplied chat ID plus basic directory listing, using captured credentials | Implemented; retrieval holds the selected window in memory; images and login remain future work |
+| Operational settings | Two retries, 15-second per-attempt timeout, 60-second per-operation deadline | Implemented; redirects refused, counters at Fetch boundary; media concurrency still future work |
 
-These decisions are sufficient to start a focused milestone; they do not require a complete design for every later renderer or renewal mechanism.
+These defaults are not planning gates for later changes. Conflicting duplicate records fail explicitly until revision selection is established; identical duplicate records are removed. Output files use mode `0600`, and new parent directories use mode `0700`.
 
 ## 7. Acceptance and next stages
 
@@ -147,10 +147,10 @@ The first milestone should meet these criteria using synthetic responses before 
 5. Controlled `429`/transient failures, cancellation, and retry exhaustion enforce policy without live rate-limit probing. No attempt occurs earlier than applicable server guidance permits.
 6. Counters include retries and transport failures once and distinguish received pages from attempts. Redirect and browser-traffic scope is explicit.
 7. A failed later page or write cannot be reported as a complete export. Diagnostics and manifests exclude credentials and raw cursors.
-8. Type checking and the relevant `bun:test` suite pass. A small ordinary live check then confirms the selected Bun/Ky versions and supplied credentials work without a running browser; that remains unverified today.
+8. Type checking and the relevant `bun:test` suite pass. The first ordinary Bun/Ky live check listed 15 chats and exported 5 messages with one request each (E17). The browser remained open; repeat with the browser closed and validate live multi-page CLI traversal before claiming those cases are verified.
 
 When media is added, require zero-request cache hits across overlapping exports, one download per uncached logical key, correct representation separation, bounded concurrency, interruption-safe cache promotion, and deliberate `304` recovery. Prove the raw-reference-to-URL adapter before claiming image coverage.
 
 When login is added, select its standalone interface and credential backend, preserve the working platform setup, and demonstrate a cold-start export. Do not assume MCP or CLI attachment, token renewal, or browser-profile portability has already been implemented.
 
-The detailed behavior checks remain in [validation sections 9.1–9.5](05-validation-and-open-questions.md#9-regression-checks-for-future-implementation). Use small synthetic fixtures and a controlled transport/clock for failure tests. This architecture plan does not authorize scaffolding, package installation, global configuration changes, or application implementation on its own.
+The detailed behavior checks remain in [validation sections 9.1–9.5](05-validation-and-open-questions.md#9-regression-checks-for-future-implementation). The implemented synthetic suite covers history, directory, request policy, dates, credentials, and output publication; media checks remain future work. This plan does not by itself authorize unrelated scope or global configuration changes.

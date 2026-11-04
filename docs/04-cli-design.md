@@ -1,6 +1,6 @@
 # Proposed CLI design
 
-This document translates the research into an implementation proposal. **There is no application code yet.** Examples, module boundaries, defaults, and file layouts are recommendations unless explicitly identified as user requirements or verified protocol facts.
+This document translates the research into the broader CLI design. **The first implementation now supports supplied-credential chat listing and bounded JSON history export.** See the [project README](../README.md) for actual usage. Remaining examples, defaults, and layouts are recommendations unless identified as implemented, user requirements, or verified protocol facts.
 
 The [HTTP reference](02-http-protocol.md) defines observed request behavior. The [validation plan](05-validation-and-open-questions.md) defines what still needs proof.
 
@@ -166,7 +166,7 @@ Avoid a text-sync database initially. The user is comfortable re-fetching text f
 
 ### 6.1 Agreed request-saving behavior
 
-The user approved these requirements after the initial research documentation. They describe future CLI behavior, not implemented features or newly verified Teams behavior.
+The user approved these requirements after the initial research documentation. History seeking, page size, direct-ID export, request accounting, and bounded retries are implemented; media-specific behavior remains a requirement for the next stage. These choices are not newly verified Teams quotas or contracts.
 
 - Seek directly to the resolved date window; do not fetch intervening history from the latest message.
 - Use the tested `pageSize=200` for history. This is not a claim that 200 is the service maximum or that every page will contain 200 records.
@@ -307,7 +307,7 @@ Whether an image failure should fail the whole command by default or allow an ex
 
 The raw message layer should preserve useful source fields and distinguish them from derived display values. A readable output can then be regenerated without reinterpreting an already-flattened text-only file.
 
-Potential outputs discussed include JSON, Markdown, HTML, and local searchable records. None is implemented or selected as the final default. A minimal first milestone could be JSON with media files plus a manifest; a readable renderer can follow if required.
+Potential outputs discussed include JSON, Markdown, HTML, and local searchable records. The first implementation writes one JSON document containing messages and a versioned manifest; it records media as not downloaded. Local media files and readable renderers remain later work.
 
 For a browser-readable output, treat message HTML as untrusted input: preserve raw source separately and render through a deliberate sanitization policy. This is an implementation requirement of rendering remote HTML, not evidence of a malicious message in the sample.
 

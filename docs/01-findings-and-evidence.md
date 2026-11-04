@@ -253,6 +253,19 @@ A known G1 message at timestamp `t` was used for two single-millisecond windows:
 
 **Conclusion:** both boundaries tested as inclusive for this sample. A CLI using half-open windows must explicitly adapt the request and locally enforce its chosen semantics.
 
+### E17 — First Bun CLI live check
+
+On **2026-11-04**, the implemented CLI ran as separate Bun **1.3.14** processes using Ky **2.2.0** and an explicitly supplied private credential JSON file. Browser request observation supplied credentials; the CLI itself used ordinary HTTP, without Playwright calls or a browser connection.
+
+| Operation | Outcome | CLI HTTP attempts | Retries |
+| --- | --- | ---: | ---: |
+| `chats` with the recorded directory query | Exit `0`, 15 chat records | 1 directory | 0 |
+| `export` for the active selected chat and `--last 7d` | Exit `0`, 5 messages, 1 exhausted history page, JSON written | 1 history, 0 directory | 0 |
+
+The export used a fixed half-open window, source-field-preserving validation, and local credential loading. Private credential state and the resulting message file were kept under ignored `.private/`; no raw identifiers, token values, or message bodies are included here. Temporary browser capture state was removed afterward.
+
+**Limits:** the browser remained open, so this is not a browser-closed acceptance test. The live CLI export needed only one page; bounded multi-page traversal in the implementation is covered by synthetic tests, while E14 remains the earlier separate live protocol experiment. This check did not exercise media, renewal, throttling, or another account. It generated only ordinary listing/export traffic, not rate-limit probes.
+
 ## 3. Corrections that must survive into implementation
 
 | Earlier assumption or suggestion | Current conclusion |

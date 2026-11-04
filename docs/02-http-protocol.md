@@ -445,7 +445,7 @@ Using `ETag`/`If-None-Match` would be standard HTTP behavior if a different reso
 | Valid empty date window | Observed `200`, empty messages, and no backward link in the future-start control |
 | Missing/expired credential during traversal | Expiry not tested; do not report an empty or complete export |
 | Malformed/non-JSON response | Not tested; fail with useful context rather than treating it as no data |
-| HTTP `429` or transient server failure | Not triggered; bounded retry/backoff policy still to be implemented |
+| HTTP `429` or transient server failure | Not triggered live; the CLI now implements bounded Ky retries, deadlines, and accounting, checked with synthetic failures |
 | Repeated cursor or wrong chat/host | Not triggered by valid corrected traversal; detect explicitly before claiming progress |
 | Deleted, expired, inaccessible, or retention-limited history | Coverage not established; an exhausted API response is not proof of recovery of unavailable data |
 

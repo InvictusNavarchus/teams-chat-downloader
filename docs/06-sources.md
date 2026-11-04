@@ -172,7 +172,7 @@ No source link is permission to copy live credentials, private messages, or raw 
 
 ## 9. Application stack
 
-These references support library behavior used in the architecture plan. They do not add live Teams evidence or establish compatibility of an application that has not been built.
+These references support library behavior used in the architecture plan. They do not by themselves add live Teams evidence; the actual CLI compatibility check is recorded separately as E17.
 
 ### S19 — Bun TypeScript and testing
 
@@ -204,4 +204,4 @@ Documents runtime parsing, `z.infer`, default removal of unrecognized object key
 
 [Ky v2.2.0 implementation](https://github.com/sindresorhus/ky/blob/v2.2.0/source/core/Ky.ts)
 
-The reviewed release documents Bun support, configurable retries/timeouts, custom Fetch instrumentation, Standard Schema response validation, and HTTP error handling. Its `beforeRequest` hook runs once before retry handling, and `maxRetryAfter` can clamp a server-indicated delay. These details motivate explicit request accounting and retry policy. An ordinary Bun/Teams compatibility check remains future implementation work; no dependency was installed or pinned by this documentation task.
+The reviewed release documents Bun support, configurable retries/timeouts, custom Fetch instrumentation, Standard Schema response validation, and HTTP error handling. Its `beforeRequest` hook runs once before retry handling, and `maxRetryAfter` can clamp a server-indicated delay. These details motivate explicit request accounting and retry policy. Ky 2.2.0 is now pinned in the implementation; E17 records its first ordinary Bun/Teams compatibility check.
