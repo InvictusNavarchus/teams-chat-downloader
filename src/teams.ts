@@ -143,7 +143,7 @@ export async function readHistory(
 export async function listChats(
   http: Http,
   credentials: Credentials,
-  options: ProfileOptions = {},
+  options: ProfileOptions & { chatId?: string } = {},
 ) {
   if (!credentials.directoryToken)
     throw new AppError("Credential file lacks directoryToken.");
@@ -181,15 +181,19 @@ export async function listChats(
   return resolveChatNames(
     http,
     credentials,
-    result.data.chats.map((chat) => ({
-      id: chat.id,
-      title: chat.title || null,
-      label:
-        chat.title ||
-        (chat.isOneOnOne ? "Unresolved one-to-one chat" : "Untitled chat"),
-      isOneOnOne: chat.isOneOnOne ?? null,
-      members: chat.members?.map((member) => member.mri) ?? [],
-    })),
+    result.data.chats
+      .filter(
+        (chat) => options.chatId === undefined || chat.id === options.chatId,
+      )
+      .map((chat) => ({
+        id: chat.id,
+        title: chat.title || null,
+        label:
+          chat.title ||
+          (chat.isOneOnOne ? "Unresolved one-to-one chat" : "Untitled chat"),
+        isOneOnOne: chat.isOneOnOne ?? null,
+        members: chat.members?.map((member) => member.mri) ?? [],
+      })),
     options,
   );
 }

@@ -76,18 +76,29 @@ Names and self identity are cached for 24 hours in `$XDG_CACHE_HOME/teams-chat-d
 bun run teams chats --refresh-names
 ```
 
-The [participant profile reference](docs/08-participant-profiles.md) records the observed requests, cache policy, and remaining limits. Name caching is separate from the future image cache. Exports by chat ID do not request profiles.
+The [participant profile reference](docs/08-participant-profiles.md) records the observed requests, cache policy, and remaining limits. Name caching is separate from the future image cache. Automatic export filenames resolve the selected chat's label through the same directory and name cache. Exports with an explicit `--out` do not request the directory or profiles.
 
 Export a rolling seven-day window, or select an older period directly:
 
 ```sh
+bun run teams export --chat '<raw-chat-id>' --last 7d
+bun run teams export --chat '<raw-chat-id>' --from '2026-08-01T00:00:00Z' --to '2026-08-08T00:00:00Z'
 bun run teams export --chat '<raw-chat-id>' --last 7d --out exports/last-week.json
-bun run teams export --chat '<raw-chat-id>' --from '2026-08-01T00:00:00Z' --to '2026-08-08T00:00:00Z' --out exports/august.json
 ```
 
 Choose exactly one of `--last Nd`, `--since <timestamp>`, or `--from <timestamp> --to <timestamp>`. Full timestamps must include `Z` or an offset and use at most millisecond precision; date-only values are rejected. The start is inclusive and the end exclusive. `--last 7d` means 168 hours ending at one captured invocation time. Filtering and sorting use `originalarrivaltime`.
 
-`--chat` accepts the raw ID printed by `chats`. An export with an explicit ID makes no directory request. History pages use the tested size of 200 and preserve the original bounds on continuation. Identical duplicates are removed; conflicting records for one ID, invalid payloads, unexpected destinations, non-progress, and out-of-window messages fail explicitly.
+`--out` is optional. By default, files go into `exports/` under the current working directory. The chat label becomes normalized lowercase kebab-case: accents are removed, other Unicode letters and numbers are retained, separators become hyphens, and labels are capped at 40 characters to keep filenames within filesystem limits. For a label of "Project Alpha":
+
+| Selection | Example filename |
+| --- | --- |
+| `--last 1d` | `project-alpha--last-1d--to-2026-11-05T10-30-00-000Z.json` |
+| `--since '2026-11-01T00:00:00Z'` | `project-alpha--since-2026-11-01T00-00-00-000Z--to-2026-11-05T10-30-00-000Z.json` |
+| `--from '2026-11-01T00:00:00Z' --to '2026-11-05T00:00:00Z'` | `project-alpha--from-2026-11-01T00-00-00-000Z--to-2026-11-05T00-00-00-000Z.json` |
+
+Filename timestamps use UTC with milliseconds and filename-safe separators. The `to` timestamp is the exclusive end of the actual export window; including it distinguishes rolling exports run at different times. Successful stdout JSON includes the absolute saved path as `output`. If directory credentials or a matching chat label are unavailable, naming uses a short hash of the chat ID; generic untitled/unresolved labels also include that hash. Directory and profile request failures still fail explicitly. Use `--out <file>` to select any other path and skip label lookup. Existing files are never overwritten, including a repeated export of the same explicit range; choose another `--out` path if needed.
+
+`--chat` accepts the raw ID printed by `chats`. History pages use the tested size of 200 and preserve the original bounds on continuation. Identical duplicates are removed; conflicting records for one ID, invalid payloads, unexpected destinations, non-progress, and out-of-window messages fail explicitly.
 
 The output is one JSON file containing source messages and a versioned manifest with window, completion, pagination, and request counts. Existing files are never overwritten. The file is published only after retrieval and writing finish; a failed run leaves no new complete-looking export. Retrieval currently holds the chosen window in memory and has no durable resume checkpoint.
 

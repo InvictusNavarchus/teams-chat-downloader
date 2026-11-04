@@ -1,0 +1,36 @@
+import { createHash } from "node:crypto";
+import { join } from "node:path";
+import type { ExportOptions } from "./options.ts";
+
+export function defaultExportPath(
+  options: ExportOptions,
+  label?: string,
+): string {
+  const normalized = (label ?? "")
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/\p{M}+/gu, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "-");
+  // Bound even multibyte labels so the full filename fits a filesystem component.
+  const slug = Array.from(normalized)
+    .slice(0, 40)
+    .join("")
+    .replace(/^-+|-+$/g, "");
+  const unresolved =
+    !slug ||
+    label === "Untitled chat" ||
+    label === "Unresolved one-to-one chat";
+  const name = unresolved
+    ? `${slug || "chat"}-${createHash("sha256").update(options.chat).digest("hex").slice(0, 10)}`
+    : slug;
+  const from = filenameTimestamp(options.window.from);
+  const to = filenameTimestamp(options.window.to);
+  const period = options.last
+    ? `last-${options.last}--to-${to}`
+    : `${options.since ? "since" : "from"}-${from}--to-${to}`;
+  return join("exports", `${name}--${period}.json`);
+}
+
+function filenameTimestamp(value: number): string {
+  return new Date(value).toISOString().replace(/[:.]/g, "-");
+}

@@ -1,8 +1,9 @@
 import type { Credentials } from "./credentials.ts";
+import { defaultExportPath } from "./export-path.ts";
 import type { Http, RequestStats } from "./http.ts";
 import type { ExportOptions } from "./options.ts";
 import { checkOutput, writeExport } from "./output.ts";
-import { type HistoryProgress, readHistory } from "./teams.ts";
+import { type HistoryProgress, listChats, readHistory } from "./teams.ts";
 
 export async function exportChat(
   options: ExportOptions,
@@ -12,7 +13,24 @@ export async function exportChat(
   progress: HistoryProgress,
   signal?: AbortSignal,
 ) {
-  await checkOutput(options.out);
+  let out = options.out;
+  if (out === undefined) {
+    let label: string | undefined;
+    if (credentials.directoryToken) {
+      const chats = await listChats(http, credentials, {
+        chatId: options.chat,
+        warn: (message) => console.error(message),
+        signal,
+      });
+      label = chats[0]?.label;
+    }
+    if (label === undefined)
+      console.error(
+        "Chat label unavailable; using a chat identifier in the filename.",
+      );
+    out = defaultExportPath(options, label);
+  }
+  await checkOutput(out);
   const messages = await readHistory(
     http,
     credentials,
@@ -46,6 +64,6 @@ export async function exportChat(
     media: { status: "not-downloaded" },
     messages,
   };
-  const output = await writeExport(options.out, document, signal);
+  const output = await writeExport(out, document, signal);
   return { output, messages: messages.length };
 }

@@ -49,7 +49,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option("--credentials <file>", "Override automatic credential file lookup")
     .option(
       "--out <file>",
-      "New output JSON file; existing files are never overwritten",
+      "Output JSON file (default: exports/<chat-label>--<period>.json); never overwritten",
     )
     .option("--last <duration>", "Rolling duration, for example 7d")
     .option("--since <timestamp>", "Start timestamp through invocation time")
