@@ -1,9 +1,11 @@
+import { rm } from "node:fs/promises";
 import type { Archive } from "./archive.ts";
 import { convertArchive, markdownPath } from "./convert.ts";
 import type { Credentials } from "./credentials.ts";
 import { AppError } from "./errors.ts";
 import { defaultExportPath } from "./export-path.ts";
 import type { Http, RequestStats } from "./http.ts";
+import { downloadImages, mediaDirectory } from "./media.ts";
 import type { ExportOptions } from "./options.ts";
 import { checkOutput, writeExport } from "./output.ts";
 import { type HistoryProgress, listChats, readHistory } from "./teams.ts";
@@ -34,6 +36,7 @@ export async function exportChat(
     out = defaultExportPath(options, label);
   }
   await checkOutput(out);
+  if (options.media) await checkOutput(mediaDirectory(out));
   if (options.format === "markdown") await checkOutput(markdownPath(out));
   const messages = await readHistory(
     http,
@@ -43,6 +46,12 @@ export async function exportChat(
     progress,
   );
   signal?.throwIfAborted();
+  const media = options.media
+    ? await downloadImages(messages, out, credentials, http, {
+        refresh: options.refreshMedia,
+        signal,
+      })
+    : { status: "not-downloaded" as const };
   const document = {
     version: 1,
     status: "complete",
@@ -65,10 +74,17 @@ export async function exportChat(
       scope:
         "HTTP client attempts; retries included; redirects refused; browser traffic excluded",
     },
-    media: { status: "not-downloaded" },
+    media,
     messages,
   } satisfies Archive;
-  const output = await writeExport(out, document, signal);
+  let output: string;
+  try {
+    output = await writeExport(out, document, signal);
+  } catch (error) {
+    if ("images" in media && media.images.length)
+      await rm(mediaDirectory(out), { recursive: true, force: true });
+    throw error;
+  }
   if (options.format === "markdown") {
     try {
       const converted = await convertArchive(

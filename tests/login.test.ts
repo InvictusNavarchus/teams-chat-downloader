@@ -42,6 +42,11 @@ afterEach(async () => {
 
 class Browser extends EventEmitter {
   closed = false;
+  async cookies(
+    _url: string,
+  ): Promise<Awaited<ReturnType<BrowserContext["cookies"]>>> {
+    return [];
+  }
   navigate: () => Promise<void> = async () => {
     this.capture();
   };
@@ -177,6 +182,7 @@ test("login captures a matching profile pair, verifies all services and atomical
     history: 1,
     directory: 1,
     profiles: 1,
+    media: 0,
     retries: 0,
   });
   expect(f.browser.closed).toBe(true);
@@ -192,6 +198,142 @@ test("login captures a matching profile pair, verifies all services and atomical
     expect((await stat(f.options.credentials)).mode & 0o777).toBe(0o600);
     expect((await stat(f.options.browserProfile)).mode & 0o777).toBe(0o700);
   }
+});
+
+test("login saves only matching unexpired media cookies without exposing them in progress", async () => {
+  const f = await fixture();
+  const requested: string[] = [];
+  f.browser.cookies = async (url) => {
+    requested.push(url);
+    const base = {
+      domain: new URL(url).hostname,
+      path: "/",
+      expires: Date.now() / 1000 + 60,
+      httpOnly: true,
+      secure: true,
+      sameSite: "None" as const,
+    };
+    return [
+      { ...base, name: "unrelated", value: "unrelated-secret" },
+      { ...base, name: "skypetoken_asm", value: "expired-secret", expires: 1 },
+      {
+        ...base,
+        name: "skypetoken_asm",
+        value: url.includes("experimental")
+          ? "experimental-secret"
+          : "us-secret",
+      },
+    ];
+  };
+  await login(f.options, f.dependencies);
+  expect(requested).toEqual([
+    "https://experimental-api.asm.skype.com/v1/",
+    "https://us-api.asm.skype.com/v1/",
+  ]);
+  expect((await loadCredentials(f.options.credentials)).mediaCookies).toEqual({
+    "https://experimental-api.asm.skype.com": "experimental-secret",
+    "https://us-api.asm.skype.com": "us-secret",
+  });
+  const raw = await readFile(f.options.credentials, "utf8");
+  expect(raw).not.toContain("expired-secret");
+  expect(raw).not.toContain("unrelated-secret");
+  expect(f.messages.join(" ")).not.toContain("us-secret");
+  expect(f.messages.join(" ")).not.toContain("experimental-secret");
+  expect(f.stats.media).toBe(0);
+});
+
+test("missing media cookies keep text login usable and explain how to acquire them", async () => {
+  const f = await fixture();
+  await login(f.options, f.dependencies);
+  expect(
+    (await loadCredentials(f.options.credentials)).mediaCookies,
+  ).toBeUndefined();
+  expect(f.messages.join(" ")).toContain("No image cookie available yet");
+});
+
+test("login --media waits for a supported image and captures its applicable cookie", async () => {
+  const f = await fixture();
+  const image = "https://us-api.asm.skype.com/v1/objects/synthetic/views/imgo";
+  f.browser.cookies = async (url) =>
+    url === image
+      ? [
+          {
+            name: "skypetoken_asm",
+            value: "waited-media-secret",
+            domain: "us-api.asm.skype.com",
+            path: "/",
+            expires: -1,
+            httpOnly: true,
+            secure: true,
+            sameSite: "None",
+          },
+        ]
+      : [];
+  await login(
+    { ...f.options, media: true },
+    {
+      ...f.dependencies,
+      progress: (message) => {
+        f.messages.push(message);
+        if (message.startsWith("Waiting for image access"))
+          setTimeout(() => {
+            f.browser.response(
+              "/v1/objects/synthetic/views/imgo",
+              {},
+              200,
+              "GET",
+              "https://attacker.invalid",
+            );
+            f.browser.response(
+              "/v1/objects/synthetic/views/imgo",
+              {},
+              401,
+              "GET",
+              "https://us-api.asm.skype.com",
+            );
+            f.browser.response(
+              "/v1/objects/synthetic/views/imgo",
+              {},
+              200,
+              "GET",
+              "https://us-api.asm.skype.com",
+            );
+          }, 1);
+      },
+    },
+  );
+  expect((await loadCredentials(f.options.credentials)).mediaCookies).toEqual({
+    "https://us-api.asm.skype.com": "waited-media-secret",
+  });
+  expect(f.messages.join(" ")).not.toContain("waited-media-secret");
+  expect(f.browser.listenerCount("response")).toBe(0);
+  expect(f.browser.closed).toBe(true);
+});
+
+test("cancellation while waiting for media keeps previous credentials and removes listeners", async () => {
+  const f = await fixture();
+  const controller = new AbortController();
+  await writeFile(f.options.credentials, "previous-private-file", {
+    mode: 0o600,
+  });
+  await expect(
+    login(
+      { ...f.options, media: true },
+      {
+        ...f.dependencies,
+        signal: controller.signal,
+        progress: (message) => {
+          if (message.startsWith("Waiting for image access"))
+            setTimeout(() => controller.abort(), 1);
+        },
+      },
+    ),
+  ).rejects.toThrow("Login cancelled");
+  expect(await readFile(f.options.credentials, "utf8")).toBe(
+    "previous-private-file",
+  );
+  expect(f.browser.listenerCount("response")).toBe(0);
+  expect(f.browser.closed).toBe(true);
 });
 
 test("capture ignores failed responses, other origins, wrong methods and incomplete profile pairs", async () => {

@@ -22,6 +22,18 @@ const credentialsSchema = z.strictObject({
   historyAuthentication: header.optional(),
   directoryToken: header.optional(),
   profileAuthorization: header.regex(/^Bearer \S+$/i).optional(),
+  mediaCookies: z
+    .partialRecord(
+      z.enum([
+        "https://experimental-api.asm.skype.com",
+        "https://us-api.asm.skype.com",
+      ]),
+      z
+        .string()
+        .min(1)
+        .regex(/^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]+$/),
+    )
+    .optional(),
 });
 
 export type Credentials = z.infer<typeof credentialsSchema>;

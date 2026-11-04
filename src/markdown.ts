@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import TurndownService from "turndown";
-import type { Archive, Message } from "./archive.ts";
+import { isHtmlMessage, type Archive, type Message } from "./archive.ts";
 
 type Turn = {
   day: string;
@@ -13,6 +14,7 @@ type Turn = {
 export function renderMarkdown(
   archive: Archive,
   timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
+  imagePath: (path: string) => string = (path) => path,
 ): string {
   const dateFormat = new Intl.DateTimeFormat("en-GB", {
     timeZone,
@@ -81,11 +83,38 @@ export function renderMarkdown(
     },
   });
   let hasInlineImage = false;
+  let messageId = "";
+  const images = new Map(
+    archive.media.status === "not-downloaded"
+      ? []
+      : archive.media.images.map(
+          (image) => [`${image.messageId}\0${image.key}`, image] as const,
+        ),
+  );
   converter.addRule("unavailable-image", {
     filter: "img",
     replacement: (_content, node) => {
       hasInlineImage = true;
       const alt = node.getAttribute("alt");
+      let key = "";
+      try {
+        key = createHash("sha256")
+          .update(new URL(node.getAttribute("src") ?? "").href)
+          .digest("hex");
+      } catch {}
+      const image = images.get(`${messageId}\0${key}`);
+      if (image) {
+        const destination = imagePath(image.path)
+          .split("/")
+          .map((part) =>
+            encodeURIComponent(part).replace(
+              /[!'()*]/g,
+              (character) => `%${character.charCodeAt(0).toString(16)}`,
+            ),
+          )
+          .join("/");
+        return `![${alt ? inline(alt) : "Image"}](${destination})`;
+      }
       return `\\[Image not downloaded${alt ? `: ${inline(alt)}` : ""}\\]`;
     },
   });
@@ -131,12 +160,10 @@ export function renderMarkdown(
       from ||
       "Unknown sender";
     const type = field(message, "messagetype");
-    const contentType = field(message, "contenttype").toLowerCase();
     const source = field(message, "content");
-    const html =
-      type.toLowerCase() === "richtext/html" ||
-      (!type && ["html", "text/html"].includes(contentType));
+    const html = isHtmlMessage(message);
     hasInlineImage = false;
+    messageId = message.id;
     let content = (
       html ? converter.turndown(source) : escape(source).replace(/\n/g, "  \n")
     ).trim();

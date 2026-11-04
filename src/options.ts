@@ -11,6 +11,8 @@ const exportOptions = z.strictObject({
   credentials: z.string().min(1).optional(),
   out: z.string().min(1).optional(),
   format: z.enum(["json", "markdown"]).default("json"),
+  media: z.boolean().default(true),
+  refreshMedia: z.boolean().default(false),
   from: timestamp.optional(),
   to: timestamp.optional(),
   since: timestamp.optional(),
@@ -61,6 +63,8 @@ export function resolveExportOptions(
   const result = exportOptions.safeParse(input);
   if (!result.success) throw validationError("Export options", result.error);
   const options = result.data;
+  if (!options.media && options.refreshMedia)
+    throw new AppError("--refresh-media cannot be combined with --no-media.");
   const modes =
     Number(options.last !== undefined) +
     Number(options.since !== undefined) +

@@ -1,6 +1,6 @@
 # CLI architecture plan
 
-Plan date: **2026-11-04**. Status: **first HTTP CLI implemented**. The [project README](../README.md) documents actual commands and current limitations.
+Plan date: **2026-11-04**. Status: **HTTP CLI and supported image exports implemented**. The [project README](../README.md) documents actual commands and current limitations. The [image reference](10-image-export.md) supersedes the media proposals below where implementation choices are now recorded: per-key cache metadata, sequential downloads, explicit refresh, portable local copies, partial status for unsupported references, and failure before JSON publication for actual download errors.
 
 This document records the stack agreed during architecture discussion and the recommended implementation structure. The [HTTP protocol reference](02-http-protocol.md) remains authoritative for observed Teams behavior. The [CLI design](04-cli-design.md) contains the user requirements and product proposals; the [validation plan](05-validation-and-open-questions.md) contains the detailed regression checks.
 

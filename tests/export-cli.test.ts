@@ -187,7 +187,7 @@ test("Markdown export saves both formats and reports both paths", async () => {
   expect(summary.output).toEndWith(".json");
   expect(summary.markdown).toBe(summary.output.replace(/\.json$/, ".md"));
   expect(JSON.parse(await readFile(summary.output, "utf8")).media.status).toBe(
-    "not-downloaded",
+    "complete",
   );
   expect(await readFile(summary.markdown, "utf8")).toContain(
     "_No messages in this period._",
@@ -207,6 +207,30 @@ test("Markdown --out remains the JSON destination and skips label lookups", asyn
   expect(
     JSON.parse(await readFile(summary.output, "utf8")).requests,
   ).toMatchObject({ total: 1, directory: 0 });
+});
+
+test("--no-media retains the text-only manifest and incompatible refresh flags fail early", async () => {
+  const f = await fixture();
+  const skipped = await f.run([
+    "--last",
+    "1d",
+    "--out",
+    "text.json",
+    "--no-media",
+  ]);
+  expect(skipped.code).toBe(0);
+  const archive = JSON.parse(await readFile(join(f.dir, "text.json"), "utf8"));
+  expect(archive.media).toEqual({ status: "not-downloaded" });
+  expect(archive.requests.media).toBe(0);
+  const conflict = await f.run([
+    "--last",
+    "1d",
+    "--no-media",
+    "--refresh-media",
+  ]);
+  expect(conflict.code).toBe(1);
+  expect(conflict.stderr).toContain("cannot be combined");
+  expect(conflict.stderr).not.toContain("HTTP attempts");
 });
 
 test("an existing Markdown destination stops export before history retrieval", async () => {

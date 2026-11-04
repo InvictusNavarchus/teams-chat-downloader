@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import { readArchive } from "./archive.ts";
 import { AppError } from "./errors.ts";
 import { renderMarkdown } from "./markdown.ts";
@@ -19,7 +19,14 @@ export async function convertArchive(
   signal?.throwIfAborted();
   let markdown: string;
   try {
-    markdown = renderMarkdown(archive);
+    markdown = renderMarkdown(archive, undefined, (path) =>
+      relative(
+        dirname(resolve(out)),
+        resolve(dirname(resolve(options.input)), path),
+      )
+        .split(sep)
+        .join("/"),
+    );
   } catch {
     throw new AppError("Could not render the JSON export as Markdown.");
   }

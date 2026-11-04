@@ -23,6 +23,7 @@ export async function runCli(argv = process.argv): Promise<number> {
   const http = createHttp({ stats, signal: controller.signal });
   cli
     .command("login", "Sign in in a visible browser and save fresh credentials")
+    .option("--media", "Wait for an image cookie before saving credentials")
     .option(
       "--credentials <file>",
       "Credential destination (default: per-user state file)",
@@ -55,6 +56,8 @@ export async function runCli(argv = process.argv): Promise<number> {
       "Save chat history as JSON and optionally render Markdown",
     )
     .option("--chat <id>", "Raw chat ID")
+    .option("--no-media", "Skip image downloading and use placeholders")
+    .option("--refresh-media", "Revalidate cached images with Teams")
     .option("--credentials <file>", "Override automatic credential file lookup")
     .option(
       "--out <file>",
@@ -176,7 +179,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     process.off("SIGTERM", cancel);
     if (stats.total > 0)
       console.error(
-        `HTTP attempts: ${stats.total} (history: ${stats.history}, directory: ${stats.directory}, profiles: ${stats.profiles}); retries: ${stats.retries} included. History pages: ${progress.pages}.`,
+        `HTTP attempts: ${stats.total} (history: ${stats.history}, directory: ${stats.directory}, profiles: ${stats.profiles}, media: ${stats.media}); retries: ${stats.retries} included. History pages: ${progress.pages}.`,
       );
   }
 }

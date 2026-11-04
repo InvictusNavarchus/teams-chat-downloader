@@ -121,6 +121,7 @@ test("resolves directory counterparts in two batches, preserves titles, and pers
     total: 4,
     directory: 1,
     profiles: 3,
+    media: 0,
     history: 0,
     retries: 0,
   });

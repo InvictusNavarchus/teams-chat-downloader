@@ -4,7 +4,7 @@
 
 Research date: **2026-11-04**. Target: **Microsoft Teams Free with a personal Microsoft account**, using `teams.live.com`.
 
-This directory contains the research and design reference for the chat export tool. **HTTP export, participant names, and browser login are implemented:** see the [project README](../README.md) for actual commands and limitations. The design examples below include later features and are not all implemented; image caching and unattended renewal remain future work.
+This directory contains the research and design reference for the chat export tool. **HTTP export, participant names, browser login, and supported image caching are implemented:** see the [project README](../README.md) for actual commands and limitations. The design examples below include later features and are not all implemented; unattended renewal and universal media discovery remain future work.
 
 ## Main conclusion
 
@@ -27,6 +27,7 @@ The evidence is from live, read-only HTTP experiments against one signed-in pers
 | [Architecture plan](07-architecture.md) | Agreed stack, module responsibilities, validation, Ky request policy, storage boundaries, and implementation milestones |
 | [Participant profiles](08-participant-profiles.md) | Verified self/participant lookup, profile authentication, name resolution, and cache behavior |
 | [Browser login](09-browser-login.md) | Implemented login/refresh command, profile ownership, capture, verification, persistence, and limits |
+| [Image export](10-image-export.md) | Implemented image adapter, service cookies, persistent cache, refresh, portable files, and offline links |
 
 ## Evidence rules
 

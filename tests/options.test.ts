@@ -8,6 +8,23 @@ const base = {
 };
 const now = Date.parse("2026-11-04T12:00:00Z");
 
+test("images default on, can be skipped, and refresh requires media", () => {
+  expect(resolveExportOptions({ ...base, last: "1d" }, now).media).toBe(true);
+  expect(
+    resolveExportOptions({ ...base, last: "1d", media: false }, now).media,
+  ).toBe(false);
+  expect(
+    resolveExportOptions({ ...base, last: "1d", refreshMedia: true }, now)
+      .refreshMedia,
+  ).toBe(true);
+  expect(() =>
+    resolveExportOptions(
+      { ...base, last: "1d", media: false, refreshMedia: true },
+      now,
+    ),
+  ).toThrow("cannot be combined");
+});
+
 describe("date options", () => {
   test("last 7d is one fixed 168-hour window", () => {
     expect(resolveExportOptions({ ...base, last: "7d" }, now).window).toEqual({

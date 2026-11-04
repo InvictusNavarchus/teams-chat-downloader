@@ -392,7 +392,7 @@ Messages exposed `amsreferences` and HTML content, while the browser requested m
 https://experimental-api.asm.skype.com/v1/{namespace}/objects/{object-id}/views/imgo
 ~~~
 
-The corresponding browser-to-HTTP reference mapping has not been fully documented. In particular, the tested sample URL was captured from browser network activity; a complete routine that extracts every downloadable image URL from raw messages has not been implemented or validated.
+The corresponding browser-to-HTTP reference mapping has not been fully documented. In particular, the tested sample URL was captured from browser network activity; a complete routine that extracts every downloadable image URL from raw messages has not been validated. The subsequent [image export implementation](10-image-export.md) handles a limited inline `<img src>` adapter, including `us-api.asm.skype.com` URLs found in saved source exports; universal discovery remains unresolved.
 
 Keep the observed namespace, object ID, and representation. Do not build a downloader that substitutes a guessed host, object namespace, or view.
 

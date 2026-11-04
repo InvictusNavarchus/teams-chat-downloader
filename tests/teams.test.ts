@@ -69,6 +69,7 @@ describe("bounded history", () => {
       history: 2,
       directory: 0,
       profiles: 0,
+      media: 0,
       retries: 0,
     });
     expect(progress).toEqual({ pages: 2, records: 4, duplicates: 1 });
@@ -210,6 +211,7 @@ describe("directory", () => {
       history: 0,
       directory: 1,
       profiles: 0,
+      media: 0,
       retries: 0,
     });
   });

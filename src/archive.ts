@@ -1,10 +1,33 @@
 import { readFile } from "node:fs/promises";
+import { parse, sep } from "node:path";
 import { z } from "zod";
 import { AppError, validationError } from "./errors.ts";
 
 const timestamp = z.iso
   .datetime({ offset: true })
   .refine((value) => Number.isFinite(Date.parse(value)));
+
+const imageSchema = z.looseObject({
+  messageId: z.string().min(1),
+  key: z.string().regex(/^[a-f0-9]{64}$/),
+  path: z
+    .string()
+    .regex(/^[^/\x00]+\.media\/[a-f0-9]{64}\.(jpg|png|gif|webp)$/)
+    .refine((path) => !parse(path).root && !path.split(sep).includes("..")),
+  bytes: z.number().int().positive(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  mediaType: z.enum(["image/jpeg", "image/png", "image/gif", "image/webp"]),
+});
+export type ArchiveImage = z.infer<typeof imageSchema>;
+
+export const downloadedMediaSchema = z.looseObject({
+  status: z.enum(["complete", "partial"]),
+  cacheHits: z.number().int().nonnegative(),
+  downloaded: z.number().int().nonnegative(),
+  unsupported: z.number().int().nonnegative(),
+  images: z.array(imageSchema),
+});
+export type DownloadedMedia = z.infer<typeof downloadedMediaSchema>;
 
 export const messageSchema = z.looseObject({
   id: z.string().min(1),
@@ -21,12 +44,30 @@ const archiveSchema = z.looseObject({
     toExclusive: timestamp,
     timestampField: z.literal("originalarrivaltime"),
   }),
-  media: z.looseObject({ status: z.literal("not-downloaded") }),
+  media: z.union([
+    z.looseObject({ status: z.literal("not-downloaded") }),
+    downloadedMediaSchema,
+  ]),
   messages: z.array(messageSchema),
 });
 
 export type Archive = z.infer<typeof archiveSchema>;
 export type Message = z.infer<typeof messageSchema>;
+
+export function isHtmlMessage(message: Message): boolean {
+  const type =
+    typeof message.messagetype === "string"
+      ? message.messagetype.toLowerCase()
+      : "";
+  const contentType =
+    typeof message.contenttype === "string"
+      ? message.contenttype.toLowerCase()
+      : "";
+  return (
+    type === "richtext/html" ||
+    (!type && ["html", "text/html"].includes(contentType))
+  );
+}
 
 export async function readArchive(
   path: string,

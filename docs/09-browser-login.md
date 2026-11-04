@@ -1,6 +1,6 @@
 # Browser login and explicit credential refresh
 
-Implemented **2026-11-05**. `bun run teams login` acquires credentials through a visible Chromium browser and saves the existing version-1 credential format. Ordinary `chats` and `export` remain HTTP-only operations; they neither import the login module nor connect to Playwright. Credential renewal without the browser, unattended refresh, logout/revocation, and media-cookie capture are outside this feature.
+Implemented **2026-11-05**. `bun run teams login` acquires credentials through a visible Chromium browser and saves the existing version-1 credential format, including optional service-scoped media cookies when available. Ordinary `chats` and `export` remain HTTP-only operations; they neither import the login module nor connect to Playwright. Credential renewal without the browser, unattended refresh, and logout/revocation remain outside this feature.
 
 ## Browser and profile ownership
 
@@ -16,6 +16,7 @@ This is a tool-specific profile, separate from the existing MCP profile and ever
 
 ~~~sh
 bun run teams login
+bun run teams login --media
 bun run teams login --browser /path/to/chromium --browser-profile /private/teams-browser --credentials /private/credentials.json --timeout 600
 ~~~
 
@@ -42,12 +43,14 @@ After both services have supplied candidates, use ordinary HTTP with redirect re
 
 The nonempty-account normal path therefore uses three counted validation requests. Browser sign-in/application traffic is outside these counters. These checks establish currently accepted service credentials, not token lifetime, future renewal, or message completeness. A partial directory currently fails login verification because directory continuation is not implemented. Do not switch accounts midway through a login attempt; use another completed invocation/profile when changing accounts.
 
+After these checks, the CLI reads cookies applicable to `/v1/` on each supported media origin from its browser jar. Only matching unexpired/session `skypetoken_asm` values are saved in optional `mediaCookies`; unrelated cookies are excluded. Missing media cookies do not fail ordinary login. `login --media` waits when none are available: open an image-containing chat when prompted. A successful GET response for a supported image triggers another cookie lookup for that exact URL; only a cookie scoped to `/`, `/v1`, or `/v1/` can be reused across objects. The same login timeout, cancellation, and previous-file preservation apply while waiting. Standalone HTTP media access is checked during export, without an extra login probe. See the [image reference](10-image-export.md).
+
 Only after all checks succeed does the writer validate the credential schema, create a private temporary file alongside the destination, and atomically rename it into place. Failure, timeout, cancellation, or closing the browser before publication leaves existing credentials intact. In all cases the command removes temporary capture listeners and closes its context; persistent profile data remains for reuse. A refresh changes the profile-cache credential scope, so the next name lookup may be cold.
 
 ## Verification and remaining limits
 
 Synthetic tests cover valid capture, capture filtering, pair integrity, service validation failure, empty-account fallback, timeout, manual close, cancellation, safe errors, private permissions, atomic replacement, launch options, CLI help, and invalid options. Live results belong in E20 of the evidence ledger.
 
-Known limits: one active login per profile; manual sign-in/MFA when Microsoft requires it; no browser-profile import; no logout command; no media cookie acquisition; no silent renewal; no endpoint-stability promise. Session expiry, revoked credentials, and other account/region behavior remain service-specific. On authentication failure, rerun `teams login` and then retry the original command.
+Known limits: one active login per profile; manual sign-in/MFA when Microsoft requires it; no browser-profile import; no logout command; `--media` may require manually opening an image-containing chat; no silent renewal; no endpoint-stability promise. Media cookie capture has synthetic coverage but has not yet been live-validated. Session expiry, revoked credentials, and other account/region behavior remain service-specific. On authentication failure, rerun `teams login` and then retry the original command.
 
 Primary library references: [persistent contexts and launch options](https://playwright.dev/docs/api/class-browsertype#browser-type-launch-persistent-context), [context response events](https://playwright.dev/docs/api/class-browsercontext#browser-context-event-response), and [request headers](https://playwright.dev/docs/api/class-request#request-all-headers). These support library mechanics, not the private Teams authentication contract.

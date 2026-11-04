@@ -73,7 +73,11 @@ test("exports preserved messages and truthful manifest without credentials or cu
   expect(document.messages[0].newProperty).toEqual({ retained: true });
   expect(document.history.serviceReportedExhaustion).toBe(true);
   expect(document.requests.total).toBe(1);
-  expect(document.media.status).toBe("not-downloaded");
+  expect(document.media).toMatchObject({
+    status: "complete",
+    images: [],
+    downloaded: 0,
+  });
   expect(raw).not.toContain("private-header");
   expect(raw).not.toContain("private-cursor");
   expect(await readdir(dir)).toEqual(["export.json"]);

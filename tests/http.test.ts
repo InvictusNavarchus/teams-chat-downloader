@@ -21,6 +21,7 @@ describe("request policy", () => {
       history: 3,
       directory: 0,
       profiles: 0,
+      media: 0,
       retries: 2,
     });
   });

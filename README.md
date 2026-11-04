@@ -6,9 +6,9 @@ The intended workflow is to select a chat, export a chosen date range, and downl
 
 ## Project status
 
-The CLI supports browser login, listing chat IDs, and exporting one chat's message history to JSON with optional Markdown output. It uses strict TypeScript, CAC, Zod, Ky, Playwright for login, and Turndown for HTML-to-Markdown conversion. JSON is the canonical export: source message fields, rich text, and unknown fields remain preserved. Markdown is generated from the saved JSON and can be regenerated offline.
+The CLI supports browser login, listing chat IDs, and exporting one chat's message history and supported inline images to JSON with optional Markdown output. It uses strict TypeScript, CAC, Zod, Ky, Playwright for login, and Turndown for HTML-to-Markdown conversion. JSON is the canonical export: source message fields, rich text, and unknown fields remain preserved. Markdown is generated from the saved JSON and can be regenerated offline.
 
-One-to-one labels resolve through participant profiles and a persistent name cache. Image downloading/caching and unattended credential renewal are still to come. Exported JSON explicitly records that media was not downloaded. Ordinary listing/export does not launch or connect to a browser.
+One-to-one labels resolve through participant profiles and a persistent name cache. Images use an account-scoped persistent cache and are copied beside each export for offline use. Unattended credential renewal remains future work. Ordinary listing/export does not launch or connect to a browser.
 
 ## Setup
 
@@ -41,6 +41,8 @@ bun run teams login --browser /path/to/chromium --browser-profile /private/teams
 The login timeout defaults to 600 seconds. Browser profiles must be private (Unix mode 700) and cannot be used by two browser processes concurrently. Closing the window, timeout, cancellation, capture failure, or failed validation leaves previous credentials intact. See the [login reference](docs/09-browser-login.md) for the exact lifecycle and limits.
 
 Manual file input remains supported using [the credential template](examples/credentials.example.json). `historyAuthentication` is the **complete captured `Authentication` header value**; `directoryToken` is the captured `x-skypetoken` value. For names, `profileAuthorization` is the complete `Authorization` value including `Bearer`, paired with `directoryToken` from the same profile request. Each command only requires its own service credentials. For manually supplied credentials, `accountId` is a local account label. Login derives a stable SHA-256 account label from the verified self-profile MRI; it is not a token.
+
+For uncached images, `mediaCookies` optionally maps each supported media origin to its matching `skypetoken_asm` cookie value. `login` captures available, unexpired cookies from the browser jar after service verification. Existing credential files remain valid. If an export reports missing image credentials, run `bun run teams login --media` and open an image-containing chat when prompted; this waits for a supported image request if no cookie is available yet. Cookie capture does not itself verify standalone HTTP image access; that is checked when downloading. Cookies are sent only to their matching media origin.
 
 `chats` and `export` find credentials automatically, in this order:
 
@@ -76,7 +78,7 @@ Names and self identity are cached for 24 hours in `$XDG_CACHE_HOME/teams-chat-d
 bun run teams chats --refresh-names
 ```
 
-The [participant profile reference](docs/08-participant-profiles.md) records the observed requests, cache policy, and remaining limits. Name caching is separate from the future image cache. Automatic export filenames resolve the selected chat's label through the same directory and name cache. Exports with an explicit `--out` do not request the directory or profiles.
+The [participant profile reference](docs/08-participant-profiles.md) records the observed requests, cache policy, and remaining limits. Name caching is separate from the image cache. Automatic export filenames resolve the selected chat's label through the same directory and name cache. Exports with an explicit `--out` do not request the directory or profiles.
 
 Export a rolling seven-day window, or select an older period directly:
 
@@ -101,6 +103,22 @@ Filename timestamps use UTC with milliseconds and filename-safe separators. The 
 `--chat` accepts the raw ID printed by `chats`. History pages use the tested size of 200 and preserve the original bounds on continuation. Identical duplicates are removed; conflicting records for one ID, invalid payloads, unexpected destinations, non-progress, and out-of-window messages fail explicitly.
 
 Every history export saves one JSON file containing source messages and a versioned manifest with window, completion, pagination, and request counts. Existing files are never overwritten. The JSON file is published only after history retrieval and writing finish; failed history retrieval leaves no new complete-looking export. Retrieval currently holds the chosen window in memory and has no durable resume checkpoint.
+
+### Images
+
+Exports download supported inline chat images by default. An export to `exports/last-week.json` stores images in `exports/last-week.json.media/`. Keep this directory beside the JSON and Markdown when copying an export. The manifest maps source messages to relative image paths, byte lengths, media types, and SHA-256 hashes; source messages remain unchanged. No image directory is created when there are no supported images.
+
+```sh
+bun run teams export --chat '<raw-chat-id>' --last 7d --format markdown
+bun run teams export --chat '<raw-chat-id>' --last 7d --refresh-media
+bun run teams export --chat '<raw-chat-id>' --last 7d --no-media
+```
+
+Complete images are reused from `$XDG_CACHE_HOME/teams-chat-download/media/` (default `~/.cache/teams-chat-download/media/`; relative XDG values are ignored). Cache entries are isolated by account and keyed by media origin, object path, and representation. Repeated references download once per export. Default reuse makes **zero media requests**, even without media credentials. `--refresh-media` explicitly revalidates cached images using ETag or Last-Modified when available; a `304` reuses the checked local bytes. Missing or corrupt entries are downloaded unconditionally. `--no-media` skips downloading and preserves the earlier not-downloaded manifest and placeholders; it cannot be combined with `--refresh-media`.
+
+The supported adapter handles absolute HTTPS `imgo` URLs in HTML `<img src>` on `us-api.asm.skype.com` and `experimental-api.asm.skype.com`, with an optional namespace. Responses must be HTTP 200 JPEG, PNG, GIF, or WebP, with matching file signatures and container endings; each response is limited to 50 MiB. Downloads run sequentially. External URLs, signed/query-bearing URLs, other views, and opaque-only `amsreferences` are not resolved. They are counted as unsupported, rendered as placeholders, and mark `media.status` as `partial`; history completion remains separate. Otherwise media is `complete`, including exports with no images.
+
+Authentication, HTTP, invalid-image, and write failures stop the command before JSON publication. Completed cache entries survive for a retry, and this attempt's image directory is removed. Existing output/image directories are never overwritten. Stderr reports reused, downloaded, unfinished, and unsupported counts; media HTTP attempts and retries are included in request accounting. See the [image export reference](docs/10-image-export.md) for storage, refresh, and validation limits.
 
 ### Markdown and offline conversion
 
@@ -140,9 +158,9 @@ Dates and 24-hour times use the machine's local timezone, labeled once at the to
 
 Rich HTML supports paragraphs, emphasis, lists, blockquotes, code, and ordinary HTTP(S)/email links. Explicit `Text` messages remain literal text. Unsupported message types retain available content as literal text; missing/non-string content gets an explicit placeholder. Tables, cards, Teams-specific replies, reactions, and other complex structures are not fully reconstructed; JSON retains the source data.
 
-Images become **not-downloaded placeholders**. Messages with `amsreferences` but no inline images get a media placeholder without copying media URLs or technical reference details. Conversion performs no downloads and does not provide an offline image archive. Executable HTML elements and unsafe link destinations are omitted, and source text is escaped rather than retained as raw HTML. HTML, PDF, and other output formats remain future work.
+Downloaded images become local Markdown image links; conversion to another directory rebases those links relative to the new Markdown path. Conversion performs no downloads and does not copy image files, so keep the original image directory available. Older exports, `--no-media`, and unsupported images retain **not-downloaded placeholders**. Messages with `amsreferences` but no inline images get a media placeholder without copying media URLs or technical reference details. Executable HTML elements and unsafe link destinations are omitted, and source text is escaped rather than retained as raw HTML. HTML, PDF, and other output formats remain future work.
 
-Successful commands write JSON to stdout. Request summaries, warnings, and errors go to stderr. Summaries count directory, profile, and history attempts separately, including retries. Each HTTP operation, including the two read-only profile POST routes, allows two retries for eligible read failures, has a 15-second attempt timeout and a 60-second total deadline, and honors applicable server wait guidance without shortening it. Redirects are refused. These are client settings, not known Teams quotas. SIGINT/SIGTERM cancels further requests.
+Successful commands write JSON to stdout. Request summaries, warnings, and errors go to stderr. Summaries count directory, profile, history, and media attempts separately, including retries. Each HTTP operation, including the two read-only profile POST routes, allows two retries for eligible read failures, has a 15-second attempt timeout and a 60-second total deadline, and honors applicable server wait guidance without shortening it. Redirects are refused. These are client settings, not known Teams quotas. SIGINT/SIGTERM cancels further requests.
 
 ## Development and verification
 
