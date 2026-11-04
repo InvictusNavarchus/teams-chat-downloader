@@ -17,7 +17,7 @@ const optionsSchema = z.strictObject({
   credentials: z.string().min(1).optional(),
   browser: z.string().min(1).optional(),
   browserProfile: z.string().min(1).optional(),
-  media: z.boolean().default(false),
+  waitForMedia: z.boolean().default(false),
   timeout: z
     .union([z.number(), z.string().regex(/^\d+$/).transform(Number)])
     .pipe(z.number().int().min(1).max(3600))
@@ -28,7 +28,7 @@ export type LoginOptions = {
   browser?: string;
   browserProfile: string;
   timeout: number;
-  media?: boolean;
+  waitForMedia?: boolean;
 };
 type LaunchOptions = Parameters<BrowserType["launchPersistentContext"]>[1];
 type Launch = (
@@ -58,7 +58,7 @@ export function resolveLoginOptions(input: unknown): LoginOptions {
         join(dirname(defaultCredentialsPath()), "browser"),
     ),
     timeout: options.timeout,
-    media: options.media,
+    waitForMedia: options.waitForMedia,
   };
 }
 
@@ -344,7 +344,7 @@ export async function login(
       );
       if (cookie) mediaCookies[origin] = cookie.value;
     }
-    if (options.media && !Object.keys(mediaCookies).length) {
+    if (options.waitForMedia && !Object.keys(mediaCookies).length) {
       progress(
         "Waiting for image access. Open an image-containing chat in the login browser.",
       );
@@ -357,7 +357,7 @@ export async function login(
       );
     } else {
       progress(
-        "No image cookie available yet. Run teams login --media to wait for image access, or export with --no-media.",
+        "No image cookie available yet. Run teams login --wait-for-media to wait for image access, or export with --no-media.",
       );
     }
     signal.throwIfAborted();

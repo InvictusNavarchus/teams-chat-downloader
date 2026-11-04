@@ -23,7 +23,10 @@ export async function runCli(argv = process.argv): Promise<number> {
   const http = createHttp({ stats, signal: controller.signal });
   cli
     .command("login", "Sign in in a visible browser and save fresh credentials")
-    .option("--media", "Wait for an image cookie before saving credentials")
+    .option(
+      "--wait-for-media",
+      "Wait for an image cookie before saving credentials",
+    )
     .option(
       "--credentials <file>",
       "Credential destination (default: per-user state file)",

@@ -152,6 +152,8 @@ test("login defaults are per-user, visible and sandboxed, with Wayland selected 
     join(dirname(defaultCredentialsPath()), "browser"),
   );
   expect(options.timeout).toBe(600);
+  expect(options.waitForMedia).toBe(false);
+  expect(resolveLoginOptions({ waitForMedia: true }).waitForMedia).toBe(true);
   const launched = loginLaunchOptions(options, {
     WAYLAND_DISPLAY: "wayland-1",
   });
@@ -251,7 +253,7 @@ test("missing media cookies keep text login usable and explain how to acquire th
   expect(f.messages.join(" ")).toContain("No image cookie available yet");
 });
 
-test("login --media waits for a supported image and captures its applicable cookie", async () => {
+test("login --wait-for-media waits for a supported image and captures its applicable cookie", async () => {
   const f = await fixture();
   const image = "https://us-api.asm.skype.com/v1/objects/synthetic/views/imgo";
   f.browser.cookies = async (url) =>
@@ -270,7 +272,7 @@ test("login --media waits for a supported image and captures its applicable cook
         ]
       : [];
   await login(
-    { ...f.options, media: true },
+    { ...f.options, waitForMedia: true },
     {
       ...f.dependencies,
       progress: (message) => {
@@ -318,7 +320,7 @@ test("cancellation while waiting for media keeps previous credentials and remove
   });
   await expect(
     login(
-      { ...f.options, media: true },
+      { ...f.options, waitForMedia: true },
       {
         ...f.dependencies,
         signal: controller.signal,
@@ -528,7 +530,7 @@ test("unsafe browser profile permissions are rejected before launch", async () =
 });
 
 test("login help and invalid timeouts exit before starting a browser", async () => {
-  for (const args of [["--help"], ["--timeout", "0"]]) {
+  for (const args of [["--help"], ["--wait-for-media", "--timeout", "0"]]) {
     const child = Bun.spawn(
       [process.execPath, "src/cli.ts", "login", ...args],
       { stdout: "pipe", stderr: "pipe" },
@@ -541,7 +543,7 @@ test("login help and invalid timeouts exit before starting a browser", async () 
     expect(code).toBe(args[0] === "--help" ? 0 : 1);
     expect(stdout + stderr).not.toContain("Opening the Teams login browser");
     expect(stdout + stderr).toContain(
-      args[0] === "--help" ? "--browser-profile" : "Login options",
+      args[0] === "--help" ? "--wait-for-media" : "Login options",
     );
   }
 });

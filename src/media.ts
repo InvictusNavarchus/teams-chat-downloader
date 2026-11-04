@@ -225,7 +225,7 @@ export async function downloadImages(
           ];
         if (!cookie)
           throw new AppError(
-            "Image credentials are missing. Run teams login --media and open an image-containing chat, or use --no-media.",
+            "Image credentials are missing. Run teams login --wait-for-media and open an image-containing chat, or use --no-media.",
           );
         const headers: Record<string, string> = {
           Cookie: `skypetoken_asm=${cookie}`,
