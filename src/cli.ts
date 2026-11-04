@@ -5,6 +5,7 @@ import { AppError, errorMessage, validationError } from "./errors.ts";
 import { exportChat } from "./export.ts";
 import { createHttp, requestStats } from "./http.ts";
 import { resolveExportOptions } from "./options.ts";
+import { writeChatList } from "./output.ts";
 import { historyProgress, listChats } from "./teams.ts";
 
 export async function runCli(argv = process.argv): Promise<number> {
@@ -74,25 +75,32 @@ export async function runCli(argv = process.argv): Promise<number> {
   cli
     .command("chats", "List chat IDs and available titles as JSON")
     .option("--credentials <file>", "Override automatic credential file lookup")
+    .option("--out <file>", "Save or refresh the chat list as JSON")
     .option(
       "--refresh-names",
       "Refresh participant names instead of using cached profiles",
     )
     .action(async (raw: Record<string, unknown>) => {
-      const result = z.string().min(1).optional().safeParse(raw.credentials);
-      if (!result.success) throw validationError("--credentials", result.error);
-      const credentials = await loadCredentials(result.data);
-      console.log(
-        JSON.stringify(
-          await listChats(http, credentials, {
-            refresh: raw.refreshNames === true,
-            warn: (message) => console.error(message),
-            signal: controller.signal,
-          }),
-          null,
-          2,
-        ),
-      );
+      const result = z
+        .object({
+          credentials: z.string().min(1).optional(),
+          out: z.string().min(1).optional(),
+          refreshNames: z.boolean().optional(),
+        })
+        .safeParse(raw);
+      if (!result.success) throw validationError("Chat options", result.error);
+      const options = result.data;
+      const credentials = await loadCredentials(options.credentials);
+      const chats = await listChats(http, credentials, {
+        refresh: options.refreshNames === true,
+        warn: (message) => console.error(message),
+        signal: controller.signal,
+      });
+      if (options.out !== undefined) {
+        const path = await writeChatList(options.out, chats, controller.signal);
+        console.error(`Saved chat list to ${path}.`);
+      }
+      console.log(JSON.stringify(chats, null, 2));
     });
   cli.help();
   cli.version("0.1.0");

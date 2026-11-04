@@ -60,6 +60,14 @@ List chat IDs and available group titles as JSON:
 bun run teams chats
 ```
 
+Save a local reference for copying chat IDs. Run the same command whenever you want to refresh it:
+
+```sh
+bun run teams chats --out .private/chats.json
+```
+
+The file contains the same JSON array as stdout, including IDs and resolved labels. Every invocation fetches the current directory and reuses the name cache. To refresh names too, add `--refresh-names`. Successful saves atomically replace the previous list; failed retrieval, failed writing, or cancellation leaves the previous file intact. New files use private permissions. The `.private/` example is ignored by Git. This replacement behavior applies to chat lists; history exports still refuse to overwrite existing files.
+
 Named group titles are preserved. Untitled one-to-one chats use the other participant's display name; `title` remains null because it reflects the source title. Unavailable or ambiguous profiles retain an explicit unresolved label. Without `profileAuthorization`, listing still works and warns that names are unresolved. Profile authentication or HTTP failures fail explicitly. If Teams reports a partial directory, the command fails rather than presenting it as a complete listing.
 
 Names and self identity are cached for 24 hours in `$XDG_CACHE_HOME/teams-chat-download/profiles/` (default `~/.cache/teams-chat-download/profiles/`; relative XDG values are ignored). The cache is private, contains no tokens or email fields, and is isolated by account label and credential pair; renewed credentials start a new cache. A warm listing only fetches the directory. Force a profile refresh after a name change with:
