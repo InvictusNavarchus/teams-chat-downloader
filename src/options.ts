@@ -37,6 +37,23 @@ export function resolveConvertOptions(input: unknown): ConvertOptions {
   return result.data;
 }
 
+const batchConvertOptions = z.strictObject({
+  dir: z.string().min(1).default("exports"),
+  recursive: z.boolean().default(false),
+  format: z.literal("markdown").default("markdown"),
+});
+
+export type BatchConvertOptions = z.infer<typeof batchConvertOptions>;
+
+export function resolveBatchConvertOptions(
+  input: unknown,
+): BatchConvertOptions {
+  const result = batchConvertOptions.safeParse(input);
+  if (!result.success)
+    throw validationError("Batch convert options", result.error);
+  return result.data;
+}
+
 export function resolveExportOptions(
   input: unknown,
   now = Date.now(),

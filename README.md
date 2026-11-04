@@ -122,6 +122,18 @@ bun run teams convert --input exports/last-week.json --format markdown --out exp
 
 `convert` defaults to Markdown beside the source JSON. Its stdout reports `input`, `output`, `format`, and `messages`. Both commands refuse to overwrite any existing destination and publish private output files atomically. If Markdown conversion fails after JSON was saved, the command exits unsuccessfully and reports the saved JSON path. Keep that file and retry with `convert --out <new-path>`; history does not need to be downloaded again.
 
+Convert all JSON exports that do not already have a sibling Markdown destination:
+
+```sh
+bun run teams convert-all
+bun run teams convert-all --dir /path/to/exports
+bun run teams convert-all --dir /path/to/exports --recursive
+```
+
+`convert-all` defaults to the `exports/` directory under the current working directory. It scans regular `.json` files (case-insensitive), visiting subdirectories only with `--recursive`; symlink entries are ignored. Conversion is sequential and offline, using the same validation, renderer, and atomic writer as `convert`. An existing sibling `.md` destination is skipped without reading its JSON, so rerunning the command converts only missing outputs. Existing Markdown is not refreshed, and the batch command does not accept a shared `--out` path.
+
+Stdout contains `directory`, `format`, `recursive`, `converted`, `skipped`, `failed`, and per-file `files` results with absolute input/output paths, status, and any conversion error. Invalid JSON, unsupported archives, and per-file write failures are reported while remaining files continue; any failed file makes the command exit with code 1. Empty directories succeed with zero counts. Missing or unreadable directories fail explicitly. Completed files and all source JSON are kept if a later file fails or the run is cancelled. Like `convert`, the only supported format is `markdown`.
+
 Conversion accepts complete version 1 exports, including files from before this feature. A shared reader validates the version, required rendering fields, and date window while retaining unknown fields. Markdown reads as a chronological transcript: one heading per calendar day, then compact speaker turns such as `**Alice · 09:15–09:17**`. Consecutive messages from the same source sender are grouped when the gap from the previous message is at most five minutes, with each message kept as its own paragraphs or rich-text blocks. A sender change, longer pause, new day, or system event starts a new turn. Missing sender identities stay separate; matching display names alone do not establish the same author. Available sender names fall back to the source sender ID or "Unknown sender". Message IDs and technical type labels remain in JSON.
 
 Dates and 24-hour times use the machine's local timezone, labeled once at the top; set `TZ` when converting to use another zone (for example, `TZ=UTC bun run teams convert --input exports/last-week.json --out exports/utc-chat.md`). JSON retains the original timestamps and exact window bounds. Existing exports can be converted again with a new `--out` path to get the transcript layout without fetching history.

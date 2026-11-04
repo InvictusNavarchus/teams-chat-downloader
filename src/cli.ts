@@ -1,11 +1,16 @@
 import { cac } from "cac";
 import { z } from "zod";
+import { convertAllArchives } from "./convert-all.ts";
 import { convertArchive } from "./convert.ts";
 import { loadCredentials } from "./credentials.ts";
 import { AppError, errorMessage, validationError } from "./errors.ts";
 import { exportChat } from "./export.ts";
 import { createHttp, requestStats } from "./http.ts";
-import { resolveConvertOptions, resolveExportOptions } from "./options.ts";
+import {
+  resolveBatchConvertOptions,
+  resolveConvertOptions,
+  resolveExportOptions,
+} from "./options.ts";
 import { writeChatList } from "./output.ts";
 import { historyProgress, listChats } from "./teams.ts";
 
@@ -94,6 +99,26 @@ export async function runCli(argv = process.argv): Promise<number> {
       console.log(
         JSON.stringify(await convertArchive(options, controller.signal)),
       );
+    });
+  cli
+    .command(
+      "convert-all",
+      "Convert JSON exports that have no sibling Markdown destination",
+    )
+    .option("--dir <directory>", "Directory of JSON exports (default: exports)")
+    .option("--recursive", "Include subdirectories")
+    .option("--format <format>", "Output format (default: markdown)")
+    .action(async (raw: Record<string, unknown>) => {
+      const { "--": _trailing, ...input } = raw;
+      const result = await convertAllArchives(
+        resolveBatchConvertOptions(input),
+        controller.signal,
+      );
+      console.log(JSON.stringify(result));
+      if (result.failed > 0)
+        throw new AppError(
+          `${result.failed} JSON export(s) could not be converted; see failed files in the stdout summary.`,
+        );
     });
   cli
     .command("chats", "List chat IDs and available titles as JSON")
