@@ -1,5 +1,7 @@
 # Teams personal chat export: research reference
 
+[Project overview](../README.md)
+
 Research date: **2026-11-04**. Target: **Microsoft Teams Free with a personal Microsoft account**, using `teams.live.com`.
 
 This workspace contains the research and proposed design for a chat export tool. **No exporter, login helper, credential store, or CLI has been implemented.** Command examples describe a possible future interface.
@@ -16,12 +18,12 @@ The evidence is from live, read-only HTTP experiments against one signed-in pers
 
 | Document | Purpose |
 | --- | --- |
-| [Findings and evidence](docs/01-findings-and-evidence.md) | Scope, evidence vocabulary, exact test results, and corrections to earlier assumptions |
-| [HTTP protocol reference](docs/02-http-protocol.md) | Endpoints, authentication headers, response fields, date parameters, pagination, listing, and images |
-| [Authentication and browser setup](docs/03-authentication-and-browser.md) | Credential acquisition, browser/session roles, the working Fedora Wayland configuration, and startup troubleshooting |
-| [Proposed CLI design](docs/04-cli-design.md) | User workflow, implementation boundaries, date semantics, media caching, outputs, and failure handling |
-| [Validation and open questions](docs/05-validation-and-open-questions.md) | Untested behavior, implementation acceptance checks, and a practical order for resolving gaps |
-| [Sources](docs/06-sources.md) | Primary documentation and upstream source references; distinction between public documentation and private endpoint observations |
+| [Findings and evidence](01-findings-and-evidence.md) | Scope, evidence vocabulary, exact test results, and corrections to earlier assumptions |
+| [HTTP protocol reference](02-http-protocol.md) | Endpoints, authentication headers, response fields, date parameters, pagination, listing, and images |
+| [Authentication and browser setup](03-authentication-and-browser.md) | Credential acquisition, browser/session roles, the working Fedora Wayland configuration, and startup troubleshooting |
+| [Proposed CLI design](04-cli-design.md) | User workflow, implementation boundaries, date semantics, media caching, outputs, and failure handling |
+| [Validation and open questions](05-validation-and-open-questions.md) | Untested behavior, implementation acceptance checks, and a practical order for resolving gaps |
+| [Sources](06-sources.md) | Primary documentation and upstream source references; distinction between public documentation and private endpoint observations |
 
 ## Evidence rules
 
