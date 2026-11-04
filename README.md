@@ -19,24 +19,33 @@ bun install --frozen-lockfile
 bun run teams --help
 ```
 
-Create a private directory and copy the credential template:
+Create a private per-user state directory and copy the credential template:
 
 ```sh
-mkdir -p -m 700 .private
-cp examples/credentials.example.json .private/credentials.json
-chmod 600 .private/credentials.json
+teams_state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/teams-chat-download"
+mkdir -p -m 700 "$teams_state_dir"
+cp examples/credentials.example.json "$teams_state_dir/credentials.json"
+chmod 600 "$teams_state_dir/credentials.json"
 ```
 
 Replace the placeholders locally with credentials captured from your signed-in Teams session. `historyAuthentication` is the **complete captured `Authentication` header value**; `directoryToken` is the captured `x-skypetoken` value. Each command only requires its own service credential. `accountId` is your stable local account label, not a token or a verified Microsoft identity.
 
-This release loads an explicit JSON file; it does not automate credential capture or renewal. See the [authentication reference](docs/03-authentication-and-browser.md) for the observed browser setup and capture sources. Credential files with group/other permissions are rejected on Unix. The `.private/`, `exports/`, and browser-artifact directories are ignored by Git.
+Both commands find credentials automatically, in this order:
+
+1. An explicit `--credentials <file>` override, when supplied (no fallback).
+2. `$XDG_STATE_HOME/teams-chat-download/credentials.json`, or `~/.local/state/teams-chat-download/credentials.json` when that variable is unset, empty, or relative. Use an absolute `XDG_STATE_HOME` with the setup commands above.
+3. The existing `.private/credentials.json` inside this CLI installation, for compatibility with the original setup. This path is independent of your working directory.
+
+Only a missing file permits fallback. Invalid JSON, invalid credential fields, unreadable files, or unsafe permissions stop lookup. An existing project-private credential file therefore needs no migration unless you want to use the per-user location.
+
+This release does not automate credential capture or renewal. See the [authentication reference](docs/03-authentication-and-browser.md) for the observed browser setup and capture sources. Credential files with group/other permissions are rejected on Unix. The `.private/`, `exports/`, and browser-artifact directories are ignored by Git. Keep custom credential files outside version control too.
 
 ## Usage
 
 List chat IDs and available group titles as JSON:
 
 ```sh
-bun run teams chats --credentials .private/credentials.json
+bun run teams chats
 ```
 
 One-to-one names have an explicit unresolved fallback. If Teams reports a partial directory, the command fails rather than presenting it as a complete listing.
@@ -44,8 +53,8 @@ One-to-one names have an explicit unresolved fallback. If Teams reports a partia
 Export a rolling seven-day window, or select an older period directly:
 
 ```sh
-bun run teams export --credentials .private/credentials.json --chat '<raw-chat-id>' --last 7d --out exports/last-week.json
-bun run teams export --credentials .private/credentials.json --chat '<raw-chat-id>' --from '2026-08-01T00:00:00Z' --to '2026-08-08T00:00:00Z' --out exports/august.json
+bun run teams export --chat '<raw-chat-id>' --last 7d --out exports/last-week.json
+bun run teams export --chat '<raw-chat-id>' --from '2026-08-01T00:00:00Z' --to '2026-08-08T00:00:00Z' --out exports/august.json
 ```
 
 Choose exactly one of `--last Nd`, `--since <timestamp>`, or `--from <timestamp> --to <timestamp>`. Full timestamps must include `Z` or an offset and use at most millisecond precision; date-only values are rejected. The start is inclusive and the end exclusive. `--last 7d` means 168 hours ending at one captured invocation time. Filtering and sorting use `originalarrivaltime`.

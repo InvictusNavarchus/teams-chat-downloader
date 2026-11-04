@@ -17,7 +17,7 @@ export async function runCli(argv = process.argv): Promise<number> {
   cli
     .command("export", "Export one chat to JSON (message history only)")
     .option("--chat <id>", "Raw chat ID")
-    .option("--credentials <file>", "Private credential JSON file")
+    .option("--credentials <file>", "Override automatic credential file lookup")
     .option(
       "--out <file>",
       "New output JSON file; existing files are never overwritten",
@@ -45,9 +45,9 @@ export async function runCli(argv = process.argv): Promise<number> {
     });
   cli
     .command("chats", "List chat IDs and available titles as JSON")
-    .option("--credentials <file>", "Private credential JSON file")
+    .option("--credentials <file>", "Override automatic credential file lookup")
     .action(async (raw: Record<string, unknown>) => {
-      const result = z.string().min(1).safeParse(raw.credentials);
+      const result = z.string().min(1).optional().safeParse(raw.credentials);
       if (!result.success) throw validationError("--credentials", result.error);
       const credentials = await loadCredentials(result.data);
       console.log(JSON.stringify(await listChats(http, credentials), null, 2));

@@ -8,7 +8,7 @@ const timestamp = z.iso
   );
 const exportOptions = z.strictObject({
   chat: z.string().min(1),
-  credentials: z.string().min(1),
+  credentials: z.string().min(1).optional(),
   out: z.string().min(1),
   from: timestamp.optional(),
   to: timestamp.optional(),

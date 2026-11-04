@@ -127,7 +127,7 @@ The first slice uses these revisable defaults:
 
 | Decision | Recommended starting point | Current status |
 | --- | --- | --- |
-| Credential input | `--credentials` points to versioned JSON with a local account label and optional service-specific tokens | Implemented; Unix group/other permissions rejected; no automatic capture or renewal |
+| Credential input | Optional `--credentials` override; otherwise per-user state JSON, then installation-local `.private/credentials.json` when the state file is missing | Implemented; versioned JSON with local account label and service-specific tokens; Unix group/other permissions rejected; no automatic capture or renewal |
 | Date semantics | Half-open UTC millisecond window; full timestamps require `Z` or an offset; `--last 7d` is 168 hours | Implemented; date-only and submillisecond inputs rejected |
 | Filtering timestamp | `originalarrivaltime`, preserving the other source timestamps | Implemented; unexpected out-of-window responses fail |
 | Output | One JSON document with a versioned manifest, explicit destination, and no overwrite | Implemented; atomic publication after success; no partial export file or durable resume |
@@ -150,6 +150,8 @@ The first milestone should meet these criteria using synthetic responses before 
 8. Type checking and the relevant `bun:test` suite pass. The first ordinary Bun/Ky live check listed 15 chats and exported 5 messages with one request each (E17). The browser remained open; repeat with the browser closed and validate live multi-page CLI traversal before claiming those cases are verified.
 
 When media is added, require zero-request cache hits across overlapping exports, one download per uncached logical key, correct representation separation, bounded concurrency, interruption-safe cache promotion, and deliberate `304` recovery. Prove the raw-reference-to-URL adapter before claiming image coverage.
+
+Credential lookup uses `$XDG_STATE_HOME/teams-chat-download/credentials.json`, defaulting to `~/.local/state/teams-chat-download/credentials.json` when XDG state home is unset, empty, or relative. The compatibility fallback is anchored to the installation rather than the working directory. An explicit path disables fallback; malformed, unreadable, or unsafe files always fail without switching accounts. Lookup does not create, migrate, capture, or renew credentials. See the [setup and lookup order](../README.md#setup).
 
 When login is added, select its standalone interface and credential backend, preserve the working platform setup, and demonstrate a cold-start export. Do not assume MCP or CLI attachment, token renewal, or browser-profile portability has already been implemented.
 
