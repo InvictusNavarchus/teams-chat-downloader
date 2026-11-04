@@ -1,6 +1,6 @@
 # Authentication, sessions, and the browser
 
-Research date: **2026-11-04**. This document records the working investigation setup and the boundary between browser login and ordinary HTTP export. It does not implement a credential manager or prescribe global settings for other machines.
+Research date: **2026-11-04**, with the **2026-11-05** login follow-up. This document records the historical investigation setup and the boundary between browser login and ordinary HTTP export. The implemented command is documented in [browser login](09-browser-login.md); the machine-specific MCP setup below is not a global configuration prescription.
 
 See the [HTTP reference](02-http-protocol.md#1-endpoint-and-credential-map) for endpoint-specific credential requirements and [validation](05-validation-and-open-questions.md) for renewal checks.
 
@@ -28,7 +28,7 @@ The normal exporter should not require a running browser, Playwright MCP connect
 
 The successful experiments were hosted by MCP for convenience. They used server-side global `fetch()` and explicitly supplied the needed credential; this differs from browser-side `page.evaluate(() => fetch(...))` or a Playwright API request context sharing browser cookies.
 
-**Implemented:** the Bun CLI loads an explicit private JSON file and performs history and directory reads without a Playwright connection (E17). The browser remained open during the live check. Browser-closed acceptance, reusable capture, and automatic renewal remain unverified or unimplemented; see the project README for the file format.
+**Implemented:** the Bun CLI loads a private JSON file and performs history and directory reads without a Playwright connection (E17). E20 adds standalone `teams login`, automatic header capture, HTTP verification, private credential replacement, and a second login using the persisted session. Listing and export subsequently succeeded after the dedicated login browser closed. The separate research MCP browser remained open; all-browser-closed acceptance and unattended renewal remain unverified.
 
 ## 2. Three distinct authentication surfaces
 
@@ -39,7 +39,7 @@ The successful experiments were hosted by MCP for convenience. They used server-
 | Self and participant profiles (E18) | Both complete `Authorization` Bearer value and `x-skypetoken` from a profile request | Lifetime, independent renewal, other account types; see [profile reference](08-participant-profiles.md) |
 | Image service | Matching `skypetoken_asm` cookie | Lifetime, renewal, host/region coverage, alternative authorization mechanisms |
 
-Do not model this as one undifferentiated browser cookie blob. Conversely, do not assume these values represent unrelated underlying identities: their relationship was not tested. `profileAuthorization` is now an optional field in the version-1 credential file. It is separate from `historyAuthentication`; the history exporter does not require it. Automatic capture remains unimplemented.
+Do not model this as one undifferentiated browser cookie blob. Conversely, do not assume these values represent unrelated underlying identities: their relationship was not tested. `profileAuthorization` is an optional field in the version-1 credential file. It is separate from `historyAuthentication`; the history exporter does not require it. The login command now captures the history header and matching profile header pair automatically. Media-cookie capture remains unimplemented.
 
 An HTTP header's value must be preserved as captured. For history, changing the header name to `Authorization` or inserting a guessed `Bearer` prefix would not reproduce the verified request.
 
@@ -85,7 +85,7 @@ Temporary event listeners and explicit capture-object credential references were
 
 This was not a logout, a credential revocation operation, or a browser-profile deletion. The profile still contains normal session state. The investigation did not claim secure memory erasure.
 
-No reusable capture helper, credential persistence backend, expiry parser, logout command, or refresh operation was implemented.
+At the original investigation stage, no reusable capture helper, credential persistence backend, expiry parser, logout command, or refresh operation was implemented. E20 subsequently adds capture, file persistence, and explicit browser-assisted refresh. Expiry parsing, logout, and unattended renewal remain outside the implementation.
 
 ## 4. What session persistence does and does not mean
 
@@ -109,7 +109,7 @@ Expiry does not necessarily mean the user must enter a password again. Teams may
 
 ## 5. Proposed login-helper responsibilities
 
-This is a future design, not current behavior:
+This was the original proposal. The [implemented command](09-browser-login.md) now covers the history/directory/profile subset; the media-cookie step remains future work:
 
 1. Launch or attach to an explicitly selected browser/profile with the known working platform settings.
 2. Let the user complete Microsoft's normal login flow if needed.
@@ -119,7 +119,7 @@ This is a future design, not current behavior:
 6. Save only the credential state needed by the selected persistence design.
 7. Remove listeners and close/detach cleanly without unintentionally deleting session data.
 
-Credential storage location, protection backend, schema, rotation, and logout semantics remain decisions. Do not silently implement a plaintext credential file, system keyring dependency, or global profile migration based on this proposal.
+The user subsequently authorized private version-1 credential JSON and a dedicated per-user browser profile. Login replaces the file atomically after successful service checks. It adds no keyring dependency, MCP profile migration, media cookie, or remote logout operation.
 
 An export should identify which service needs renewed authentication. A valid history token does not establish that image download authentication is also valid.
 
@@ -307,7 +307,7 @@ The shell environment could not inspect the desktop session as though it were th
 | Playwright library | Browser control and network inspection APIs; also a separate HTTP request API | Possible implementation dependency for the optional login helper |
 | Playwright MCP | Structured tool interface for an agent to control/inspect a browser | Used for investigation; not required for normal exports |
 | Official `playwright-cli` | Shell commands, daemon sessions, snapshots, network inspection, and custom Playwright snippets | Possible alternative interactive login/investigation interface; not required for normal exports |
-| Project `teams` CLI | Product-specific listing, bounded history export, participant profiles, and request reporting | HTTP export and cached name lookup implemented; login and media caching remain future work |
+| Project `teams` CLI | Product-specific login, listing, bounded history export, participant profiles, and request reporting | Browser login/capture, HTTP export, and cached names implemented; media caching and unattended renewal remain future work |
 
 The official CLI's lower agent-context overhead does not establish faster HTTP downloads or solve Teams authentication/pagination automatically.
 

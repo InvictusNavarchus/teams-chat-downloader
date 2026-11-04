@@ -15,6 +15,34 @@ export async function runCli(argv = process.argv): Promise<number> {
   const cancel = () => controller.abort();
   const http = createHttp({ stats, signal: controller.signal });
   cli
+    .command("login", "Sign in in a visible browser and save fresh credentials")
+    .option(
+      "--credentials <file>",
+      "Credential destination (default: per-user state file)",
+    )
+    .option(
+      "--browser <path>",
+      "Chromium executable (default: detect installed Chromium/Chrome/Edge)",
+    )
+    .option(
+      "--browser-profile <dir>",
+      "Dedicated persistent Teams browser profile",
+    )
+    .option(
+      "--timeout <seconds>",
+      "Login time budget, 1–3600 seconds (default: 600)",
+    )
+    .action(async (raw: Record<string, unknown>) => {
+      const { "--": _trailing, ...input } = raw;
+      const { login, resolveLoginOptions } = await import("./login.ts");
+      const result = await login(resolveLoginOptions(input), {
+        stats,
+        signal: controller.signal,
+        progress: (message) => console.error(message),
+      });
+      console.log(JSON.stringify(result));
+    });
+  cli
     .command("export", "Export one chat to JSON (message history only)")
     .option("--chat <id>", "Raw chat ID")
     .option("--credentials <file>", "Override automatic credential file lookup")

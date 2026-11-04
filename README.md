@@ -6,9 +6,9 @@ The intended workflow is to select a chat, export a chosen date range, and downl
 
 ## Project status
 
-The first implementation supports listing chat IDs and exporting one chat's message history to JSON using supplied credentials. It uses strict TypeScript, CAC, Zod, and Ky. Source message fields are preserved, including rich text and unknown fields; the CLI does not render them yet.
+The CLI supports browser login, listing chat IDs, and exporting one chat's message history to JSON. It uses strict TypeScript, CAC, Zod, Ky, and Playwright for login. Source message fields are preserved, including rich text and unknown fields; the CLI does not render them yet.
 
-One-to-one labels resolve through participant profiles and a persistent name cache. Image downloading/caching, a login command, and automatic credential renewal are still to come. Exported JSON explicitly records that media was not downloaded. There is no browser dependency in the implemented export path.
+One-to-one labels resolve through participant profiles and a persistent name cache. Image downloading/caching and unattended credential renewal are still to come. Exported JSON explicitly records that media was not downloaded. Ordinary listing/export does not launch or connect to a browser.
 
 ## Setup
 
@@ -19,18 +19,30 @@ bun install --frozen-lockfile
 bun run teams --help
 ```
 
-Create a private per-user state directory and copy the credential template:
+Sign in using an installed Chromium, Chrome, or Edge:
 
 ```sh
-teams_state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/teams-chat-download"
-mkdir -p -m 700 "$teams_state_dir"
-cp examples/credentials.example.json "$teams_state_dir/credentials.json"
-chmod 600 "$teams_state_dir/credentials.json"
+bun run teams login
+bun run teams chats
 ```
 
-Replace the placeholders locally with credentials captured from your signed-in Teams session. `historyAuthentication` is the **complete captured `Authentication` header value**; `directoryToken` is the captured `x-skypetoken` value. For participant names, `profileAuthorization` is the complete `Authorization: Bearer …` value from a Teams profile request (store the value including `Bearer`, not the header name). Profile requests need this value together with `directoryToken`; capture the pair from the same profile request. Each command only requires its own service credentials. `accountId` is your stable local account label, not a token or a verified Microsoft identity.
+`login` opens a visible browser with a dedicated persistent Teams profile. Sign in and complete verification directly in that window. If capture waits for history, open a chat. The command captures the service headers, checks self-profile, directory, and history access over HTTP, saves a private credential file, then closes its browser. Passwords and verification codes are never captured by the CLI.
 
-Both commands find credentials automatically, in this order:
+Run `bun run teams login` again when credentials expire. It reuses the dedicated browser session; Microsoft may still require sign-in or verification. This is an explicit refresh command, not background renewal. The first run uses a separate profile from your everyday browser and Playwright MCP, so those existing sessions are not automatically imported.
+
+The default credential destination is `$XDG_STATE_HOME/teams-chat-download/credentials.json` (fallback `~/.local/state/teams-chat-download/credentials.json`). The browser profile is `browser/` beside that default destination, even with an explicit credential override. Relative/empty XDG state home is ignored. On this Fedora installation the command detects `/usr/bin/chromium-browser`, enables Chromium's sandbox, and selects native Wayland when `WAYLAND_DISPLAY` is set. It installs no browser and changes no global MCP settings.
+
+Optional overrides:
+
+```sh
+bun run teams login --browser /path/to/chromium --browser-profile /private/teams-browser --credentials /private/credentials.json --timeout 600
+```
+
+The login timeout defaults to 600 seconds. Browser profiles must be private (Unix mode 700) and cannot be used by two browser processes concurrently. Closing the window, timeout, cancellation, capture failure, or failed validation leaves previous credentials intact. See the [login reference](docs/09-browser-login.md) for the exact lifecycle and limits.
+
+Manual file input remains supported using [the credential template](examples/credentials.example.json). `historyAuthentication` is the **complete captured `Authentication` header value**; `directoryToken` is the captured `x-skypetoken` value. For names, `profileAuthorization` is the complete `Authorization` value including `Bearer`, paired with `directoryToken` from the same profile request. Each command only requires its own service credentials. For manually supplied credentials, `accountId` is a local account label. Login derives a stable SHA-256 account label from the verified self-profile MRI; it is not a token.
+
+`chats` and `export` find credentials automatically, in this order:
 
 1. An explicit `--credentials <file>` override, when supplied (no fallback).
 2. `$XDG_STATE_HOME/teams-chat-download/credentials.json`, or `~/.local/state/teams-chat-download/credentials.json` when that variable is unset, empty, or relative. Use an absolute `XDG_STATE_HOME` with the setup commands above.
@@ -38,7 +50,7 @@ Both commands find credentials automatically, in this order:
 
 Only a missing file permits fallback. Invalid JSON, invalid credential fields, unreadable files, or unsafe permissions stop lookup. An existing project-private credential file therefore needs no migration unless you want to use the per-user location.
 
-This release does not automate credential capture or renewal. See the [authentication reference](docs/03-authentication-and-browser.md) for the observed browser setup and capture sources. Credential files with group/other permissions are rejected on Unix. The `.private/`, `exports/`, and browser-artifact directories are ignored by Git. Keep custom credential files outside version control too.
+Login always writes its default per-user state file unless `--credentials` overrides it; it does not overwrite the old project-private fallback automatically. A new default file takes precedence over that fallback on subsequent reads. See the [authentication reference](docs/03-authentication-and-browser.md) for historical browser setup and capture sources. Credential files with group/other permissions are rejected on Unix. The `.private/`, `exports/`, and browser-artifact directories are ignored by Git. Keep custom credential files and browser profiles outside version control too.
 
 ## Usage
 
@@ -83,6 +95,8 @@ bun run test
 Offline tests use synthetic responses for pagination, validation, retries, cancellation, and output publication. An ordinary live check listed 15 chats with one directory request and exported 5 messages from a seven-day window with one history request, without retries. The browser remained open; a browser-closed check is still outstanding. See [E17](docs/01-findings-and-evidence.md#e17--first-bun-cli-live-check).
 
 The participant-name CLI check resolved all eight one-to-one names in a 15-chat directory. The first run used four requests; the next reused the cache and used one directory request, both without retries. See [E19](docs/01-findings-and-evidence.md#e19--participant-name-cli-and-cache-check).
+
+The login check completed twice using its dedicated persistent browser, three HTTP validation requests per run without retries. After the login browser closed, separate CLI processes listed all 15 chats with eight resolved one-to-one names and exported five messages successfully. The independent research MCP browser remained open. See [E20](docs/01-findings-and-evidence.md#e20--standalone-browser-login-and-saved-credential-reuse).
 
 ## Documentation
 

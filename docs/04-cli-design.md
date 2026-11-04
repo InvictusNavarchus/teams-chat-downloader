@@ -77,7 +77,7 @@ teams export --chat <chat-id> --from <timestamp> --to <timestamp> --images
 
 | Operation | Proposed behavior | Unresolved detail |
 | --- | --- | --- |
-| `login` | Interactive browser login or session recovery, capture and validate service credentials | Launcher, profile selection, storage, renewal, logout |
+| `login` | Implemented visible dedicated browser, capture and HTTP verification, atomic private file replacement; rerun for explicit refresh | Unattended renewal, logout, media-cookie capture; see [login contract](09-browser-login.md) |
 | `chats` | Print IDs, labels/fallbacks, and useful chat types; participant lookup and name caching now implemented | Directory pagination, output modes, filtering hidden/meeting chats |
 | `export` | Retrieve one selected chat and period; preserve source metadata and cache included images | Output format, defaults, overwrite semantics, flags |
 

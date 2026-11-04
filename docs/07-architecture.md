@@ -36,6 +36,7 @@ flowchart TD
     MEDIA --> HTTP
     EXPORT --> OUTPUT["Export files and completion metadata"]
     LOGIN["Separate Playwright login helper"] --> CREDS
+    CLI --> LOGIN
 ```
 
 The diagram shows responsibilities, not separate processes or a mandatory file per box.
@@ -49,7 +50,7 @@ The diagram shows responsibilities, not separate processes or a mandatory file p
 | HTTP | Ky configuration, service-specific credentials and destinations, request attempts and retry reporting | Do not decide date semantics, parse media references, or own the cache |
 | Media | Resolve supported references, deduplicate logical media keys, reuse or download files | Cache lookup occurs before requesting media; bound concurrent downloads |
 | Output | Source records, derived values, local media references and completion metadata | Do not acquire credentials or hide failed retrieval behind a complete export |
-| Credential access and login | Load a typed credential set; separately acquire or renew it through the selected browser workflow | No browser launch as an import side effect; persistence and renewal remain unresolved |
+| Credential access and login | Load typed credentials; acquire/refresh through the dedicated visible browser and verify before atomic publication | Dynamic import on `login` only; no browser on ordinary reads; unattended renewal remains unresolved |
 
 An export with a supplied chat ID goes straight to that chat's history; it does not require a directory lookup for a display label. Listing remains a distinct operation. History pages are fetched sequentially because continuation state depends on the preceding response.
 
@@ -121,7 +122,7 @@ Retain useful source fields and keep derived output separate. Raw messages remai
 
 ## 6. First implementation milestone
 
-**Implemented after user authorization:** bounded history export by supplied chat ID, private credential JSON with automatic lookup, and one JSON output document with source messages and run metadata. `chats` lists IDs and available titles, resolves untitled one-to-one names through self and batch profile reads, and caches names for 24 hours. Explicit unresolved fallbacks remain for missing credentials or unavailable/ambiguous members. Partial directories and profile HTTP failures fail explicitly. Media caching and the browser login helper remain subsequent milestones.
+**Implemented after user authorization:** bounded history export by supplied chat ID, private credential JSON with automatic lookup, and one JSON output document with source messages and run metadata. `chats` lists IDs and available titles, resolves untitled one-to-one names through self and batch profile reads, and caches names for 24 hours. Explicit unresolved fallbacks remain for missing credentials or unavailable/ambiguous members. Partial directories and profile HTTP failures fail explicitly. `login` now owns visible persistent-browser capture, HTTP verification, and atomic credential publication. Media caching and unattended renewal remain subsequent milestones.
 
 `src/profiles.ts` owns profile URL/query schemas, self-MRI exclusion, routing personal and organization counterparts, and an atomic private JSON name cache. The cache is credential-scoped and stores only MRI/name pairs, self identity, fetch time, version, and scope digest. `--refresh-names` bypasses it. Only the verified read-only profile POSTs use the HTTP client's JSON-body path and POST retry policy; profile attempts have their own counter. No participant lookup is introduced into export-by-ID. See the [full profile contract](08-participant-profiles.md).
 
@@ -129,11 +130,11 @@ The first slice uses these revisable defaults:
 
 | Decision | Recommended starting point | Current status |
 | --- | --- | --- |
-| Credential input | Optional `--credentials` override; otherwise per-user state JSON, then installation-local `.private/credentials.json` when the state file is missing | Implemented; versioned JSON with local account label and service-specific tokens; Unix group/other permissions rejected; no automatic capture or renewal |
+| Credential input | Optional `--credentials` override; otherwise per-user state JSON, then installation-local `.private/credentials.json` when the state file is missing | Implemented; `login` writes verified state with a stable self-MRI-derived account label; Unix group/other permissions rejected; no unattended renewal |
 | Date semantics | Half-open UTC millisecond window; full timestamps require `Z` or an offset; `--last 7d` is 168 hours | Implemented; date-only and submillisecond inputs rejected |
 | Filtering timestamp | `originalarrivaltime`, preserving the other source timestamps | Implemented; unexpected out-of-window responses fail |
 | Output | One JSON document with a versioned manifest, explicit destination, and no overwrite | Implemented; atomic publication after success; no partial export file or durable resume |
-| Initial scope | Supplied chat ID plus basic directory listing, using captured credentials | Implemented; retrieval holds the selected window in memory; images and login remain future work |
+| Initial scope | Supplied chat ID plus directory listing and browser-assisted credentials | Implemented; retrieval holds the selected window in memory; images remain future work |
 | Operational settings | Two retries, 15-second per-attempt timeout, 60-second per-operation deadline | Implemented; redirects refused, counters at Fetch boundary; media concurrency still future work |
 
 These defaults are not planning gates for later changes. Conflicting duplicate records fail explicitly until revision selection is established; identical duplicate records are removed. Output files use mode `0600`, and new parent directories use mode `0700`.
@@ -155,6 +156,6 @@ When media is added, require zero-request cache hits across overlapping exports,
 
 Credential lookup uses `$XDG_STATE_HOME/teams-chat-download/credentials.json`, defaulting to `~/.local/state/teams-chat-download/credentials.json` when XDG state home is unset, empty, or relative. The compatibility fallback is anchored to the installation rather than the working directory. An explicit path disables fallback; malformed, unreadable, or unsafe files always fail without switching accounts. Lookup does not create, migrate, capture, or renew credentials. See the [setup and lookup order](../README.md#setup).
 
-When login is added, select its standalone interface and credential backend, preserve the working platform setup, and demonstrate a cold-start export. Do not assume MCP or CLI attachment, token renewal, or browser-profile portability has already been implemented.
+The [login implementation](09-browser-login.md) uses lazily imported `playwright-core` 1.64.1, an installed Chromium executable, sandboxed visible mode, and native Wayland when present. E20 verifies two login runs plus a listing/export after the login browser closes. It does not attach to MCP, migrate profiles, collect media cookies, or promise unattended renewal. Only the login command imports the browser module.
 
 The detailed behavior checks remain in [validation sections 9.1–9.5](05-validation-and-open-questions.md#9-regression-checks-for-future-implementation). The implemented synthetic suite covers history, directory, request policy, dates, credentials, and output publication; media checks remain future work. This plan does not by itself authorize unrelated scope or global configuration changes.

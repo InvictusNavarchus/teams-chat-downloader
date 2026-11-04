@@ -58,6 +58,8 @@ describe("request policy", () => {
         message = String(error);
       }
       expect(message).toContain(String(status));
+      if (status === 401 || status === 403)
+        expect(message).toContain("teams login");
       expect(message).not.toContain("private-response-body");
       expect(stats.total).toBe(1);
     },

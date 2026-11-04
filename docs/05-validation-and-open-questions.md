@@ -18,6 +18,7 @@ A Bun CLI, pinned package configuration, and synthetic test suite now implement 
 | Direct-message labels | Eight one-to-one title fields were empty; users array empty | E08 |
 | Profile resolution | Eight counterpart names matched Teams UI; self MRI excluded reliably in the sample; both profile credentials required by tested controls | E18 |
 | CLI name cache | All eight one-to-one labels resolved; cold CLI used four attempts and warm repeat used one directory attempt, without retries | E19 |
+| Browser login command | Captured and verified all implemented service headers, saved privately, reopened persisted session, then listed/exported after the dedicated browser closed | E20 |
 | HTTP image | Media cookie authorized a valid 69,257-byte JPEG | E09 |
 | Conditional media validation | `If-Modified-Since` returned `304` | E10 |
 | Array ordering | Latest history array was not monotonic by arrival time | E11 |
@@ -78,9 +79,9 @@ Further work should be driven by the selected product scope. It is unnecessary t
 
 ### Q04 — Credential acquisition and persistence
 
-**Known:** manual login plus temporary observation yielded working header/cookie material. The CLI now validates and loads an explicit private credential JSON file; automatic acquisition and renewal are not implemented.
+**Implemented in E20:** `teams login` opens a dedicated visible persistent browser, observes successful service requests, validates self/directory/history access, and atomically writes the private credential JSON. Re-running it reuses the browser profile for explicit refresh; Microsoft can still request sign-in/MFA. See the [login contract](09-browser-login.md).
 
-**Needed:** choose the login helper interface and profile ownership, capture the required credential set reproducibly, and investigate renewal. File input is the first revisable persistence choice; any later backend must preserve service separation and avoid exposing secrets.
+**Remaining:** unattended renewal, token lifetime, empty-account live acceptance, media-cookie capture, logout semantics, and other platforms/accounts. File storage remains a revisable persistence choice; any later backend must preserve service separation and avoid exposing secrets.
 
 **Do not assume:** extracting browser cookies alone captures the history token, or that copying a browser state file automatically makes application-generated headers available to an HTTP client.
 

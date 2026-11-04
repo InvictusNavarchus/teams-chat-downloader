@@ -285,6 +285,21 @@ On **2026-11-05**, two ordinary `bun run teams chats` invocations used the autom
 
 Only counts and safe diagnostics were recorded here; credentials and names remain private. The browser stayed open, but the CLI used ordinary HTTP without a Playwright connection. This verifies persistent reuse across CLI processes; TTL expiry, refresh, account isolation, invalid cache data, and failure paths have synthetic coverage rather than live waiting/probing.
 
+### E20 — Standalone browser login and saved-credential reuse
+
+On **2026-11-05**, the new `bun run teams login` ran with Bun 1.3.14, pinned `playwright-core` 1.64.1, and the installed Fedora Chromium. It used a separate private per-user persistent profile, visible sandboxed mode, and the native Wayland argument. The existing MCP profile/configuration was not migrated or changed.
+
+Both the initial invocation and an immediate second invocation captured history Authentication plus the paired profile Authorization/Skype headers, passed self-profile/directory/history HTTP checks, saved the version-1 state file, closed their login browser, and exited 0. Each used three counted validation attempts (one per service purpose), zero retries. Browser/application traffic was outside those counters. The second invocation reused the persisted browser session successfully; this does not establish indefinite session lifetime.
+
+After the login browser closed, separate CLI processes using automatic credential lookup:
+
+| Operation | Outcome | Counted HTTP attempts | Retries |
+| --- | --- | ---: | ---: |
+| `chats` | 15 chats, all eight one-to-one labels resolved | 4 (directory, self, two name batches) | 0 |
+| `export --last 7d` for a supplied chat ID | Complete JSON, five messages, one history page | 1 history | 0 |
+
+The new credential scope made the name cache cold as designed. A separate properties-route probe returned HTTP 200 with a JSON object using the freshly saved history header, supporting the empty-directory verifier's route without establishing actual empty-account behavior. Private credential and export artifacts were excluded from Git. The independent research MCP browser remained open: this proves the login browser can close before CLI reuse, not that every Microsoft/browser process on the machine was shut down. No CLI command attached to MCP or Playwright for these reads. Empty-account fallback, cancellation, unsafe permissions, and failure preservation have synthetic coverage; no live empty account, unattended refresh, MFA recovery, or media-cookie acquisition was tested.
+
 ## 3. Corrections that must survive into implementation
 
 | Earlier assumption or suggestion | Current conclusion |

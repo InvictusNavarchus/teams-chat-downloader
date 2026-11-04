@@ -1,6 +1,13 @@
-import { readFile, stat } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { AppError, validationError } from "./errors.ts";
@@ -59,7 +66,7 @@ export async function loadCredentials(path?: string): Promise<Credentials> {
     }
   }
   throw new AppError(
-    `No credential file found. Create ${defaultCredentialsPath()} or supply --credentials <file>.`,
+    `No credential file found. Run teams login to save credentials to ${defaultCredentialsPath()}, or supply --credentials <file>.`,
   );
 }
 
@@ -73,4 +80,32 @@ async function readCredentials(path: string): Promise<Credentials> {
   const result = credentialsSchema.safeParse(data);
   if (!result.success) throw validationError("Credential file", result.error);
   return result.data;
+}
+
+export async function saveCredentials(
+  path: string,
+  credentials: Credentials,
+  signal?: AbortSignal,
+): Promise<void> {
+  const result = credentialsSchema.safeParse(credentials);
+  if (!result.success)
+    throw validationError("Captured credentials", result.error);
+  const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+  try {
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    await writeFile(temporary, `${JSON.stringify(result.data, null, 2)}\n`, {
+      mode: 0o600,
+      flag: "wx",
+    });
+    signal?.throwIfAborted();
+    await rename(temporary, path);
+  } catch {
+    throw new AppError(
+      signal?.aborted
+        ? "Login cancelled; previous credentials kept."
+        : "Cannot save credentials; previous credentials kept.",
+    );
+  } finally {
+    await unlink(temporary).catch(() => {});
+  }
 }

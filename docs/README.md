@@ -4,13 +4,13 @@
 
 Research date: **2026-11-04**. Target: **Microsoft Teams Free with a personal Microsoft account**, using `teams.live.com`.
 
-This directory contains the research and design reference for the chat export tool. **The first HTTP CLI is now implemented:** see the [project README](../README.md) for actual commands and limitations. The design examples below include later features and are not all implemented; login and image caching remain future work.
+This directory contains the research and design reference for the chat export tool. **HTTP export, participant names, and browser login are implemented:** see the [project README](../README.md) for actual commands and limitations. The design examples below include later features and are not all implemented; image caching and unattended renewal remain future work.
 
 ## Main conclusion
 
 A normal export can use ordinary HTTP requests to list accessible chats, request a specific historical date window, paginate within that window, and download chat images. Browser automation is not required to execute those requests while the appropriate credentials remain valid.
 
-Playwright remains a practical helper for interactive login and credential acquisition. Credential lifetime, renewal, and a standalone login command have not been implemented or fully investigated.
+Playwright powers the standalone visible `login` command for interactive authentication and credential acquisition. Session lifetime and unattended renewal remain unresolved; explicit refresh reopens the dedicated browser profile.
 
 The evidence is from live, read-only HTTP experiments against one signed-in personal account. These private Teams endpoints are observed behavior, not a published Microsoft API contract.
 
@@ -26,6 +26,7 @@ The evidence is from live, read-only HTTP experiments against one signed-in pers
 | [Sources](06-sources.md) | Primary documentation and upstream source references; distinction between public documentation and private endpoint observations |
 | [Architecture plan](07-architecture.md) | Agreed stack, module responsibilities, validation, Ky request policy, storage boundaries, and implementation milestones |
 | [Participant profiles](08-participant-profiles.md) | Verified self/participant lookup, profile authentication, name resolution, and cache behavior |
+| [Browser login](09-browser-login.md) | Implemented login/refresh command, profile ownership, capture, verification, persistence, and limits |
 
 ## Evidence rules
 

@@ -151,7 +151,7 @@ export async function resolveChatNames(
   if (!targets.length) return output;
   if (!credentials.profileAuthorization || !credentials.directoryToken) {
     options.warn?.(
-      "Participant names unresolved: add profileAuthorization and directoryToken to the credential file.",
+      "Participant names unresolved. Run teams login to capture profileAuthorization and directoryToken.",
     );
     return output;
   }

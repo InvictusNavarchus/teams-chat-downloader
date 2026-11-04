@@ -69,7 +69,7 @@ export function createHttp(config: {
           const status = error.response.status;
           const detail =
             status === 401 || status === 403
-              ? " Refresh the credentials for this service."
+              ? " Run teams login to refresh credentials, then retry."
               : status >= 300 && status < 400
                 ? " Redirects are refused before forwarding credentials."
                 : "";
