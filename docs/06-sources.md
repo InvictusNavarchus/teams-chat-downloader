@@ -169,3 +169,39 @@ The original browser launch combined Fedora wrapper arguments, Playwright defaul
 For future changes, record new evidence before changing a verified statement. Keep current implementation decisions distinguishable from historical observations. If an upstream source moves or a private endpoint changes, retain the dated observation and document the replacement behavior rather than rewriting the old result as though it never occurred.
 
 No source link is permission to copy live credentials, private messages, or raw browser logs into this documentation set.
+
+## 9. Application stack
+
+These references support library behavior used in the architecture plan. They do not add live Teams evidence or establish compatibility of an application that has not been built.
+
+### S19 — Bun TypeScript and testing
+
+[Bun: TypeScript](https://bun.sh/docs/typescript)
+
+[Bun: Test runner](https://bun.sh/docs/test)
+
+Documents direct TypeScript execution, development types, separate type checking, and the built-in test runner. Select tooling supported by the runtime version chosen for the CLI rather than assuming every feature of current online documentation exists locally.
+
+### S20 — CAC commands and asynchronous dispatch
+
+[CAC README](https://github.com/cacjs/cac/blob/main/README.md)
+
+Documents command/flag parsing and explicitly awaited asynchronous action dispatch. The documented parsed options allow `any` values; TypeScript implementation of the parser does not itself produce a validated application options type.
+
+### S21 — Zod parsing, inference, and object behavior
+
+[Zod: Basic usage](https://zod.dev/basics)
+
+[Zod: Object schemas](https://zod.dev/api?id=objects)
+
+Documents runtime parsing, `z.infer`, default removal of unrecognized object keys, and `z.looseObject()` for preserving additional keys. Preserve source fields deliberately at each relevant nested boundary.
+
+### S22 — Ky request policy and validation
+
+[Ky v2.2.0 README](https://github.com/sindresorhus/ky/blob/v2.2.0/readme.md)
+
+[Ky v2.2.0 release](https://github.com/sindresorhus/ky/releases/tag/v2.2.0)
+
+[Ky v2.2.0 implementation](https://github.com/sindresorhus/ky/blob/v2.2.0/source/core/Ky.ts)
+
+The reviewed release documents Bun support, configurable retries/timeouts, custom Fetch instrumentation, Standard Schema response validation, and HTTP error handling. Its `beforeRequest` hook runs once before retry handling, and `maxRetryAfter` can clamp a server-indicated delay. These details motivate explicit request accounting and retry policy. An ordinary Bun/Teams compatibility check remains future implementation work; no dependency was installed or pinned by this documentation task.

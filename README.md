@@ -14,4 +14,6 @@ The investigation verified direct HTTP requests for chat listing, historical mes
 
 Start with the [research reference](docs/README.md) for the findings, protocol details, browser setup, proposed CLI design, validation plan, and sources. It distinguishes verified behavior from proposals and unresolved questions and serves as the implementation reference.
 
+The [architecture plan](docs/07-architecture.md) records the agreed Bun, TypeScript, CAC, Zod, and Ky stack, module responsibilities, and the proposed first implementation milestone.
+
 The findings concern private Teams endpoints observed on one account. They are not a published Microsoft API contract.

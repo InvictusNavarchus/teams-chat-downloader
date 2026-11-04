@@ -4,6 +4,8 @@ This document translates the research into an implementation proposal. **There i
 
 The [HTTP reference](02-http-protocol.md) defines observed request behavior. The [validation plan](05-validation-and-open-questions.md) defines what still needs proof.
 
+The [architecture plan](07-architecture.md) records the subsequently agreed stack and implementation boundaries. Product choices still marked as proposed here remain open unless explicitly settled.
+
 ## 1. User requirements expressed so far
 
 - Support personal-account Teams Free one-to-one and group chats.
@@ -46,7 +48,7 @@ Separate login command --> optional browser helper --> credential state
 
 No AI agent, MCP session, browser-scrolling loop, extension, or userscript is required for the normal export path established by the experiments.
 
-The eventual JavaScript/TypeScript implementation should follow the supplied project instructions: Bun tooling and package management, ES modules, direct imports/exports, and simple scoped code. No package list or framework choice has been approved by these documents.
+The agreed stack is Bun with strict TypeScript and ES modules, CAC for CLI parsing, Zod for runtime validation, and Ky for HTTP policy over native Fetch. Use direct imports/exports and simple scoped code. Playwright remains a separate login concern. Dependency versions, credential persistence, and output formats remain unresolved; see the architecture plan before scaffolding.
 
 ### Alternatives considered
 

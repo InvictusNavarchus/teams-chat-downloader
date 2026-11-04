@@ -258,7 +258,7 @@ No specific retry count, concurrency value, or requests-per-second threshold has
 
 ## 10. Suggested implementation sequence
 
-1. Settle the small set of product semantics and credential persistence choices.
+1. Use the [architecture plan](07-architecture.md) to settle the remaining product semantics, credential input, and first milestone scope.
 2. Resolve minimal directory request details, participant labels, and basic raw-message image-reference mapping.
 3. Implement and validate an HTTP-only bounded text export with explicit supplied credential state, request counters, and bounded retry handling.
 4. Add the persistent image cache and a small tested set of image representations, checking that cache hits make no network requests and media concurrency stays bounded.

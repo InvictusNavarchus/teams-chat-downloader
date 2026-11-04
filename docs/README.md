@@ -24,6 +24,7 @@ The evidence is from live, read-only HTTP experiments against one signed-in pers
 | [Proposed CLI design](04-cli-design.md) | User workflow, implementation boundaries, date semantics, media caching, outputs, and failure handling |
 | [Validation and open questions](05-validation-and-open-questions.md) | Untested behavior, implementation acceptance checks, and a practical order for resolving gaps |
 | [Sources](06-sources.md) | Primary documentation and upstream source references; distinction between public documentation and private endpoint observations |
+| [Architecture plan](07-architecture.md) | Agreed stack, module responsibilities, validation, Ky request policy, storage boundaries, and proposed implementation milestones |
 
 ## Evidence rules
 
