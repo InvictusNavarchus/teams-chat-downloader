@@ -6,7 +6,7 @@ The intended workflow is to select a chat, export a chosen date range, and downl
 
 ## Project status
 
-The CLI supports browser login, listing chat IDs, and exporting one chat's message history to JSON. It uses strict TypeScript, CAC, Zod, Ky, and Playwright for login. Source message fields are preserved, including rich text and unknown fields; the CLI does not render them yet.
+The CLI supports browser login, listing chat IDs, and exporting one chat's message history to JSON with optional Markdown output. It uses strict TypeScript, CAC, Zod, Ky, Playwright for login, and Turndown for HTML-to-Markdown conversion. JSON is the canonical export: source message fields, rich text, and unknown fields remain preserved. Markdown is generated from the saved JSON and can be regenerated offline.
 
 One-to-one labels resolve through participant profiles and a persistent name cache. Image downloading/caching and unattended credential renewal are still to come. Exported JSON explicitly records that media was not downloaded. Ordinary listing/export does not launch or connect to a browser.
 
@@ -100,7 +100,31 @@ Filename timestamps use UTC with milliseconds and filename-safe separators. The 
 
 `--chat` accepts the raw ID printed by `chats`. History pages use the tested size of 200 and preserve the original bounds on continuation. Identical duplicates are removed; conflicting records for one ID, invalid payloads, unexpected destinations, non-progress, and out-of-window messages fail explicitly.
 
-The output is one JSON file containing source messages and a versioned manifest with window, completion, pagination, and request counts. Existing files are never overwritten. The file is published only after retrieval and writing finish; a failed run leaves no new complete-looking export. Retrieval currently holds the chosen window in memory and has no durable resume checkpoint.
+Every history export saves one JSON file containing source messages and a versioned manifest with window, completion, pagination, and request counts. Existing files are never overwritten. The JSON file is published only after history retrieval and writing finish; failed history retrieval leaves no new complete-looking export. Retrieval currently holds the chosen window in memory and has no durable resume checkpoint.
+
+### Markdown and offline conversion
+
+Add `--format markdown` to save JSON first and then generate Markdown from that file:
+
+```sh
+bun run teams export --chat '<raw-chat-id>' --last 7d --format markdown
+bun run teams export --chat '<raw-chat-id>' --last 7d --format markdown --out exports/last-week.json
+```
+
+The default format is `json`. `--out` always selects the **JSON destination**, including when `--format markdown` is used. Markdown is saved beside it, replacing a final `.json` extension with `.md` (case-insensitive), or appending `.md` when the JSON path has another extension. For example, the second command saves `exports/last-week.json` and `exports/last-week.md`. Successful stdout includes the JSON path as `output` and the Markdown path as `markdown`.
+
+Convert an existing export later without credentials, browser access, or Teams requests:
+
+```sh
+bun run teams convert --input exports/last-week.json
+bun run teams convert --input exports/last-week.json --format markdown --out exports/readable-chat.md
+```
+
+`convert` defaults to Markdown beside the source JSON. Its stdout reports `input`, `output`, `format`, and `messages`. Both commands refuse to overwrite any existing destination and publish private output files atomically. If Markdown conversion fails after JSON was saved, the command exits unsuccessfully and reports the saved JSON path. Keep that file and retry with `convert --out <new-path>`; history does not need to be downloaded again.
+
+Conversion accepts complete version 1 exports, including files from before this feature. A shared reader validates the version, required rendering fields, and date window while retaining unknown fields. Markdown includes timestamps, available sender names (with source-ID/unknown fallbacks), message IDs, and message types in chronological order. Rich HTML supports paragraphs, emphasis, lists, blockquotes, code, and ordinary HTTP(S)/email links. Explicit `Text` messages remain literal text. Unsupported message types retain available content as literal text; missing/non-string content gets an explicit placeholder. Tables, cards, Teams-specific replies, reactions, and other complex structures are not fully reconstructed; JSON retains the source data.
+
+Images become **not-downloaded placeholders**, and `amsreferences` are noted without copying media URLs. Conversion performs no downloads and does not provide an offline image archive. Executable HTML elements and unsafe link destinations are omitted, and source text is escaped rather than retained as raw HTML. HTML, PDF, and other output formats remain future work.
 
 Successful commands write JSON to stdout. Request summaries, warnings, and errors go to stderr. Summaries count directory, profile, and history attempts separately, including retries. Each HTTP operation, including the two read-only profile POST routes, allows two retries for eligible read failures, has a 15-second attempt timeout and a 60-second total deadline, and honors applicable server wait guidance without shortening it. Redirects are refused. These are client settings, not known Teams quotas. SIGINT/SIGTERM cancels further requests.
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveExportOptions } from "../src/options.ts";
+import { resolveConvertOptions, resolveExportOptions } from "../src/options.ts";
 
 const base = {
   chat: "synthetic-chat",
@@ -49,4 +49,23 @@ describe("date options", () => {
   ])("rejects invalid or ambiguous dates: %j", (dates) => {
     expect(() => resolveExportOptions({ ...base, ...dates }, now)).toThrow();
   });
+});
+
+test("export defaults to JSON and accepts Markdown as an additional output", () => {
+  expect(resolveExportOptions({ ...base, last: "1d" }).format).toBe("json");
+  expect(
+    resolveExportOptions({ ...base, last: "1d", format: "markdown" }).format,
+  ).toBe("markdown");
+  expect(() =>
+    resolveExportOptions({ ...base, last: "1d", format: "html" }),
+  ).toThrow();
+});
+
+test.each([
+  {},
+  { input: "" },
+  { input: "history.json", format: "html" },
+  { input: "history.json", out: "" },
+])("invalid convert options fail: %j", (options) => {
+  expect(() => resolveConvertOptions(options)).toThrow();
 });

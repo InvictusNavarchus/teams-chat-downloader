@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadCredentials } from "../src/credentials.ts";
+import { convertArchive } from "../src/convert.ts";
 import { exportChat } from "../src/export.ts";
 import { createHttp, requestStats } from "../src/http.ts";
 import { resolveExportOptions } from "../src/options.ts";
@@ -140,6 +141,68 @@ test("a later page failure creates no complete-looking export", async () => {
   expect(await readdir(dir)).toEqual([]);
   expect(progress.pages).toBe(1);
   expect(stats.total).toBe(2);
+});
+
+test("a conversion failure preserves the saved JSON for an offline retry", async () => {
+  const dir = await temporary();
+  const out = join(dir, "history.json");
+  const markdown = join(dir, "history.md");
+  const stats = requestStats();
+  const http = createHttp({
+    stats,
+    fetch: async () => {
+      // Simulate another process publishing Markdown after the preflight check.
+      await writeFile(markdown, "previous Markdown");
+      return Response.json({
+        messages: [
+          {
+            id: "1",
+            originalarrivaltime: "2026-11-01T12:00:00Z",
+            messagetype: "Text",
+            content: "Retained content",
+            unknownField: { retained: true },
+          },
+        ],
+        _metadata: {},
+      });
+    },
+  });
+  const options = resolveExportOptions({
+    chat: "fixture",
+    out,
+    format: "markdown",
+    from: "2026-11-01T00:00:00Z",
+    to: "2026-11-02T00:00:00Z",
+  });
+  await expect(
+    exportChat(
+      options,
+      {
+        version: 1,
+        accountId: "fixture",
+        historyAuthentication: "fixture-history",
+      },
+      http,
+      stats,
+      historyProgress(),
+    ),
+  ).rejects.toThrow(`JSON export saved to ${out}. Markdown conversion failed`);
+  const raw = await readFile(out, "utf8");
+  expect(JSON.parse(raw).messages[0]).toMatchObject({
+    content: "Retained content",
+    unknownField: { retained: true },
+  });
+  expect(await readFile(markdown, "utf8")).toBe("previous Markdown");
+  const converted = await convertArchive({
+    input: out,
+    format: "markdown",
+    out: join(dir, "retry.md"),
+  });
+  expect(await readFile(converted.output, "utf8")).toContain(
+    "Retained content",
+  );
+  expect(await readFile(out, "utf8")).toBe(raw);
+  expect(stats.history).toBe(1);
 });
 
 test("atomic publication never overwrites an existing destination", async () => {

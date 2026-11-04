@@ -112,13 +112,15 @@ On `304`, reuse a complete local body. If the body is missing, make a bounded un
 | --- | --- | --- |
 | Credentials and browser profile | Private account-scoped state, separate from exports and source control | Backend, exact paths, permissions, profile ownership and renewal flow still need a decision |
 | Shared media cache | Persistent account-scoped files plus a metadata index, initially proposed as JSON | Key by service/namespace, object, representation and available version; reuse across export directories |
-| Export | A user-selected destination with source messages, completion metadata and included media | Portable local references; output format, layout and overwrite rules remain proposed |
+| Export | Canonical JSON at an automatic or user-selected destination, with optional derived Markdown | Both outputs publish atomically without overwrite; portable local media remains future work |
 
 The cache is independent of one export. Re-fetch text for the requested window; do not introduce a persistent message-range cache initially. Deduplicate media references within the run before scheduling downloads.
 
 Download to temporary files, validate, then promote complete entries. Publish metadata only after the corresponding file is available. Start with a simple storage model; a shared JSON index needs an explicit single-writer constraint or safe coordination before concurrent CLI processes are supported. Exact locking and metadata layout need not be designed before choosing that support scope.
 
-Retain useful source fields and keep derived output separate. Raw messages remain private data even when credentials are excluded. JSON is the recommended first output; HTML/Markdown rendering and sanitization can follow once their scope is selected. File output must distinguish interrupted work from complete results and avoid accidentally overwriting a previous export.
+Retain useful source fields and keep derived output separate. Raw messages remain private data even when credentials are excluded. JSON is the canonical saved output; Markdown is derived from that saved file, so a renderer failure does not discard successfully retrieved history. HTML and local media rendering remain future work. File output must distinguish interrupted work from complete results and avoid accidentally overwriting a previous export.
+
+`src/archive.ts` owns the shared source-message schema and the version 1 archive reader. It validates the version, completion status, fields consumed by renderers, and window membership while retaining additive fields. `src/markdown.ts` renders the parsed archive using Turndown 7.2.5, with literal text escaping, executable-element removal, safe-link handling, and explicit unavailable-media placeholders. It imports no HTTP or credential code. `src/convert.ts` reads an existing archive and publishes Markdown through the same private, atomic, no-overwrite writer as history JSON. Both `convert` and `export --format markdown` use this path; the latter saves JSON before starting conversion. JSON-only exports retain their existing manifest and stdout shape. Additional formats should follow this saved-archive boundary rather than adding API calls to renderers.
 
 ## 6. First implementation milestone
 
@@ -133,7 +135,7 @@ The first slice uses these revisable defaults:
 | Credential input | Optional `--credentials` override; otherwise per-user state JSON, then installation-local `.private/credentials.json` when the state file is missing | Implemented; `login` writes verified state with a stable self-MRI-derived account label; Unix group/other permissions rejected; no unattended renewal |
 | Date semantics | Half-open UTC millisecond window; full timestamps require `Z` or an offset; `--last 7d` is 168 hours | Implemented; date-only and submillisecond inputs rejected |
 | Filtering timestamp | `originalarrivaltime`, preserving the other source timestamps | Implemented; unexpected out-of-window responses fail |
-| Output | One JSON document with a versioned manifest, automatic label/period filename in `exports/` or explicit `--out`, and no overwrite | Implemented; UTC window bounds in filenames, chat-ID hash fallback for unavailable labels, atomic publication after success; no partial export file or durable resume |
+| Output | Canonical JSON with a versioned manifest, automatic label/period filename in `exports/` or explicit `--out`, optional Markdown, and no overwrite | Implemented; Markdown reads the saved JSON and is also available through offline `convert`; conversion failure retains JSON; no partial history file or durable resume |
 | Initial scope | Supplied chat ID plus directory listing and browser-assisted credentials | Implemented; retrieval holds the selected window in memory; images remain future work |
 | Operational settings | Two retries, 15-second per-attempt timeout, 60-second per-operation deadline | Implemented; redirects refused, counters at Fetch boundary; media concurrency still future work |
 

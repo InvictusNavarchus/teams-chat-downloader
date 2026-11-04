@@ -1,10 +1,11 @@
 import { cac } from "cac";
 import { z } from "zod";
+import { convertArchive } from "./convert.ts";
 import { loadCredentials } from "./credentials.ts";
 import { AppError, errorMessage, validationError } from "./errors.ts";
 import { exportChat } from "./export.ts";
 import { createHttp, requestStats } from "./http.ts";
-import { resolveExportOptions } from "./options.ts";
+import { resolveConvertOptions, resolveExportOptions } from "./options.ts";
 import { writeChatList } from "./output.ts";
 import { historyProgress, listChats } from "./teams.ts";
 
@@ -44,7 +45,10 @@ export async function runCli(argv = process.argv): Promise<number> {
       console.log(JSON.stringify(result));
     });
   cli
-    .command("export", "Export one chat to JSON (message history only)")
+    .command(
+      "export",
+      "Save chat history as JSON and optionally render Markdown",
+    )
     .option("--chat <id>", "Raw chat ID")
     .option("--credentials <file>", "Override automatic credential file lookup")
     .option(
@@ -52,6 +56,10 @@ export async function runCli(argv = process.argv): Promise<number> {
       "Output JSON file (default: exports/<chat-label>--<period>.json); never overwritten",
     )
     .option("--last <duration>", "Rolling duration, for example 7d")
+    .option(
+      "--format <format>",
+      "json or markdown (always saves JSON; default: json)",
+    )
     .option("--since <timestamp>", "Start timestamp through invocation time")
     .option("--from <timestamp>", "Inclusive start timestamp with Z or offset")
     .option("--to <timestamp>", "Exclusive end timestamp with Z or offset")
@@ -70,6 +78,21 @@ export async function runCli(argv = process.argv): Promise<number> {
             controller.signal,
           ),
         ),
+      );
+    });
+  cli
+    .command("convert", "Convert a saved JSON export without contacting Teams")
+    .option("--input <file>", "Existing version 1 JSON export")
+    .option("--format <format>", "Output format (default: markdown)")
+    .option(
+      "--out <file>",
+      "Markdown destination (default: beside JSON); never overwritten",
+    )
+    .action(async (raw: Record<string, unknown>) => {
+      const { "--": _trailing, ...input } = raw;
+      const options = resolveConvertOptions(input);
+      console.log(
+        JSON.stringify(await convertArchive(options, controller.signal)),
       );
     });
   cli

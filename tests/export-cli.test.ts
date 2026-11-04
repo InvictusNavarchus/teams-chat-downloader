@@ -179,6 +179,56 @@ test("explicit --out overrides automatic naming without any directory or profile
   ).toMatchObject({ total: 1, directory: 0, profiles: 0 });
 });
 
+test("Markdown export saves both formats and reports both paths", async () => {
+  const f = await fixture();
+  const result = await f.run(["--last", "1d", "--format", "markdown"]);
+  expect(result.code).toBe(0);
+  const summary = JSON.parse(result.stdout);
+  expect(summary.output).toEndWith(".json");
+  expect(summary.markdown).toBe(summary.output.replace(/\.json$/, ".md"));
+  expect(JSON.parse(await readFile(summary.output, "utf8")).media.status).toBe(
+    "not-downloaded",
+  );
+  expect(await readFile(summary.markdown, "utf8")).toContain(
+    "_No messages in this period._",
+  );
+});
+
+test("Markdown --out remains the JSON destination and skips label lookups", async () => {
+  const f = await fixture();
+  const result = await f.run(
+    ["--last", "1d", "--format", "markdown", "--out", "custom.json"],
+    { directoryStatus: 401 },
+  );
+  expect(result.code).toBe(0);
+  const summary = JSON.parse(result.stdout);
+  expect(summary.output).toBe(join(f.dir, "custom.json"));
+  expect(summary.markdown).toBe(join(f.dir, "custom.md"));
+  expect(
+    JSON.parse(await readFile(summary.output, "utf8")).requests,
+  ).toMatchObject({ total: 1, directory: 0 });
+});
+
+test("an existing Markdown destination stops export before history retrieval", async () => {
+  const f = await fixture();
+  await writeFile(join(f.dir, "custom.md"), "previous Markdown");
+  const result = await f.run([
+    "--last",
+    "1d",
+    "--format",
+    "markdown",
+    "--out",
+    "custom.json",
+  ]);
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("already exists");
+  expect(result.stderr).not.toContain("HTTP attempts:");
+  expect(await Bun.file(join(f.dir, "custom.json")).exists()).toBe(false);
+  expect(await readFile(join(f.dir, "custom.md"), "utf8")).toBe(
+    "previous Markdown",
+  );
+});
+
 test.each([true, false])(
   "missing labels fall back to an identifier (directory token: %s)",
   async (directoryToken) => {

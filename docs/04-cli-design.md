@@ -307,7 +307,7 @@ Whether an image failure should fail the whole command by default or allow an ex
 
 The raw message layer should preserve useful source fields and distinguish them from derived display values. A readable output can then be regenerated without reinterpreting an already-flattened text-only file.
 
-Potential outputs discussed include JSON, Markdown, HTML, and local searchable records. The first implementation writes one JSON document containing messages and a versioned manifest; it records media as not downloaded. Local media files and readable renderers remain later work.
+Potential outputs discussed include JSON, Markdown, HTML, and local searchable records. **Implemented:** JSON is the canonical document containing source messages and a versioned manifest; it records media as not downloaded. `export --format markdown` first publishes JSON, then reads it through the shared version 1 archive reader and renders a sibling Markdown file. `convert --input <json> [--format markdown] [--out <md>]` performs the same conversion offline without authentication or Teams requests. The default export remains JSON-only; `--out` on `export` always refers to JSON. Markdown conversion failure leaves the saved JSON available for an offline retry, and neither output overwrites an existing file. See the [current usage and rendering limits](../README.md#markdown-and-offline-conversion). Local media files, HTML rendering, and other formats remain later work.
 
 For a browser-readable output, treat message HTML as untrusted input: preserve raw source separately and render through a deliberate sanitization policy. This is an implementation requirement of rendering remote HTML, not evidence of a malicious message in the sample.
 
@@ -361,7 +361,7 @@ These are conceptual boundaries, not a requirement for one file or class per row
 ## 12. Decisions still to make before final CLI behavior
 
 1. Executable name, installation method, runtime version, and dependency versions.
-2. Output format(s), directory layout, overwrite behavior, and what complete means when media fails.
+2. Additional output formats and media directory layout, plus what complete means when media fails. JSON-first Markdown conversion and no-overwrite behavior are implemented.
 3. Date-only and timezone semantics; arrival versus composition-time filtering.
 4. Whether images are opt-in or the default, and which image representations are covered initially.
 5. Credential persistence and renewal behavior; browser profile selection for the login helper.

@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
+import { type Message, messageSchema } from "./archive.ts";
 import type { Credentials } from "./credentials.ts";
 import { AppError, validationError } from "./errors.ts";
 import type { Http } from "./http.ts";
@@ -8,13 +9,6 @@ import { resolveChatNames, type ProfileOptions } from "./profiles.ts";
 
 const view =
   "msnp24Equivalent|supportsMessageProperties|supportsExtendedHistory";
-const arrival = z.iso
-  .datetime({ offset: true })
-  .refine((value) => Number.isFinite(Date.parse(value)));
-const messageSchema = z.looseObject({
-  id: z.string().min(1),
-  originalarrivaltime: arrival,
-});
 const pageSchema = z.looseObject({
   messages: z.array(messageSchema),
   _metadata: z.looseObject({ backwardLink: z.string().min(1).optional() }),
@@ -36,7 +30,6 @@ const directorySchema = z.looseObject({
   }),
 });
 
-export type Message = z.infer<typeof messageSchema>;
 export type HistoryProgress = {
   pages: number;
   records: number;

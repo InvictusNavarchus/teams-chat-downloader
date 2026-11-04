@@ -1,4 +1,7 @@
+import type { Archive } from "./archive.ts";
+import { convertArchive, markdownPath } from "./convert.ts";
 import type { Credentials } from "./credentials.ts";
+import { AppError } from "./errors.ts";
 import { defaultExportPath } from "./export-path.ts";
 import type { Http, RequestStats } from "./http.ts";
 import type { ExportOptions } from "./options.ts";
@@ -31,6 +34,7 @@ export async function exportChat(
     out = defaultExportPath(options, label);
   }
   await checkOutput(out);
+  if (options.format === "markdown") await checkOutput(markdownPath(out));
   const messages = await readHistory(
     http,
     credentials,
@@ -63,7 +67,24 @@ export async function exportChat(
     },
     media: { status: "not-downloaded" },
     messages,
-  };
+  } satisfies Archive;
   const output = await writeExport(out, document, signal);
+  if (options.format === "markdown") {
+    try {
+      const converted = await convertArchive(
+        { input: output, format: "markdown" },
+        signal,
+      );
+      return { output, messages: messages.length, markdown: converted.output };
+    } catch (error) {
+      const reason =
+        error instanceof AppError
+          ? error.message
+          : "Conversion could not finish.";
+      throw new AppError(
+        `JSON export saved to ${output}. Markdown conversion failed: ${reason} Retry conversion with teams convert --input <saved-json> --out <new-markdown-path>.`,
+      );
+    }
+  }
   return { output, messages: messages.length };
 }

@@ -10,6 +10,7 @@ const exportOptions = z.strictObject({
   chat: z.string().min(1),
   credentials: z.string().min(1).optional(),
   out: z.string().min(1).optional(),
+  format: z.enum(["json", "markdown"]).default("json"),
   from: timestamp.optional(),
   to: timestamp.optional(),
   since: timestamp.optional(),
@@ -21,6 +22,20 @@ const exportOptions = z.strictObject({
 
 export type Window = { from: number; to: number };
 export type ExportOptions = z.infer<typeof exportOptions> & { window: Window };
+
+const convertOptions = z.strictObject({
+  input: z.string().min(1),
+  out: z.string().min(1).optional(),
+  format: z.literal("markdown").default("markdown"),
+});
+
+export type ConvertOptions = z.infer<typeof convertOptions>;
+
+export function resolveConvertOptions(input: unknown): ConvertOptions {
+  const result = convertOptions.safeParse(input);
+  if (!result.success) throw validationError("Convert options", result.error);
+  return result.data;
+}
 
 export function resolveExportOptions(
   input: unknown,

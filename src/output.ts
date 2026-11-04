@@ -28,9 +28,31 @@ export async function writeChatList(
   return writeJson(path, document, "chat list", signal);
 }
 
-async function writeJson(
+export async function writeMarkdown(
+  path: string,
+  markdown: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  return writeText(path, markdown, "export", signal);
+}
+
+function writeJson(
   path: string,
   document: unknown,
+  kind: "export" | "chat list",
+  signal?: AbortSignal,
+): Promise<string> {
+  return writeText(
+    path,
+    `${JSON.stringify(document, null, 2)}\n`,
+    kind,
+    signal,
+  );
+}
+
+async function writeText(
+  path: string,
+  text: string,
   kind: "export" | "chat list",
   signal?: AbortSignal,
 ): Promise<string> {
@@ -40,7 +62,7 @@ async function writeJson(
   try {
     const file = await open(temporary, "wx", 0o600);
     try {
-      await file.writeFile(`${JSON.stringify(document, null, 2)}\n`);
+      await file.writeFile(text);
       await file.sync();
     } finally {
       await file.close();
