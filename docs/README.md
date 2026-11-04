@@ -25,6 +25,7 @@ The evidence is from live, read-only HTTP experiments against one signed-in pers
 | [Validation and open questions](05-validation-and-open-questions.md) | Untested behavior, implementation acceptance checks, and a practical order for resolving gaps |
 | [Sources](06-sources.md) | Primary documentation and upstream source references; distinction between public documentation and private endpoint observations |
 | [Architecture plan](07-architecture.md) | Agreed stack, module responsibilities, validation, Ky request policy, storage boundaries, and implementation milestones |
+| [Participant profiles](08-participant-profiles.md) | Verified self/participant lookup, profile authentication, name resolution, and cache behavior |
 
 ## Evidence rules
 
@@ -48,7 +49,7 @@ If a conclusion conflicts with an earlier conversational suggestion, the measure
 7. A message array was not strictly chronological by arrival time. Do not infer completion from the first old message or from array position.
 8. Distinguish an exhausted history window from authentication, HTTP, or parsing failures.
 9. Media cache identity must include the media object and representation, rather than a temporary URL or chat title.
-10. Full message semantics, participant-name lookup, automatic renewal, and universal media support are still incomplete.
+10. Participant-name lookup is verified for the sampled personal and organization counterparts (E18). Full message semantics, automatic renewal, and universal media support remain incomplete.
 
 ## Intended workflow
 

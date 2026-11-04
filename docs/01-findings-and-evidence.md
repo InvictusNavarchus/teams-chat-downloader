@@ -266,6 +266,14 @@ The export used a fixed half-open window, source-field-preserving validation, an
 
 **Limits:** the browser remained open, so this is not a browser-closed acceptance test. The live CLI export needed only one page; bounded multi-page traversal in the implementation is covered by synthetic tests, while E14 remains the earlier separate live protocol experiment. This check did not exercise media, renewal, throttling, or another account. It generated only ordinary listing/export traffic, not rate-limit probes.
 
+### E18 — Participant profile resolution
+
+Follow-up on **2026-11-05**: server-side HTTP resolved all eight untitled one-to-one counterparts (four personal, four organization). Their names all matched text visible in Teams. Self-profile MRI matched a member in every sampled one-to-one chat, leaving exactly one counterpart after exclusion.
+
+The two batch profile routes and self-profile route succeeded with captured Bearer authorization plus Skype token; tested single-credential variants returned 401. The personal route needed the observed query template to return profiles. No cookies or browser-side Fetch were used. The [participant profile reference](08-participant-profiles.md) records exact paths, query templates, response shapes, and routing controls.
+
+Limits: one account; no live self-chat, unavailable/masked-profile, credential renewal, or server batch-limit acceptance. Cached names can become stale. This experiment did not implement automatic token capture.
+
 ## 3. Corrections that must survive into implementation
 
 | Earlier assumption or suggestion | Current conclusion |
@@ -282,6 +290,6 @@ The export used a fixed half-open window, source-field-preserving validation, an
 
 ## 4. What has not been established
 
-Do not interpret the evidence as a complete Teams implementation. Unknowns include automatic credential renewal; participant-name lookup; directory pagination; cursor lifetime and mutation behavior; deleted/edited-message semantics; all attachment formats; original-resolution selection; throttling; and a standalone cold-start exporter.
+Do not interpret the evidence as a complete Teams implementation. Unknowns include automatic credential renewal; participant lookup beyond E18's sampled identities; directory pagination; cursor lifetime and mutation behavior; deleted/edited-message semantics; all attachment formats; original-resolution selection; throttling; and a browser-closed cold-start exporter.
 
 The [validation document](05-validation-and-open-questions.md) turns these into implementation checks without treating them as blockers to every initial feature.

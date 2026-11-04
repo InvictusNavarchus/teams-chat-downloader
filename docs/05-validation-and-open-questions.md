@@ -16,6 +16,7 @@ A Bun CLI, pinned package configuration, and synthetic test suite now implement 
 | Plain HTTP history | Group and one-to-one each returned two 200-record pages with no overlap | E05–E06 |
 | HTTP directory | `x-skypetoken` alone returned 15 records; partial/more flags false for this account | E08 |
 | Direct-message labels | Eight one-to-one title fields were empty; users array empty | E08 |
+| Profile resolution | Eight counterpart names matched Teams UI; self MRI excluded reliably in the sample; both profile credentials required by tested controls | E18 |
 | HTTP image | Media cookie authorized a valid 69,257-byte JPEG | E09 |
 | Conditional media validation | `If-Modified-Since` returned `304` | E10 |
 | Array ordering | Latest history array was not monotonic by arrival time | E11 |
@@ -60,7 +61,9 @@ Further work should be driven by the selected product scope. It is unnecessary t
 
 **Known:** the inspected one-to-one chats had empty titles, member identity references, and no populated user directory in the response.
 
-**Needed:** identify and verify the profile lookup used for those members, identify the current user's own member, and define a reliable fallback label. Check external and personal identities if they are in the intended scope.
+**Verified in E18:** self-profile MRI exclusion and batch lookups resolved all eight counterparts, including personal and organization identities. See the [protocol and cache reference](08-participant-profiles.md).
+
+**Remaining:** live self-chat, masked/deleted/unavailable profiles, other accounts, renewal, and server batch limits. Synthetic checks must cover cache freshness, account isolation, malformed responses, ambiguous membership, and unavailable-profile fallbacks.
 
 **Do not assume:** the last-message sender is the counterpart, names are unique, every member is visible, or an object ID and an MRI are interchangeable.
 

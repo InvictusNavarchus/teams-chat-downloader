@@ -9,6 +9,7 @@ Evidence references such as E13 point to [findings and evidence](01-findings-and
 | Operation | Endpoint or host | Smallest credential set verified |
 | --- | --- | --- |
 | List chats | `GET https://teams.live.com/api/csa/api/v3/teams/users/me` | `x-skypetoken: <captured value>` |
+| Self and participant names | `GET /api/mt/beta/users/me/`, `POST /api/mt/beta/users/fetchShortProfile`, `POST /api/mt/beta/users/fetchFederated` on `teams.live.com` | Captured `Authorization` Bearer header **and** `x-skypetoken`; see [query templates and schemas](08-participant-profiles.md) |
 | Read history | `GET https://teams.live.com/api/chatsvc/consumer/v1/users/ME/conversations/{encoded-chat-id}/messages` | `Authentication: <captured complete header value>` |
 | Continue history | Server-provided URL, observed at `https://msgapi.teams.live.com/v1/users/ME/conversations/{encoded-chat-id}/messages` | Same captured `Authentication` value in the tests |
 | Read a chat image | Observed `https://experimental-api.asm.skype.com/v1/{namespace}/objects/{object-id}/views/imgo` | `Cookie: skypetoken_asm=<captured value>` |
@@ -377,7 +378,7 @@ The nested `lastMessage` used different capitalization from history records, inc
 - Group/meeting titles were available on some records.
 - The eight one-to-one records had empty titles in the inspected response.
 - `members` supplied identity references, but `users` was empty in the directory response.
-- A reliable participant-name lookup endpoint and self-member exclusion rule have not yet been documented or tested.
+- Follow-up E18 verified self MRI exclusion and both profile routes for all eight counterparts; see the [participant profile reference](08-participant-profiles.md). The empty directory titles remain unchanged.
 
 Do not derive a one-to-one label solely from the most recent message's sender name: that sender can be the current user, and the field can be absent or stale. Until profile lookup is implemented, an explicit identifier fallback is more honest than an incorrect friendly name.
 
