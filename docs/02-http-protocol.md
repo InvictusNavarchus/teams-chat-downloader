@@ -380,7 +380,7 @@ The nested `lastMessage` used different capitalization from history records, inc
 - `members` supplied identity references, but `users` was empty in the directory response.
 - Follow-up E18 verified self MRI exclusion and both profile routes for all eight counterparts; see the [participant profile reference](08-participant-profiles.md). The empty directory titles remain unchanged.
 
-Do not derive a one-to-one label solely from the most recent message's sender name: that sender can be the current user, and the field can be absent or stale. Until profile lookup is implemented, an explicit identifier fallback is more honest than an incorrect friendly name.
+Do not derive a one-to-one label solely from the most recent message's sender name: that sender can be the current user, and the field can be absent or stale. Retain an explicit unresolved fallback whenever profile lookup cannot establish the counterpart's name.
 
 ## 7. Images and other media
 

@@ -14,6 +14,7 @@ const credentialsSchema = z.strictObject({
   accountId: z.string().min(1),
   historyAuthentication: header.optional(),
   directoryToken: header.optional(),
+  profileAuthorization: header.regex(/^Bearer \S+$/i).optional(),
 });
 
 export type Credentials = z.infer<typeof credentialsSchema>;

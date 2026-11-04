@@ -35,10 +35,11 @@ The successful experiments were hosted by MCP for convenience. They used server-
 | Surface | Captured material that worked | What remains unknown |
 | --- | --- | --- |
 | History service | Complete `Authentication` request-header value | Lifetime, precise format, independent renewal, value equivalence with other credentials |
-| Chat directory | `x-skypetoken` request-header value | Lifetime, refresh, minimal directory query parameters, name-lookup credentials |
+| Chat directory | `x-skypetoken` request-header value | Lifetime, refresh, minimal directory query parameters |
+| Self and participant profiles (E18) | Both complete `Authorization` Bearer value and `x-skypetoken` from a profile request | Lifetime, independent renewal, other account types; see [profile reference](08-participant-profiles.md) |
 | Image service | Matching `skypetoken_asm` cookie | Lifetime, renewal, host/region coverage, alternative authorization mechanisms |
 
-Do not model this as one undifferentiated browser cookie blob. Conversely, do not assume the three values represent unrelated underlying identities: their relationship was not tested.
+Do not model this as one undifferentiated browser cookie blob. Conversely, do not assume these values represent unrelated underlying identities: their relationship was not tested. `profileAuthorization` is now an optional field in the version-1 credential file. It is separate from `historyAuthentication`; the history exporter does not require it. Automatic capture remains unimplemented.
 
 An HTTP header's value must be preserved as captured. For history, changing the header name to `Authorization` or inserting a guessed `Bearer` prefix would not reproduce the verified request.
 
@@ -306,7 +307,7 @@ The shell environment could not inspect the desktop session as though it were th
 | Playwright library | Browser control and network inspection APIs; also a separate HTTP request API | Possible implementation dependency for the optional login helper |
 | Playwright MCP | Structured tool interface for an agent to control/inspect a browser | Used for investigation; not required for normal exports |
 | Official `playwright-cli` | Shell commands, daemon sessions, snapshots, network inspection, and custom Playwright snippets | Possible alternative interactive login/investigation interface; not required for normal exports |
-| Project `teams` CLI | Product-specific listing, bounded history export, and request reporting | First supplied-credential HTTP slice implemented; login, media caching, and friendly name lookup remain future work |
+| Project `teams` CLI | Product-specific listing, bounded history export, participant profiles, and request reporting | HTTP export and cached name lookup implemented; login and media caching remain future work |
 
 The official CLI's lower agent-context overhead does not establish faster HTTP downloads or solve Teams authentication/pagination automatically.
 

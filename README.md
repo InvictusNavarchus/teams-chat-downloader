@@ -8,7 +8,7 @@ The intended workflow is to select a chat, export a chosen date range, and downl
 
 The first implementation supports listing chat IDs and exporting one chat's message history to JSON using supplied credentials. It uses strict TypeScript, CAC, Zod, and Ky. Source message fields are preserved, including rich text and unknown fields; the CLI does not render them yet.
 
-Image downloading/caching, a login command, automatic credential renewal, and friendly one-to-one name lookup are still to come. Exported JSON explicitly records that media was not downloaded. There is no browser dependency in the implemented export path.
+One-to-one labels resolve through participant profiles and a persistent name cache. Image downloading/caching, a login command, and automatic credential renewal are still to come. Exported JSON explicitly records that media was not downloaded. There is no browser dependency in the implemented export path.
 
 ## Setup
 
@@ -28,7 +28,7 @@ cp examples/credentials.example.json "$teams_state_dir/credentials.json"
 chmod 600 "$teams_state_dir/credentials.json"
 ```
 
-Replace the placeholders locally with credentials captured from your signed-in Teams session. `historyAuthentication` is the **complete captured `Authentication` header value**; `directoryToken` is the captured `x-skypetoken` value. Each command only requires its own service credential. `accountId` is your stable local account label, not a token or a verified Microsoft identity.
+Replace the placeholders locally with credentials captured from your signed-in Teams session. `historyAuthentication` is the **complete captured `Authentication` header value**; `directoryToken` is the captured `x-skypetoken` value. For participant names, `profileAuthorization` is the complete `Authorization: Bearer …` value from a Teams profile request (store the value including `Bearer`, not the header name). Profile requests need this value together with `directoryToken`; capture the pair from the same profile request. Each command only requires its own service credentials. `accountId` is your stable local account label, not a token or a verified Microsoft identity.
 
 Both commands find credentials automatically, in this order:
 
@@ -48,7 +48,15 @@ List chat IDs and available group titles as JSON:
 bun run teams chats
 ```
 
-One-to-one names have an explicit unresolved fallback. If Teams reports a partial directory, the command fails rather than presenting it as a complete listing.
+Named group titles are preserved. Untitled one-to-one chats use the other participant's display name; `title` remains null because it reflects the source title. Unavailable or ambiguous profiles retain an explicit unresolved label. Without `profileAuthorization`, listing still works and warns that names are unresolved. Profile authentication or HTTP failures fail explicitly. If Teams reports a partial directory, the command fails rather than presenting it as a complete listing.
+
+Names and self identity are cached for 24 hours in `$XDG_CACHE_HOME/teams-chat-download/profiles/` (default `~/.cache/teams-chat-download/profiles/`; relative XDG values are ignored). The cache is private, contains no tokens or email fields, and is isolated by account label and credential pair; renewed credentials start a new cache. A warm listing only fetches the directory. Force a profile refresh after a name change with:
+
+```sh
+bun run teams chats --refresh-names
+```
+
+The [participant profile reference](docs/08-participant-profiles.md) records the observed requests, cache policy, and remaining limits. Name caching is separate from the future image cache. Exports by chat ID do not request profiles.
 
 Export a rolling seven-day window, or select an older period directly:
 
@@ -63,7 +71,7 @@ Choose exactly one of `--last Nd`, `--since <timestamp>`, or `--from <timestamp>
 
 The output is one JSON file containing source messages and a versioned manifest with window, completion, pagination, and request counts. Existing files are never overwritten. The file is published only after retrieval and writing finish; a failed run leaves no new complete-looking export. Retrieval currently holds the chosen window in memory and has no durable resume checkpoint.
 
-Successful commands write JSON to stdout. Request summaries and errors go to stderr. Each HTTP operation allows two retries for eligible read failures, has a 15-second attempt timeout and a 60-second total deadline, and honors applicable server wait guidance without shortening it. Redirects are refused. These are client settings, not known Teams quotas. SIGINT/SIGTERM cancels further requests.
+Successful commands write JSON to stdout. Request summaries, warnings, and errors go to stderr. Summaries count directory, profile, and history attempts separately, including retries. Each HTTP operation, including the two read-only profile POST routes, allows two retries for eligible read failures, has a 15-second attempt timeout and a 60-second total deadline, and honors applicable server wait guidance without shortening it. Redirects are refused. These are client settings, not known Teams quotas. SIGINT/SIGTERM cancels further requests.
 
 ## Development and verification
 
@@ -73,6 +81,8 @@ bun run test
 ```
 
 Offline tests use synthetic responses for pagination, validation, retries, cancellation, and output publication. An ordinary live check listed 15 chats with one directory request and exported 5 messages from a seven-day window with one history request, without retries. The browser remained open; a browser-closed check is still outstanding. See [E17](docs/01-findings-and-evidence.md#e17--first-bun-cli-live-check).
+
+The participant-name CLI check resolved all eight one-to-one names in a 15-chat directory. The first run used four requests; the next reused the cache and used one directory request, both without retries. See [E19](docs/01-findings-and-evidence.md#e19--participant-name-cli-and-cache-check).
 
 ## Documentation
 

@@ -274,6 +274,17 @@ The two batch profile routes and self-profile route succeeded with captured Bear
 
 Limits: one account; no live self-chat, unavailable/masked-profile, credential renewal, or server batch-limit acceptance. Cached names can become stale. This experiment did not implement automatic token capture.
 
+### E19 — Participant-name CLI and cache check
+
+On **2026-11-05**, two ordinary `bun run teams chats` invocations used the automatically located credential file, now containing the captured profile Authorization/Skype pair. Both exited 0, returned 15 chats, and resolved all eight one-to-one labels.
+
+| Run | Directory attempts | Profile attempts | Total attempts | Retries |
+| --- | ---: | ---: | ---: | ---: |
+| First run with a new cache | 1 | 3 (self and two batches) | 4 | 0 |
+| Immediate repeat | 1 | 0 | 1 | 0 |
+
+Only counts and safe diagnostics were recorded here; credentials and names remain private. The browser stayed open, but the CLI used ordinary HTTP without a Playwright connection. This verifies persistent reuse across CLI processes; TTL expiry, refresh, account isolation, invalid cache data, and failure paths have synthetic coverage rather than live waiting/probing.
+
 ## 3. Corrections that must survive into implementation
 
 | Earlier assumption or suggestion | Current conclusion |

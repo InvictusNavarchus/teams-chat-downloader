@@ -17,6 +17,7 @@ A Bun CLI, pinned package configuration, and synthetic test suite now implement 
 | HTTP directory | `x-skypetoken` alone returned 15 records; partial/more flags false for this account | E08 |
 | Direct-message labels | Eight one-to-one title fields were empty; users array empty | E08 |
 | Profile resolution | Eight counterpart names matched Teams UI; self MRI excluded reliably in the sample; both profile credentials required by tested controls | E18 |
+| CLI name cache | All eight one-to-one labels resolved; cold CLI used four attempts and warm repeat used one directory attempt, without retries | E19 |
 | HTTP image | Media cookie authorized a valid 69,257-byte JPEG | E09 |
 | Conditional media validation | `If-Modified-Since` returned `304` | E10 |
 | Array ordering | Latest history array was not monotonic by arrival time | E11 |

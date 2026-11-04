@@ -78,7 +78,7 @@ teams export --chat <chat-id> --from <timestamp> --to <timestamp> --images
 | Operation | Proposed behavior | Unresolved detail |
 | --- | --- | --- |
 | `login` | Interactive browser login or session recovery, capture and validate service credentials | Launcher, profile selection, storage, renewal, logout |
-| `chats` | Print IDs, labels/fallbacks, and useful chat types | Participant-name lookup, directory pagination, output modes, filtering hidden/meeting chats |
+| `chats` | Print IDs, labels/fallbacks, and useful chat types; participant lookup and name caching now implemented | Directory pagination, output modes, filtering hidden/meeting chats |
 | `export` | Retrieve one selected chat and period; preserve source metadata and cache included images | Output format, defaults, overwrite semantics, flags |
 
 An interactive picker could be a convenience on top of `chats`, not a requirement for noninteractive scripting. Always retain an explicit-ID route so ambiguity between chats with the same title does not select the wrong conversation.
@@ -141,7 +141,7 @@ Use the successful HTTP directory path rather than scraping the browser rail for
 
 The listing model should keep at least the opaque ID, available title, relevant type information, and member references. Preserve source flags needed to explain why a record is unavailable or unusual; do not silently treat a meeting, deleted conversation, self-chat, and ordinary group as equivalent.
 
-Friendly one-to-one labels need further work: titles were empty and the directory `users` array did not supply profiles. A member-profile lookup and self-identification rule are unresolved.
+E08 titles were empty and the directory `users` array did not supply profiles. E18 subsequently verified self identification by MRI and both member-profile routes; the CLI now resolves names and caches them. See the [profile reference](08-participant-profiles.md) for the exact authentication, fallback, and freshness contract. Broader account and unavailable-profile behavior still needs live validation.
 
 **Proposed fallback:** show an explicit unresolved label plus the chat ID until a trustworthy name is available. Do not use the latest message sender as the sole counterpart identity.
 

@@ -16,7 +16,13 @@ describe("request policy", () => {
           : Response.json({ ok: true }),
     });
     expect(await http.json(url, "history", {}, allow)).toEqual({ ok: true });
-    expect(stats).toEqual({ total: 3, history: 3, directory: 0, retries: 2 });
+    expect(stats).toEqual({
+      total: 3,
+      history: 3,
+      directory: 0,
+      profiles: 0,
+      retries: 2,
+    });
   });
 
   test("counts retryable network errors and stops at the attempt limit", async () => {

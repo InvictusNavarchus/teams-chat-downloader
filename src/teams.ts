@@ -4,6 +4,7 @@ import type { Credentials } from "./credentials.ts";
 import { AppError, validationError } from "./errors.ts";
 import type { Http } from "./http.ts";
 import { assertWindow, type Window } from "./options.ts";
+import { resolveChatNames, type ProfileOptions } from "./profiles.ts";
 
 const view =
   "msnp24Equivalent|supportsMessageProperties|supportsExtendedHistory";
@@ -24,6 +25,9 @@ const directorySchema = z.looseObject({
       id: z.string().min(1),
       title: z.string().nullish(),
       isOneOnOne: z.boolean().optional(),
+      members: z
+        .array(z.looseObject({ mri: z.string().min(1).optional() }))
+        .optional(),
     }),
   ),
   metadata: z.looseObject({
@@ -136,7 +140,11 @@ export async function readHistory(
   );
 }
 
-export async function listChats(http: Http, credentials: Credentials) {
+export async function listChats(
+  http: Http,
+  credentials: Credentials,
+  options: ProfileOptions = {},
+) {
   if (!credentials.directoryToken)
     throw new AppError("Credential file lacks directoryToken.");
   const url = new URL("https://teams.live.com/api/csa/api/v3/teams/users/me");
@@ -170,12 +178,18 @@ export async function listChats(http: Http, credentials: Credentials) {
     throw new AppError(
       "Directory is partial; directory continuation is not yet supported.",
     );
-  return result.data.chats.map((chat) => ({
-    id: chat.id,
-    title: chat.title || null,
-    label:
-      chat.title ||
-      (chat.isOneOnOne ? "Unresolved one-to-one chat" : "Untitled chat"),
-    isOneOnOne: chat.isOneOnOne ?? null,
-  }));
+  return resolveChatNames(
+    http,
+    credentials,
+    result.data.chats.map((chat) => ({
+      id: chat.id,
+      title: chat.title || null,
+      label:
+        chat.title ||
+        (chat.isOneOnOne ? "Unresolved one-to-one chat" : "Untitled chat"),
+      isOneOnOne: chat.isOneOnOne ?? null,
+      members: chat.members?.map((member) => member.mri) ?? [],
+    })),
+    options,
+  );
 }

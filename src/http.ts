@@ -1,17 +1,18 @@
 import ky, { isHTTPError, isTimeoutError } from "ky";
 import { AppError } from "./errors.ts";
 
-export type Purpose = "history" | "directory";
+export type Purpose = "history" | "directory" | "profiles";
 export type Fetch = (request: Request, init?: RequestInit) => Promise<Response>;
 export type RequestStats = {
   total: number;
   history: number;
   directory: number;
+  profiles: number;
   retries: number;
 };
 
 export function requestStats(): RequestStats {
-  return { total: 0, history: 0, directory: 0, retries: 0 };
+  return { total: 0, history: 0, directory: 0, profiles: 0, retries: 0 };
 }
 
 export function createHttp(config: {
@@ -29,38 +30,39 @@ export function createHttp(config: {
       purpose: Purpose,
       headers: Record<string, string>,
       validate: (url: URL) => void,
+      readBody?: string[],
     ): Promise<unknown> {
       validate(url);
       let attempts = 0;
       try {
-        return await ky
-          .get(url, {
-            headers,
-            redirect: "manual",
-            signal: config.signal,
-            timeout: config.timeoutMs ?? 15_000,
-            totalTimeout: config.totalTimeoutMs ?? 60_000,
-            retry: {
-              limit: config.retryLimit ?? 2,
-              methods: ["get"],
-              statusCodes: [408, 429, 500, 502, 503, 504],
-              afterStatusCodes: [429, 503],
-              maxRetryAfter: Number.POSITIVE_INFINITY,
-              backoffLimit: 3_000,
-              delay:
-                config.retryDelay ?? ((attempt) => 300 * 2 ** (attempt - 1)),
-            },
-            fetch: async (request, init) => {
-              request.signal.throwIfAborted();
-              config.signal?.throwIfAborted();
-              validate(new URL(request.url));
-              config.stats.total++;
-              config.stats[purpose]++;
-              if (attempts++ > 0) config.stats.retries++;
-              return (config.fetch ?? fetch)(request, init);
-            },
-          })
-          .json<unknown>();
+        return await ky(url, {
+          method: readBody === undefined ? "get" : "post",
+          ...(readBody === undefined ? {} : { json: readBody }),
+          headers,
+          redirect: "manual",
+          signal: config.signal,
+          timeout: config.timeoutMs ?? 15_000,
+          totalTimeout: config.totalTimeoutMs ?? 60_000,
+          retry: {
+            limit: config.retryLimit ?? 2,
+            // The only POST callers are the two read-only profile batch routes.
+            methods: ["get", "post"],
+            statusCodes: [408, 429, 500, 502, 503, 504],
+            afterStatusCodes: [429, 503],
+            maxRetryAfter: Number.POSITIVE_INFINITY,
+            backoffLimit: 3_000,
+            delay: config.retryDelay ?? ((attempt) => 300 * 2 ** (attempt - 1)),
+          },
+          fetch: async (request, init) => {
+            request.signal.throwIfAborted();
+            config.signal?.throwIfAborted();
+            validate(new URL(request.url));
+            config.stats.total++;
+            config.stats[purpose]++;
+            if (attempts++ > 0) config.stats.retries++;
+            return (config.fetch ?? fetch)(request, init);
+          },
+        }).json<unknown>();
       } catch (error) {
         if (config.signal?.aborted) throw new AppError("Export cancelled.");
         if (isHTTPError(error)) {

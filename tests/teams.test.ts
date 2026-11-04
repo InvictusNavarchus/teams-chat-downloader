@@ -64,7 +64,13 @@ describe("bounded history", () => {
     expect(calls[1]?.searchParams.get("syncState")).toBe("opaque");
     expect(messages.map((item) => item.id)).toEqual(["a", "c", "b"]);
     expect(messages[0]?.extra).toEqual({ keep: true });
-    expect(stats).toEqual({ total: 2, history: 2, directory: 0, retries: 0 });
+    expect(stats).toEqual({
+      total: 2,
+      history: 2,
+      directory: 0,
+      profiles: 0,
+      retries: 0,
+    });
     expect(progress).toEqual({ pages: 2, records: 4, duplicates: 1 });
   });
 
@@ -199,7 +205,13 @@ describe("directory", () => {
     const chats = await listChats(http, credentials);
     expect(chats[0]?.label).toBe("Unresolved one-to-one chat");
     expect(chats[1]?.label).toBe("Example");
-    expect(stats).toEqual({ total: 1, history: 0, directory: 1, retries: 0 });
+    expect(stats).toEqual({
+      total: 1,
+      history: 0,
+      directory: 1,
+      profiles: 0,
+      retries: 0,
+    });
   });
 
   test("surfaces partial listing rather than returning a complete-looking list", async () => {

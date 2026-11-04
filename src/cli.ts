@@ -46,11 +46,25 @@ export async function runCli(argv = process.argv): Promise<number> {
   cli
     .command("chats", "List chat IDs and available titles as JSON")
     .option("--credentials <file>", "Override automatic credential file lookup")
+    .option(
+      "--refresh-names",
+      "Refresh participant names instead of using cached profiles",
+    )
     .action(async (raw: Record<string, unknown>) => {
       const result = z.string().min(1).optional().safeParse(raw.credentials);
       if (!result.success) throw validationError("--credentials", result.error);
       const credentials = await loadCredentials(result.data);
-      console.log(JSON.stringify(await listChats(http, credentials), null, 2));
+      console.log(
+        JSON.stringify(
+          await listChats(http, credentials, {
+            refresh: raw.refreshNames === true,
+            warn: (message) => console.error(message),
+            signal: controller.signal,
+          }),
+          null,
+          2,
+        ),
+      );
     });
   cli.help();
   cli.version("0.1.0");
@@ -78,7 +92,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     process.off("SIGTERM", cancel);
     if (stats.total > 0)
       console.error(
-        `HTTP attempts: ${stats.total} (history: ${stats.history}, directory: ${stats.directory}); retries: ${stats.retries} included. History pages: ${progress.pages}.`,
+        `HTTP attempts: ${stats.total} (history: ${stats.history}, directory: ${stats.directory}, profiles: ${stats.profiles}); retries: ${stats.retries} included. History pages: ${progress.pages}.`,
       );
   }
 }

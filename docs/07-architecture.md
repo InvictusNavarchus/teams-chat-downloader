@@ -121,7 +121,9 @@ Retain useful source fields and keep derived output separate. Raw messages remai
 
 ## 6. First implementation milestone
 
-**Implemented after user authorization:** bounded history export by supplied chat ID, explicit private credential JSON, and one JSON output document with source messages and run metadata. A basic `chats` command lists IDs and available titles, with unresolved one-to-one name fallbacks and explicit failure on partial directory data. Media caching and the browser login helper remain subsequent milestones.
+**Implemented after user authorization:** bounded history export by supplied chat ID, private credential JSON with automatic lookup, and one JSON output document with source messages and run metadata. `chats` lists IDs and available titles, resolves untitled one-to-one names through self and batch profile reads, and caches names for 24 hours. Explicit unresolved fallbacks remain for missing credentials or unavailable/ambiguous members. Partial directories and profile HTTP failures fail explicitly. Media caching and the browser login helper remain subsequent milestones.
+
+`src/profiles.ts` owns profile URL/query schemas, self-MRI exclusion, routing personal and organization counterparts, and an atomic private JSON name cache. The cache is credential-scoped and stores only MRI/name pairs, self identity, fetch time, version, and scope digest. `--refresh-names` bypasses it. Only the verified read-only profile POSTs use the HTTP client's JSON-body path and POST retry policy; profile attempts have their own counter. No participant lookup is introduced into export-by-ID. See the [full profile contract](08-participant-profiles.md).
 
 The first slice uses these revisable defaults:
 
