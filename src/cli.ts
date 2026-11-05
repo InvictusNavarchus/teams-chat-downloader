@@ -49,7 +49,7 @@ export async function runCli(argv = process.argv): Promise<number> {
       const result = await login(resolveLoginOptions(input), {
         stats,
         signal: controller.signal,
-        progress: (message) => console.error(message),
+        progress: (message) => console.log(message),
       });
       console.log(JSON.stringify(result));
     });
@@ -147,12 +147,12 @@ export async function runCli(argv = process.argv): Promise<number> {
       const credentials = await loadCredentials(options.credentials);
       const chats = await listChats(http, credentials, {
         refresh: options.refreshNames === true,
-        warn: (message) => console.error(message),
+        warn: (message) => console.warn(message),
         signal: controller.signal,
       });
       if (options.out !== undefined) {
         const path = await writeChatList(options.out, chats, controller.signal);
-        console.error(`Saved chat list to ${path}.`);
+        console.log(`Saved chat list to ${path}.`);
       }
       console.log(JSON.stringify(chats, null, 2));
     });
@@ -181,7 +181,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     process.off("SIGINT", cancel);
     process.off("SIGTERM", cancel);
     if (stats.total > 0)
-      console.error(
+      console.log(
         `HTTP attempts: ${stats.total} (history: ${stats.history}, directory: ${stats.directory}, profiles: ${stats.profiles}, media: ${stats.media}); retries: ${stats.retries} included. History pages: ${progress.pages}.`,
       );
   }

@@ -25,13 +25,13 @@ export async function exportChat(
     if (credentials.directoryToken) {
       const chats = await listChats(http, credentials, {
         chatId: options.chat,
-        warn: (message) => console.error(message),
+        warn: (message) => console.warn(message),
         signal,
       });
       label = chats[0]?.label;
     }
     if (label === undefined)
-      console.error(
+      console.warn(
         "Chat label unavailable; using a chat identifier in the directory name.",
       );
     directory = defaultExportDirectory(options, label);

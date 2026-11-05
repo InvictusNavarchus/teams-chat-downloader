@@ -17,7 +17,7 @@ JSON remains version 1, preserves source messages, and adds a media manifest:
 
 Each export uses a dedicated directory containing `chat.json`, optional `chat.md`, and `media/<key>.<extension>`. Export `--out <directory>` chooses this folder; the default folder name combines the chat label and period under `exports/`. Private directories and files use modes 700/600 when created. No image directory is created for an empty supported set. Existing export directories are refused before retrieval. After history retrieval, the command exclusively creates its directory so concurrent exports cannot share a destination. Images are available before JSON publication. Any media or JSON-publication failure removes this attempt's whole export directory and keeps completed cached images. A crash may leave an incomplete export directory; choose a new output path or inspect it before removing it manually. No durable history checkpoint or automatic orphan cleanup is implemented.
 
-Unsupported media does not fail history export: it is explicitly partial in the media manifest, counted on stderr, and uses rendering placeholders. Actual download/authentication/write failures fail the command. Markdown failure after JSON publication keeps the JSON and its images for offline conversion.
+Unsupported media does not fail history export: it is explicitly partial in the media manifest, counted in the image summary on stdout, and uses rendering placeholders. Image summaries go to stdout even on failure; actual download/authentication/write failures are reported on stderr and fail the command. Markdown failure after JSON publication keeps the JSON and its images for offline conversion.
 
 ## Credentials and HTTP
 

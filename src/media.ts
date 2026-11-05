@@ -327,7 +327,7 @@ export async function downloadImages(
       "Could not save export images; completed cached images kept.",
     );
   } finally {
-    console.error(
+    console.log(
       `Images: ${media.cacheHits} reused from cache, ${media.downloaded} downloaded, ${failed} unfinished; unsupported media references: ${media.unsupported}.`,
     );
   }

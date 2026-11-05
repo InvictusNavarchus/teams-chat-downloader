@@ -12,6 +12,13 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const directories: string[] = [];
+
+function readSummary(stdout: string) {
+  const line = stdout.split("\n").find((line) => line.startsWith("{"));
+  expect(line).toBeDefined();
+  return JSON.parse(line!);
+}
+
 afterEach(async () => {
   await Promise.all(
     directories
@@ -123,7 +130,10 @@ test("export without --out publishes a label-based export folder and reports the
   const f = await fixture();
   const result = await f.run(["--last", "1d"]);
   expect(result.code).toBe(0);
-  const summary = JSON.parse(result.stdout);
+  const summary = readSummary(result.stdout);
+  expect(result.stdout).toContain("Images: 0 reused from cache, 0 downloaded");
+  expect(result.stdout).toContain("HTTP attempts: 2 (history: 1, directory: 1");
+  expect(result.stderr).toBe("");
   expect(basename(summary.output)).toBe("chat.json");
   expect(basename(dirname(summary.output))).toMatch(
     /^cafe-project-alpha--last-1d--to-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/,
@@ -162,9 +172,9 @@ test("automatic naming resolves only the selected chat's participant label", asy
   });
   expect(result.code).toBe(0);
   const document = JSON.parse(
-    await readFile(JSON.parse(result.stdout).output, "utf8"),
+    await readFile(readSummary(result.stdout).output, "utf8"),
   );
-  expect(basename(dirname(JSON.parse(result.stdout).output))).toStartWith(
+  expect(basename(dirname(readSummary(result.stdout).output))).toStartWith(
     "jane-doe--last-1d--",
   );
   expect(document.requests).toMatchObject({
@@ -180,7 +190,7 @@ test("explicit --out overrides automatic naming without any directory or profile
     directoryStatus: 401,
   });
   expect(result.code).toBe(0);
-  const summary = JSON.parse(result.stdout);
+  const summary = readSummary(result.stdout);
   expect(summary.output).toBe(join(f.dir, "custom", "chat.json"));
   expect(
     JSON.parse(await readFile(summary.output, "utf8")).requests,
@@ -191,7 +201,7 @@ test("Markdown export saves both formats and reports both paths", async () => {
   const f = await fixture();
   const result = await f.run(["--last", "1d", "--format", "markdown"]);
   expect(result.code).toBe(0);
-  const summary = JSON.parse(result.stdout);
+  const summary = readSummary(result.stdout);
   expect(summary.output).toEndWith(".json");
   expect(summary.markdown).toBe(summary.output.replace(/\.json$/, ".md"));
   expect((await readdir(dirname(summary.output))).sort()).toEqual([
@@ -213,7 +223,7 @@ test("Markdown --out selects the export folder and skips label lookups", async (
     { directoryStatus: 401 },
   );
   expect(result.code).toBe(0);
-  const summary = JSON.parse(result.stdout);
+  const summary = readSummary(result.stdout);
   expect(summary.output).toBe(join(f.dir, "custom", "chat.json"));
   expect(summary.markdown).toBe(join(f.dir, "custom", "chat.md"));
   expect(
@@ -270,10 +280,13 @@ test.each([true, false])(
     const f = await fixture({ directoryToken });
     const result = await f.run(["--last", "1d"], { chats: [] });
     expect(result.code).toBe(0);
-    expect(basename(dirname(JSON.parse(result.stdout).output))).toMatch(
+    expect(basename(dirname(readSummary(result.stdout).output))).toMatch(
       /^chat-[a-f0-9]{10}--last-1d--/,
     );
     expect(result.stderr).toContain("Chat label unavailable");
+    expect(result.stdout).not.toContain("Chat label unavailable");
+    expect(result.stderr).not.toContain("HTTP attempts");
+    expect(result.stderr).not.toContain("Images:");
   },
 );
 
@@ -287,7 +300,7 @@ test("repeating an explicit range preserves the previous export and stops before
   ];
   const first = await f.run(args);
   expect(first.code).toBe(0);
-  const output = JSON.parse(first.stdout).output;
+  const output = readSummary(first.stdout).output;
   expect(basename(dirname(output))).toBe(
     "cafe-project-alpha--from-2026-11-01T00-00-00-000Z--to-2026-11-05T00-00-00-000Z",
   );
@@ -295,7 +308,8 @@ test("repeating an explicit range preserves the previous export and stops before
   const repeated = await f.run(args);
   expect(repeated.code).toBe(1);
   expect(repeated.stderr).toContain("already exists");
-  expect(repeated.stderr).toContain("history: 0");
+  expect(repeated.stdout).toContain("history: 0");
+  expect(repeated.stderr).not.toContain("HTTP attempts");
   expect(await readFile(output, "utf8")).toBe(bytes);
   expect(await readdir(join(f.dir, "exports"))).toEqual([
     basename(dirname(output)),
@@ -308,7 +322,9 @@ test.each([{ directoryStatus: 401 }, { historyStatus: 401 }])(
     const f = await fixture();
     const result = await f.run(["--last", "1d"], status);
     expect(result.code).toBe(1);
-    expect(result.stdout).toBe("");
+    expect(result.stdout).toStartWith("HTTP attempts:");
+    expect(result.stderr).toContain("HTTP 401");
+    expect(result.stderr).not.toContain("HTTP attempts");
     expect(await readdir(f.dir)).not.toContain("exports");
   },
 );

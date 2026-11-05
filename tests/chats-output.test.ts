@@ -86,18 +86,23 @@ async function fixture() {
   return { dir, run };
 }
 
-test("chats --out saves the exact stdout JSON and the same command refreshes it", async () => {
+test("chats --out saves JSON without terminal messages and the same command refreshes it", async () => {
   const f = await fixture();
   const out = join(f.dir, "reference", "chats.json");
   const first = await f.run(["--out", out], directory("First name"));
   expect(first.code).toBe(0);
-  expect(await readFile(out, "utf8")).toBe(first.stdout);
-  expect(JSON.parse(first.stdout)[0].label).toBe("First name");
-  expect(first.stderr).toContain("Saved chat list to");
+  const saved = await readFile(out, "utf8");
+  expect(first.stdout).toContain(saved);
+  expect(JSON.parse(saved)[0].label).toBe("First name");
+  expect(first.stdout).toContain(`Saved chat list to ${out}.`);
+  expect(first.stdout).toContain("HTTP attempts: 1 (history: 0, directory: 1");
+  expect(first.stderr).toBe("");
   const refreshed = await f.run(["--out", out], directory('Updated "name" ✓'));
   expect(refreshed.code).toBe(0);
-  expect(await readFile(out, "utf8")).toBe(refreshed.stdout);
-  expect(JSON.parse(refreshed.stdout)[0].label).toBe('Updated "name" ✓');
+  const updated = await readFile(out, "utf8");
+  expect(refreshed.stdout).toContain(updated);
+  expect(JSON.parse(updated)[0].label).toBe('Updated "name" ✓');
+  expect(refreshed.stderr).toBe("");
   expect(await readdir(join(f.dir, "reference"))).toEqual(["chats.json"]);
   if (process.platform !== "win32") {
     expect((await stat(out)).mode & 0o777).toBe(0o600);
@@ -124,8 +129,10 @@ test.each([
     await writeFile(out, before, { mode: 0o600 });
     const failed = await f.run(["--out", out], payload, status);
     expect(failed.code).toBe(1);
-    expect(failed.stdout).toBe("");
-    expect(failed.stderr).not.toContain("Saved chat list");
+    expect(failed.stdout).toStartWith("HTTP attempts: 1");
+    expect(failed.stdout).not.toContain("Saved chat list");
+    expect(failed.stderr).not.toBe("");
+    expect(failed.stderr).not.toContain("HTTP attempts");
     expect(await readFile(out, "utf8")).toBe(before);
   },
 );
@@ -146,8 +153,11 @@ test("plain chats still prints JSON without saving a reference file", async () =
   const f = await fixture();
   const result = await f.run([]);
   expect(result.code).toBe(0);
-  expect(JSON.parse(result.stdout)[0].id).toBe("synthetic-chat");
-  expect(result.stderr).not.toContain("Saved chat list");
+  const chats = JSON.parse(result.stdout.split("\nHTTP attempts:")[0]!);
+  expect(chats[0].id).toBe("synthetic-chat");
+  expect(result.stdout).not.toContain("Saved chat list");
+  expect(result.stdout).toContain("HTTP attempts: 1");
+  expect(result.stderr).toBe("");
   expect(await Bun.file(join(f.dir, "chats.json")).exists()).toBe(false);
 });
 
@@ -156,6 +166,7 @@ test("invalid --out is rejected before network activity", async () => {
   const result = await f.run(["--out", ""]);
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("out");
+  expect(result.stdout).toBe("");
   expect(result.stderr).not.toContain("HTTP attempts");
 });
 
