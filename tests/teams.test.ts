@@ -106,11 +106,54 @@ describe("bounded history", () => {
     expect(await readHistory(http, credentials, chat, window)).toEqual([]);
   });
 
+  test.each(
+    [
+      "https://teams.live.com/api/chatsvc/consumer/v1/users/ME/conversations/",
+      "https://msgapi.teams.live.com/v1/users/ME/conversations/",
+    ].flatMap((prefix) =>
+      [
+        "19:example@thread.v2",
+        "19%3Aexample%40thread.v2",
+        "19%3aexample%40thread.v2",
+        "19:example%40thread.v2",
+      ].map((segment) => `${prefix}${segment}/messages?syncState=opaque`),
+    ),
+  )("follows equivalent chat-ID encodings: %s", async (link) => {
+    const stats = requestStats();
+    const http = createHttp({
+      stats,
+      fetch: async (request) => {
+        const url = new URL(request.url);
+        expect(request.headers.get("Authentication")).toBe("history-fixture");
+        expect(url.searchParams.get("startTime")).toBe(String(window.from));
+        expect(url.searchParams.get("endTime")).toBe(String(window.to - 1));
+        if (stats.history === 1) return page([message("a")], link);
+        expect(url.searchParams.get("syncState")).toBe("opaque");
+        return page([message("b")]);
+      },
+    });
+    const messages = await readHistory(
+      http,
+      credentials,
+      "19:example@thread.v2",
+      window,
+    );
+    expect(messages.map((item) => item.id)).toEqual(["a", "b"]);
+    expect(stats.history).toBe(2);
+  });
+
   test.each([
     "https://attacker.invalid/messages",
     continuation("opaque", "different-chat"),
     continuation("opaque").replace("https:", "http:"),
     continuation("opaque").replace("https://", "https://user:password@"),
+    `${continuation("opaque")}#fragment`,
+    continuation("opaque", chat.replace("synthetic", "Synthetic")),
+    continuation("opaque", encodeURIComponent(chat)),
+    continuation("opaque").replace(encodeURIComponent(chat), "%ZZ"),
+    continuation("opaque").replace("/messages?", "/extra/messages?"),
+    continuation("opaque").replace("/v1/", "/api/chatsvc/consumer/v1/"),
+    continuation("opaque").replace("msgapi.teams.live.com", "teams.live.com"),
   ])(
     "rejects an unsafe continuation before forwarding credentials: %s",
     async (url) => {

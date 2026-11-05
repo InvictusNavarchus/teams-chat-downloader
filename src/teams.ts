@@ -49,14 +49,23 @@ export function historyProgress(): HistoryProgress {
 }
 
 export function validateHistoryUrl(url: URL, chat: string): void {
-  const segment = encodeURIComponent(chat);
-  const valid =
-    (url.origin === "https://teams.live.com" &&
-      url.pathname ===
-        `/api/chatsvc/consumer/v1/users/ME/conversations/${segment}/messages`) ||
-    (url.origin === "https://msgapi.teams.live.com" &&
-      url.pathname === `/v1/users/ME/conversations/${segment}/messages`);
-  if (!valid || url.username || url.password || url.hash) {
+  const route =
+    url.origin === "https://teams.live.com"
+      ? /^\/api\/chatsvc\/consumer\/v1\/users\/ME\/conversations\/([^/]+)\/messages$/
+      : url.origin === "https://msgapi.teams.live.com"
+        ? /^\/v1\/users\/ME\/conversations\/([^/]+)\/messages$/
+        : undefined;
+  const segment = route?.exec(url.pathname)?.[1];
+  let matchesChat = false;
+  if (segment !== undefined) {
+    try {
+      // Decode only the chat-ID segment; route separators stay literal.
+      matchesChat = decodeURIComponent(segment) === chat;
+    } catch {
+      // Malformed percent encoding is an invalid destination.
+    }
+  }
+  if (!matchesChat || url.username || url.password || url.hash) {
     throw new AppError(
       "Refused an unexpected history destination or chat identity.",
     );
