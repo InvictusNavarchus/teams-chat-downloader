@@ -151,13 +151,13 @@ describe("date options", () => {
   });
 });
 
-test("export defaults to JSON and accepts Markdown as an additional output", () => {
-  expect(resolveExportOptions({ ...base, last: "1d" }).format).toBe("json");
+test("export defaults to Markdown and accepts skipping it with markdown: false", () => {
+  expect(resolveExportOptions({ ...base, last: "1d" }).markdown).toBe(true);
   expect(
-    resolveExportOptions({ ...base, last: "1d", format: "markdown" }).format,
-  ).toBe("markdown");
+    resolveExportOptions({ ...base, last: "1d", markdown: false }).markdown,
+  ).toBe(false);
   expect(() =>
-    resolveExportOptions({ ...base, last: "1d", format: "html" }),
+    resolveExportOptions({ ...base, last: "1d", format: "markdown" }),
   ).toThrow();
 });
 

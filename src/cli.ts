@@ -56,10 +56,11 @@ export async function runCli(argv = process.argv): Promise<number> {
   cli
     .command(
       "export",
-      "Save chat history as JSON and optionally render Markdown",
+      "Save chat history as JSON and render Markdown transcript",
     )
     .option("--chat <id>", "Raw chat ID")
     .option("--no-media", "Skip image downloading and use placeholders")
+    .option("--no-markdown", "Skip rendering Markdown transcript beside JSON")
     .option("--refresh-media", "Revalidate cached images with Teams")
     .option("--credentials <file>", "Override automatic credential file lookup")
     .option(
@@ -69,10 +70,6 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option(
       "--last <Nd>",
       "Last N calendar days including today, through now (local timezone; TZ overrides)",
-    )
-    .option(
-      "--format <format>",
-      "json or markdown (always saves JSON; default: json)",
     )
     .option("--since <timestamp>", "Start timestamp through invocation time")
     .option("--from <timestamp>", "Inclusive start timestamp with Z or offset")

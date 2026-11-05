@@ -11,7 +11,7 @@ const exportOptions = z.strictObject({
   chat: z.string().min(1),
   credentials: z.string().min(1).optional(),
   out: z.string().min(1).optional(),
-  format: z.enum(["json", "markdown"]).default("json"),
+  markdown: z.boolean().default(true),
   media: z.boolean().default(true),
   refreshMedia: z.boolean().default(false),
   from: timestamp.optional(),

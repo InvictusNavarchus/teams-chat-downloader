@@ -6,7 +6,7 @@ The intended workflow is to select a chat, export a chosen date range, and downl
 
 ## Project status
 
-The CLI supports browser login, listing chat IDs, and exporting one chat's message history and supported inline images to JSON with optional Markdown output. It uses strict TypeScript, CAC, Zod, Ky, Playwright for login, and Turndown for HTML-to-Markdown conversion. JSON is the canonical export: source message fields, rich text, and unknown fields remain preserved. Markdown is generated from the saved JSON and can be regenerated offline.
+The CLI supports browser login, listing chat IDs, and exporting one chat's message history and supported inline images to JSON with a rendered Markdown transcript beside it. It uses strict TypeScript, CAC, Zod, Ky, Playwright for login, and Turndown for HTML-to-Markdown conversion. JSON is the canonical export: source message fields, rich text, and unknown fields remain preserved. Markdown is generated from the saved JSON and can be regenerated offline.
 
 One-to-one labels resolve through participant profiles and a persistent name cache. Images use an account-scoped persistent cache and are copied beside each export for offline use. Unattended credential renewal remains future work. Ordinary listing/export does not launch or connect to a browser.
 
@@ -113,14 +113,15 @@ Exports download supported inline chat images by default. An export with `--out 
 ```text
 exports/last-week/
 ├── chat.json
-├── chat.md      # with --format markdown
+├── chat.md
 └── media/       # when supported images are included
 ```
 
 Copy or delete the whole folder to manage the complete export. The manifest maps source messages to relative image paths, byte lengths, media types, and SHA-256 hashes; source messages remain unchanged. No image directory is created when there are no supported images.
 
 ```sh
-bun run teams export --chat '<raw-chat-id>' --last 7d --format markdown
+bun run teams export --chat '<raw-chat-id>' --last 7d
+bun run teams export --chat '<raw-chat-id>' --last 7d --no-markdown
 bun run teams export --chat '<raw-chat-id>' --last 7d --refresh-media
 bun run teams export --chat '<raw-chat-id>' --last 7d --no-media
 ```
@@ -133,14 +134,15 @@ Authentication, HTTP, invalid-image, and write failures stop the command before 
 
 ### Markdown and offline conversion
 
-Add `--format markdown` to save JSON first and then generate Markdown from that file:
+Exports render Markdown by default beside `chat.json`. Add `--no-markdown` to skip rendering and save JSON only:
 
 ```sh
-bun run teams export --chat '<raw-chat-id>' --last 7d --format markdown
-bun run teams export --chat '<raw-chat-id>' --last 7d --format markdown --out exports/last-week
+bun run teams export --chat '<raw-chat-id>' --last 7d
+bun run teams export --chat '<raw-chat-id>' --last 7d --out exports/last-week
+bun run teams export --chat '<raw-chat-id>' --last 7d --no-markdown
 ```
 
-The default format is `json`. Export `--out` selects the **export directory**, including when `--format markdown` is used. JSON is always named `chat.json`, with optional `chat.md` beside it. The second command saves `exports/last-week/chat.json` and `exports/last-week/chat.md`. Successful stdout includes the JSON path as `output` and the Markdown path as `markdown`.
+Export `--out` selects the **export directory**. JSON is always named `chat.json`, with `chat.md` beside it (unless `--no-markdown` is passed). The second command saves `exports/last-week/chat.json` and `exports/last-week/chat.md`. Successful stdout includes the JSON path as `output` and the Markdown path as `markdown` (omitted with `--no-markdown`).
 
 Convert an existing export later without credentials, browser access, or Teams requests:
 

@@ -82,7 +82,7 @@ test("exports preserved messages and truthful manifest without credentials or cu
   expect(raw).not.toContain("private-header");
   expect(raw).not.toContain("private-cursor");
   expect(await readdir(dir)).toEqual(["export"]);
-  expect(await readdir(directory)).toEqual(["chat.json"]);
+  expect((await readdir(directory)).sort()).toEqual(["chat.json", "chat.md"]);
   await expect(
     exportChat(
       options,
@@ -194,7 +194,6 @@ test("a conversion failure preserves the saved JSON for an offline retry", async
   const options = resolveExportOptions({
     chat: "fixture",
     out: directory,
-    format: "markdown",
     from: "2026-11-01T00:00:00Z",
     to: "2026-11-02T00:00:00Z",
   });

@@ -135,10 +135,16 @@ test("export without --out publishes a label-based export folder and reports the
     "[history] Page 1: 0 messages (total: 0) (history complete)",
   );
   expect(result.stdout).toContain("[export] Saved JSON archive.");
+  expect(result.stdout).toContain("[convert] Converted to Markdown.");
   expect(result.stdout).toContain("Images: 0 reused from cache, 0 downloaded");
   expect(result.stdout).toContain("HTTP attempts: 2 (history: 1, directory: 1");
   expect(result.stderr).toBe("");
   expect(basename(summary.output)).toBe("chat.json");
+  expect(summary.markdown).toBe(join(dirname(summary.output), "chat.md"));
+  expect((await readdir(dirname(summary.output))).sort()).toEqual([
+    "chat.json",
+    "chat.md",
+  ]);
   expect(basename(dirname(summary.output))).toMatch(
     /^cafe-project-alpha--last-1d--to-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/,
   );
@@ -201,9 +207,9 @@ test("explicit --out overrides automatic naming without any directory or profile
   ).toMatchObject({ total: 1, directory: 0, profiles: 0 });
 });
 
-test("Markdown export saves both formats and reports both paths", async () => {
+test("Markdown export saves both JSON and Markdown by default, and --no-markdown skips it", async () => {
   const f = await fixture();
-  const result = await f.run(["--last", "1d", "--format", "markdown"]);
+  const result = await f.run(["--last", "1d"]);
   expect(result.code).toBe(0);
   const summary = readSummary(result.stdout);
   expect(result.stdout).toContain("[convert] Converted to Markdown.");
@@ -219,14 +225,28 @@ test("Markdown export saves both formats and reports both paths", async () => {
   expect(await readFile(summary.markdown, "utf8")).toContain(
     "_No messages in this period._",
   );
+
+  const skipped = await f.run([
+    "--last",
+    "1d",
+    "--out",
+    "no-md",
+    "--no-markdown",
+  ]);
+  expect(skipped.code).toBe(0);
+  const skippedSummary = readSummary(skipped.stdout);
+  expect(skipped.stdout).not.toContain("[convert] Converted to Markdown.");
+  expect(skippedSummary.markdown).toBeUndefined();
+  expect((await readdir(dirname(skippedSummary.output))).sort()).toEqual([
+    "chat.json",
+  ]);
 });
 
-test("Markdown --out selects the export folder and skips label lookups", async () => {
+test("custom --out selects the export folder and skips label lookups", async () => {
   const f = await fixture();
-  const result = await f.run(
-    ["--last", "1d", "--format", "markdown", "--out", "custom"],
-    { directoryStatus: 401 },
-  );
+  const result = await f.run(["--last", "1d", "--out", "custom"], {
+    directoryStatus: 401,
+  });
   expect(result.code).toBe(0);
   const summary = readSummary(result.stdout);
   expect(summary.output).toBe(join(f.dir, "custom", "chat.json"));
@@ -234,6 +254,13 @@ test("Markdown --out selects the export folder and skips label lookups", async (
   expect(
     JSON.parse(await readFile(summary.output, "utf8")).requests,
   ).toMatchObject({ total: 1, directory: 0 });
+});
+
+test("removed --format flag is rejected on export", async () => {
+  const f = await fixture();
+  const result = await f.run(["--last", "1d", "--format", "markdown"]);
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("Unknown option `--format`");
 });
 
 test("--no-media retains the text-only manifest and incompatible refresh flags fail early", async () => {
@@ -260,14 +287,7 @@ test("an existing Markdown destination stops export before history retrieval", a
   const f = await fixture();
   await mkdir(join(f.dir, "custom"));
   await writeFile(join(f.dir, "custom", "chat.md"), "previous Markdown");
-  const result = await f.run([
-    "--last",
-    "1d",
-    "--format",
-    "markdown",
-    "--out",
-    "custom",
-  ]);
+  const result = await f.run(["--last", "1d", "--out", "custom"]);
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("already exists");
   expect(result.stderr).not.toContain("HTTP attempts:");

@@ -448,7 +448,6 @@ test("export saves portable images, offline conversion rebases links, and --no-m
       out: dirname(f.out),
       from: "2026-11-01T00:00:00Z",
       to: "2026-11-02T00:00:00Z",
-      format: "markdown",
     });
     const events: unknown[] = [];
     const result = await exportChat(

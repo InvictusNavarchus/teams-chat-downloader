@@ -118,7 +118,7 @@ export async function exportChat(
     const output = await writeExport(out, document, signal);
     published = true;
     onProgress?.({ type: "save", format: "json", destination: output });
-    if (options.format === "markdown") {
+    if (options.markdown) {
       try {
         const converted = await convertArchive(
           { input: output, format: "markdown" },
