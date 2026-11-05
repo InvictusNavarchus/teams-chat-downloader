@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { Credentials } from "../src/credentials.ts";
 import { createHttp, requestStats } from "../src/http.ts";
-import { historyProgress, listChats, readHistory } from "../src/teams.ts";
+import {
+  type HistoryPageProgress,
+  historyProgress,
+  listChats,
+  readHistory,
+} from "../src/teams.ts";
 
 const chat = "synthetic:/chat?@thread.v2";
 const credentials: Credentials = {
@@ -52,12 +57,14 @@ describe("bounded history", () => {
             ]);
       },
     });
+    const updates: HistoryPageProgress[] = [];
     const messages = await readHistory(
       http,
       credentials,
       chat,
       window,
       progress,
+      (update) => updates.push(update),
     );
     expect(calls[0]?.searchParams.has("syncState")).toBe(false);
     expect(calls[0]?.pathname).toContain(encodeURIComponent(chat));
@@ -73,6 +80,22 @@ describe("bounded history", () => {
       retries: 0,
     });
     expect(progress).toEqual({ pages: 2, records: 4, duplicates: 1 });
+    expect(updates).toEqual([
+      {
+        page: 1,
+        pageMessages: 2,
+        totalMessages: 2,
+        earliestTimestamp: "2026-08-02T00:00:00Z",
+        hasMore: true,
+      },
+      {
+        page: 2,
+        pageMessages: 2,
+        totalMessages: 3,
+        earliestTimestamp: "2026-08-02T00:00:00Z",
+        hasMore: false,
+      },
+    ]);
   });
 
   test("accepts a valid empty window as exhausted", async () => {

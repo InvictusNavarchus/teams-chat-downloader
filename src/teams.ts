@@ -36,6 +36,14 @@ export type HistoryProgress = {
   duplicates: number;
 };
 
+export type HistoryPageProgress = {
+  page: number;
+  pageMessages: number;
+  totalMessages: number;
+  earliestTimestamp?: string;
+  hasMore: boolean;
+};
+
 export function historyProgress(): HistoryProgress {
   return { pages: 0, records: 0, duplicates: 0 };
 }
@@ -61,6 +69,7 @@ export async function readHistory(
   chat: string,
   window: Window,
   progress = historyProgress(),
+  onProgress?: (progress: HistoryPageProgress) => void,
 ): Promise<Message[]> {
   assertWindow(window);
   if (!chat) throw new AppError("A chat ID is required.");
@@ -125,6 +134,22 @@ export async function readHistory(
       throw new AppError(
         "History continuation made no progress; export stopped.",
       );
+    let earliestTimestamp: string | undefined;
+    for (const message of page.messages) {
+      if (
+        earliestTimestamp === undefined ||
+        message.originalarrivaltime < earliestTimestamp
+      ) {
+        earliestTimestamp = message.originalarrivaltime;
+      }
+    }
+    onProgress?.({
+      page: progress.pages,
+      pageMessages: page.messages.length,
+      totalMessages: messages.size,
+      earliestTimestamp,
+      hasMore: next !== undefined,
+    });
   }
   return [...messages.values()].sort(
     (a, b) =>

@@ -450,13 +450,30 @@ test("export saves portable images, offline conversion rebases links, and --no-m
       to: "2026-11-02T00:00:00Z",
       format: "markdown",
     });
+    const events: unknown[] = [];
     const result = await exportChat(
       options,
       credentials,
       http,
       f.stats,
       historyProgress(),
+      undefined,
+      (event) => events.push(event),
     );
+    expect(events).toEqual([
+      {
+        type: "history",
+        page: 1,
+        pageMessages: 1,
+        totalMessages: 1,
+        earliestTimestamp: "2026-11-01T12:00:00Z",
+        hasMore: false,
+      },
+      { type: "media-start", total: 1 },
+      { type: "media-progress", current: 1, total: 1, cached: false },
+      { type: "save", format: "json", destination: result.output },
+      { type: "convert", format: "markdown", destination: result.markdown },
+    ]);
     const archive = await readArchive(result.output);
     expect(archive.media.status).toBe("complete");
     if (archive.media.status === "not-downloaded")

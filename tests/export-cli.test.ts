@@ -131,6 +131,10 @@ test("export without --out publishes a label-based export folder and reports the
   const result = await f.run(["--last", "1d"]);
   expect(result.code).toBe(0);
   const summary = readSummary(result.stdout);
+  expect(result.stdout).toContain(
+    "[history] Page 1: 0 messages (total: 0) (history complete)",
+  );
+  expect(result.stdout).toContain("[export] Saved JSON archive.");
   expect(result.stdout).toContain("Images: 0 reused from cache, 0 downloaded");
   expect(result.stdout).toContain("HTTP attempts: 2 (history: 1, directory: 1");
   expect(result.stderr).toBe("");
@@ -202,6 +206,7 @@ test("Markdown export saves both formats and reports both paths", async () => {
   const result = await f.run(["--last", "1d", "--format", "markdown"]);
   expect(result.code).toBe(0);
   const summary = readSummary(result.stdout);
+  expect(result.stdout).toContain("[convert] Converted to Markdown.");
   expect(summary.output).toEndWith(".json");
   expect(summary.markdown).toBe(summary.output.replace(/\.json$/, ".md"));
   expect((await readdir(dirname(summary.output))).sort()).toEqual([

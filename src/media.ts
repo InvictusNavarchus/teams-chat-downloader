@@ -159,12 +159,21 @@ async function publishCache(
   }
 }
 
+export type MediaProgress =
+  | { phase: "start"; total: number }
+  | { phase: "progress"; current: number; total: number; cached: boolean };
+
 export async function downloadImages(
   messages: Message[],
   output: string,
   credentials: Credentials,
   http: Http,
-  options: { refresh?: boolean; cacheRoot?: string; signal?: AbortSignal } = {},
+  options: {
+    refresh?: boolean;
+    cacheRoot?: string;
+    signal?: AbortSignal;
+    onProgress?: (progress: MediaProgress) => void;
+  } = {},
 ): Promise<DownloadedMedia> {
   const media: DownloadedMedia = {
     status: "complete",
@@ -211,13 +220,18 @@ export async function downloadImages(
   let completed = 0;
   let failed = 0;
   let ownsDirectory = false;
+  if (resources.size > 0) {
+    options.onProgress?.({ phase: "start", total: resources.size });
+  }
   try {
     // Sequential downloads keep concurrency bounded at one and stop immediately on failure.
     for (const [key, resource] of resources) {
       options.signal?.throwIfAborted();
       let image = await cached(cache, key);
+      let cachedHit = false;
       if (image && !options.refresh) {
         media.cacheHits++;
+        cachedHit = true;
       } else {
         const cookie =
           credentials.mediaCookies?.[
@@ -250,6 +264,7 @@ export async function downloadImages(
               "Media returned 304 without a complete cached image.",
             );
           media.cacheHits++;
+          cachedHit = true;
         } else {
           if (response.status !== 200)
             throw new AppError(
@@ -313,6 +328,12 @@ export async function downloadImages(
         });
       }
       completed++;
+      options.onProgress?.({
+        phase: "progress",
+        current: completed,
+        total: resources.size,
+        cached: cachedHit,
+      });
     }
     options.signal?.throwIfAborted();
     return media;

@@ -78,18 +78,45 @@ export async function runCli(argv = process.argv): Promise<number> {
       const { "--": _trailing, ...input } = raw;
       const options = resolveExportOptions(input);
       const credentials = await loadCredentials(options.credentials);
-      console.log(
-        JSON.stringify(
-          await exportChat(
-            options,
-            credentials,
-            http,
-            stats,
-            progress,
-            controller.signal,
-          ),
-        ),
+      const result = await exportChat(
+        options,
+        credentials,
+        http,
+        stats,
+        progress,
+        controller.signal,
+        (event) => {
+          switch (event.type) {
+            case "history": {
+              const reach = event.earliestTimestamp
+                ? ` — reached ${event.earliestTimestamp}`
+                : "";
+              const status = event.hasMore ? "" : " (history complete)";
+              console.log(
+                `[history] Page ${event.page}: ${event.pageMessages} messages (total: ${event.totalMessages})${reach}${status}`,
+              );
+              break;
+            }
+            case "media-start":
+              console.log(
+                `[media] Found ${event.total} image(s); verifying cache and downloading...`,
+              );
+              break;
+            case "media-progress":
+              console.log(
+                `[media] Image ${event.current}/${event.total} (${event.cached ? "reused from cache" : "downloaded"})`,
+              );
+              break;
+            case "save":
+              console.log("[export] Saved JSON archive.");
+              break;
+            case "convert":
+              console.log("[convert] Converted to Markdown.");
+              break;
+          }
+        },
       );
+      console.log(JSON.stringify(result));
     });
   cli
     .command("convert", "Convert a saved JSON export without contacting Teams")

@@ -9,7 +9,19 @@ import type { Http, RequestStats } from "./http.ts";
 import { downloadImages } from "./media.ts";
 import type { ExportOptions } from "./options.ts";
 import { checkOutput, writeExport } from "./output.ts";
-import { type HistoryProgress, listChats, readHistory } from "./teams.ts";
+import {
+  type HistoryPageProgress,
+  type HistoryProgress,
+  listChats,
+  readHistory,
+} from "./teams.ts";
+
+export type ExportProgressEvent =
+  | ({ type: "history" } & HistoryPageProgress)
+  | { type: "media-start"; total: number }
+  | { type: "media-progress"; current: number; total: number; cached: boolean }
+  | { type: "save"; format: "json"; destination: string }
+  | { type: "convert"; format: "markdown"; destination: string };
 
 export async function exportChat(
   options: ExportOptions,
@@ -18,6 +30,7 @@ export async function exportChat(
   stats: RequestStats,
   progress: HistoryProgress,
   signal?: AbortSignal,
+  onProgress?: (event: ExportProgressEvent) => void,
 ) {
   let directory = options.out;
   if (directory === undefined) {
@@ -44,6 +57,7 @@ export async function exportChat(
     options.chat,
     options.window,
     progress,
+    (h) => onProgress?.({ type: "history", ...h }),
   );
   signal?.throwIfAborted();
   try {
@@ -62,6 +76,18 @@ export async function exportChat(
       ? await downloadImages(messages, out, credentials, http, {
           refresh: options.refreshMedia,
           signal,
+          onProgress: (m) => {
+            if (m.phase === "start") {
+              onProgress?.({ type: "media-start", total: m.total });
+            } else {
+              onProgress?.({
+                type: "media-progress",
+                current: m.current,
+                total: m.total,
+                cached: m.cached,
+              });
+            }
+          },
         })
       : { status: "not-downloaded" as const };
     const document = {
@@ -91,12 +117,18 @@ export async function exportChat(
     } satisfies Archive;
     const output = await writeExport(out, document, signal);
     published = true;
+    onProgress?.({ type: "save", format: "json", destination: output });
     if (options.format === "markdown") {
       try {
         const converted = await convertArchive(
           { input: output, format: "markdown" },
           signal,
         );
+        onProgress?.({
+          type: "convert",
+          format: "markdown",
+          destination: converted.output,
+        });
         return {
           output,
           messages: messages.length,
