@@ -80,7 +80,7 @@ bun run teams chats --refresh-names
 
 The [participant profile reference](docs/08-participant-profiles.md) records the observed requests, cache policy, and remaining limits. Name caching is separate from the image cache. Automatic export filenames resolve the selected chat's label through the same directory and name cache. Exports with an explicit `--out` do not request the directory or profiles.
 
-Export a rolling seven-day window, or select an older period directly:
+Export the last seven calendar days including today, or select an older period directly:
 
 ```sh
 bun run teams export --chat '<raw-chat-id>' --last 7d
@@ -88,7 +88,9 @@ bun run teams export --chat '<raw-chat-id>' --from '2026-08-01T00:00:00Z' --to '
 bun run teams export --chat '<raw-chat-id>' --last 7d --out exports/last-week
 ```
 
-Choose exactly one of `--last Nd`, `--since <timestamp>`, or `--from <timestamp> --to <timestamp>`. Full timestamps must include `Z` or an offset and use at most millisecond precision; date-only values are rejected. The start is inclusive and the end exclusive. `--last 7d` means 168 hours ending at one captured invocation time. Filtering and sorting use `originalarrivaltime`.
+Choose exactly one of `--last Nd`, `--since <timestamp>`, or `--from <timestamp> --to <timestamp>`. Full timestamps must include `Z` or an offset and use at most millisecond precision; date-only values are rejected. The start is inclusive and the end exclusive. Filtering and sorting use `originalarrivaltime`.
+
+`--last Nd` starts at local midnight N−1 calendar days ago and ends at one captured invocation time: `--last 1d` exports today so far, `--last 2d` exports yesterday and today so far, and `--last 7d` starts six days ago at midnight. Calendar boundaries use the machine's local timezone and account for daylight-saving changes; set `TZ` to override it (for example, `TZ=Asia/Jakarta bun run teams export --chat '<raw-chat-id>' --last 2d`). This replaces the previous rolling N×24-hour behavior. `--since` and explicit `--from`/`--to` continue to use the exact supplied timestamps.
 
 `--out <directory>` is optional. By default, each export gets its own folder under `exports/` in the current working directory, named from the chat label and selected period. The chat label becomes normalized lowercase kebab-case: accents are removed, other Unicode letters and numbers are retained, separators become hyphens, and labels are capped at 40 characters to keep directory names within filesystem limits. For a label of "Project Alpha":
 
@@ -98,7 +100,7 @@ Choose exactly one of `--last Nd`, `--since <timestamp>`, or `--from <timestamp>
 | `--since '2026-11-01T00:00:00Z'`                            | `project-alpha--since-2026-11-01T00-00-00-000Z--to-2026-11-05T10-30-00-000Z` |
 | `--from '2026-11-01T00:00:00Z' --to '2026-11-05T00:00:00Z'` | `project-alpha--from-2026-11-01T00-00-00-000Z--to-2026-11-05T00-00-00-000Z`  |
 
-Directory timestamps use UTC with milliseconds and filesystem-safe separators. The `to` timestamp is the exclusive end of the actual export window; including it distinguishes rolling exports run at different times. Successful stdout JSON includes the absolute `chat.json` path as `output`. If directory credentials or a matching chat label are unavailable, naming uses a short hash of the chat ID; generic untitled/unresolved labels also include that hash. Directory and profile request failures still fail explicitly. Use `--out <directory>` to select a new export folder and skip label lookup. The destination directory must not already exist, including for a repeated export of the same explicit range; choose another `--out` directory if needed.
+Directory timestamps use UTC with milliseconds and filesystem-safe separators. The `to` timestamp is the exclusive end of the actual export window; including it distinguishes exports ending at different invocation times. Successful stdout JSON includes the absolute `chat.json` path as `output`. If directory credentials or a matching chat label are unavailable, naming uses a short hash of the chat ID; generic untitled/unresolved labels also include that hash. Directory and profile request failures still fail explicitly. Use `--out <directory>` to select a new export folder and skip label lookup. The destination directory must not already exist, including for a repeated export of the same explicit range; choose another `--out` directory if needed.
 
 `--chat` accepts the raw ID printed by `chats`. History pages use the tested size of 200 and preserve the original bounds on continuation. Identical duplicates are removed; conflicting records for one ID, invalid payloads, unexpected destinations, non-progress, and out-of-window messages fail explicitly.
 

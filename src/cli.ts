@@ -66,7 +66,10 @@ export async function runCli(argv = process.argv): Promise<number> {
       "--out <directory>",
       "New export directory (default: exports/<chat-label>--<period>)",
     )
-    .option("--last <duration>", "Rolling duration, for example 7d")
+    .option(
+      "--last <Nd>",
+      "Last N calendar days including today, through now (local timezone; TZ overrides)",
+    )
     .option(
       "--format <format>",
       "json or markdown (always saves JSON; default: json)",

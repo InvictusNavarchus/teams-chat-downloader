@@ -13,7 +13,7 @@ test("out is optional but an explicitly empty output path is rejected", () => {
   ).toThrow("out");
 });
 
-test("rolling directory names contain the normalized label, duration, and fixed endpoint", () => {
+test("last-N-days directory names contain the normalized label, day count, and fixed endpoint", () => {
   const path = defaultExportDirectory(last, "  Café / Project_ALPHA! ");
   expect(dirname(path)).toBe("exports");
   expect(basename(path)).toBe(

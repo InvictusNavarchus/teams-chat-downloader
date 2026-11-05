@@ -1,3 +1,4 @@
+import dayjs from "dayjs";
 import { z } from "zod";
 import { AppError, validationError } from "./errors.ts";
 
@@ -82,7 +83,10 @@ export function resolveExportOptions(
   const to = options.to === undefined ? now : Date.parse(options.to);
   const from =
     options.last !== undefined
-      ? to - Number(options.last.slice(0, -1)) * 86_400_000
+      ? dayjs(to)
+          .subtract(Number(options.last.slice(0, -1)) - 1, "day")
+          .startOf("day")
+          .valueOf()
       : Date.parse(options.since ?? options.from ?? "");
   assertWindow({ from, to });
   return { ...options, window: { from, to } };

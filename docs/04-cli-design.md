@@ -110,7 +110,7 @@ This is a design recommendation. Half-open CLI semantics and the arrival/composi
 
 ### 4.3 Relative periods
 
-**Proposed:** `--last 7d` means the previous 168 hours, ending at one captured invocation time. It is not a calendar week unless the product deliberately adopts different semantics.
+**Implemented after user authorization:** `--last Nd` selects the last N calendar days including today, ending at one captured invocation time. The start is local midnight N−1 days ago: `--last 1d` means today so far, `--last 2d` means yesterday and today so far, and `--last 7d` starts six days ago. This replaces the original rolling N×24-hour proposal. Day.js resolves local calendar boundaries, including daylight-saving changes; the machine timezone applies unless overridden with `TZ`.
 
 Capture that end time once. Do not recompute now for each page or after a retry, because doing so changes the window during export.
 

@@ -137,7 +137,7 @@ The first slice uses these revisable defaults:
 | Decision | Recommended starting point | Current status |
 | --- | --- | --- |
 | Credential input | Optional `--credentials` override; otherwise per-user state JSON, then installation-local `.private/credentials.json` when the state file is missing | Implemented; `login` writes verified state with a stable self-MRI-derived account label; Unix group/other permissions rejected; no unattended renewal |
-| Date semantics | Half-open UTC millisecond window; full timestamps require `Z` or an offset; `--last 7d` is 168 hours | Implemented; date-only and submillisecond inputs rejected |
+| Date semantics | Half-open UTC millisecond window; full timestamps require `Z` or an offset; `--last Nd` starts at local midnight N−1 calendar days ago and ends at invocation time | Implemented with Day.js; local timezone or `TZ` override; date-only and submillisecond inputs rejected |
 | Filtering timestamp | `originalarrivaltime`, preserving the other source timestamps | Implemented; unexpected out-of-window responses fail |
 | Output | Canonical JSON with a versioned manifest, automatic label/period directory under `exports/` or explicit `--out <directory>`, containing `chat.json`, optional `chat.md`, and `media/`, optional Markdown, and no overwrite | Implemented; Markdown reads the saved JSON and is also available through offline `convert`; conversion failure retains JSON; no partial history file or durable resume |
 | Initial scope | Supplied chat ID plus directory listing and browser-assisted credentials | Implemented; retrieval holds the selected window in memory; images remain future work |

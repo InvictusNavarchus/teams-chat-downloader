@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import { resolveConvertOptions, resolveExportOptions } from "../src/options.ts";
 
 const base = {
@@ -26,12 +27,94 @@ test("images default on, can be skipped, and refresh requires media", () => {
 });
 
 describe("date options", () => {
-  test("last 7d is one fixed 168-hour window", () => {
-    expect(resolveExportOptions({ ...base, last: "7d" }, now).window).toEqual({
-      from: now - 7 * 86_400_000,
-      to: now,
-    });
-  });
+  test.each([
+    [
+      "Asia/Jakarta",
+      "1d",
+      "2026-11-05T15:00:00+07:00",
+      "2026-11-05T00:00:00+07:00",
+    ],
+    [
+      "Asia/Jakarta",
+      "2d",
+      "2026-11-05T15:00:00+07:00",
+      "2026-11-04T00:00:00+07:00",
+    ],
+    [
+      "Asia/Jakarta",
+      "7d",
+      "2026-11-05T15:00:00+07:00",
+      "2026-10-30T00:00:00+07:00",
+    ],
+    [
+      "Asia/Jakarta",
+      "1d",
+      "2026-11-05T00:00:00.001+07:00",
+      "2026-11-05T00:00:00+07:00",
+    ],
+    [
+      "Asia/Jakarta",
+      "1d",
+      "2026-11-05T23:59:59.999+07:00",
+      "2026-11-05T00:00:00+07:00",
+    ],
+    ["UTC", "2d", "2026-11-01T12:00:00Z", "2026-10-31T00:00:00Z"],
+    ["UTC", "2d", "2026-01-01T12:00:00Z", "2025-12-31T00:00:00Z"],
+    ["UTC", "2d", "2024-03-01T12:00:00Z", "2024-02-29T00:00:00Z"],
+    [
+      "America/New_York",
+      "1d",
+      "2026-03-08T12:00:00-04:00",
+      "2026-03-08T00:00:00-05:00",
+    ],
+    [
+      "America/New_York",
+      "2d",
+      "2026-03-09T12:00:00-04:00",
+      "2026-03-08T00:00:00-05:00",
+    ],
+    [
+      "America/New_York",
+      "1d",
+      "2026-11-01T12:00:00-05:00",
+      "2026-11-01T00:00:00-04:00",
+    ],
+    [
+      "America/New_York",
+      "2d",
+      "2026-11-02T12:00:00-05:00",
+      "2026-11-01T00:00:00-04:00",
+    ],
+  ])(
+    "%s --last %s at %s starts at %s and ends at invocation time",
+    async (zone, last, invocation, start) => {
+      // Isolate TZ so these cases cannot change the timezone of other tests.
+      const child = Bun.spawn(
+        [
+          process.execPath,
+          "--eval",
+          `import { resolveExportOptions } from ${JSON.stringify(fileURLToPath(new URL("../src/options.ts", import.meta.url)))};
+      console.log(JSON.stringify(resolveExportOptions({ chat: "fixture", last: ${JSON.stringify(last)} }, ${Date.parse(invocation)}).window));`,
+        ],
+        {
+          env: { ...process.env, TZ: zone },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      const [code, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      expect(stderr).toBe("");
+      expect(code).toBe(0);
+      expect(JSON.parse(stdout)).toEqual({
+        from: Date.parse(start),
+        to: Date.parse(invocation),
+      });
+    },
+  );
 
   test("explicit offsets resolve to UTC milliseconds", () => {
     expect(

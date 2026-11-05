@@ -258,7 +258,7 @@ This mapping is a proposal, not a tested CLI implementation. Validate it with fi
 
 Date-only inputs, timezone defaults, `--to` day inclusion, and whether user-facing filtering should use arrival or composition time remain product decisions. Do not silently promise that message arrival time and the human-visible creation date are always identical.
 
-`--last 7d` was proposed to mean a rolling 168-hour window ending at a single captured invocation time. Calendar-week semantics were not requested or established.
+`--last 7d` was originally proposed to mean a rolling 168-hour window ending at a single captured invocation time. The implemented CLI now selects seven calendar days including today, from local midnight six days ago through invocation time; see [relative periods](04-cli-design.md#43-relative-periods). This is a CLI product choice, independent of the HTTP bounds.
 
 ## 6. Chat directory
 
