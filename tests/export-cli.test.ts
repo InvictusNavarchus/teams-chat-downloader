@@ -1,7 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const directories: string[] = [];
@@ -112,18 +119,19 @@ async function fixture({
   return { dir, run };
 }
 
-test("export without --out publishes a label-based rolling filename and reports the saved path", async () => {
+test("export without --out publishes a label-based export folder and reports the saved path", async () => {
   const f = await fixture();
   const result = await f.run(["--last", "1d"]);
   expect(result.code).toBe(0);
   const summary = JSON.parse(result.stdout);
-  expect(basename(summary.output)).toMatch(
-    /^cafe-project-alpha--last-1d--to-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.json$/,
+  expect(basename(summary.output)).toBe("chat.json");
+  expect(basename(dirname(summary.output))).toMatch(
+    /^cafe-project-alpha--last-1d--to-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/,
   );
   expect(summary.messages).toBe(0);
   const document = JSON.parse(await readFile(summary.output, "utf8"));
   expect(document.status).toBe("complete");
-  expect(basename(summary.output)).toContain(
+  expect(basename(dirname(summary.output))).toContain(
     document.window.toExclusive.replace(/[:.]/g, "-"),
   );
   expect(document.requests).toMatchObject({
@@ -156,7 +164,7 @@ test("automatic naming resolves only the selected chat's participant label", asy
   const document = JSON.parse(
     await readFile(JSON.parse(result.stdout).output, "utf8"),
   );
-  expect(basename(JSON.parse(result.stdout).output)).toStartWith(
+  expect(basename(dirname(JSON.parse(result.stdout).output))).toStartWith(
     "jane-doe--last-1d--",
   );
   expect(document.requests).toMatchObject({
@@ -168,12 +176,12 @@ test("automatic naming resolves only the selected chat's participant label", asy
 
 test("explicit --out overrides automatic naming without any directory or profile lookup", async () => {
   const f = await fixture();
-  const result = await f.run(["--last", "1d", "--out", "custom.json"], {
+  const result = await f.run(["--last", "1d", "--out", "custom"], {
     directoryStatus: 401,
   });
   expect(result.code).toBe(0);
   const summary = JSON.parse(result.stdout);
-  expect(summary.output).toBe(join(f.dir, "custom.json"));
+  expect(summary.output).toBe(join(f.dir, "custom", "chat.json"));
   expect(
     JSON.parse(await readFile(summary.output, "utf8")).requests,
   ).toMatchObject({ total: 1, directory: 0, profiles: 0 });
@@ -186,6 +194,10 @@ test("Markdown export saves both formats and reports both paths", async () => {
   const summary = JSON.parse(result.stdout);
   expect(summary.output).toEndWith(".json");
   expect(summary.markdown).toBe(summary.output.replace(/\.json$/, ".md"));
+  expect((await readdir(dirname(summary.output))).sort()).toEqual([
+    "chat.json",
+    "chat.md",
+  ]);
   expect(JSON.parse(await readFile(summary.output, "utf8")).media.status).toBe(
     "complete",
   );
@@ -194,16 +206,16 @@ test("Markdown export saves both formats and reports both paths", async () => {
   );
 });
 
-test("Markdown --out remains the JSON destination and skips label lookups", async () => {
+test("Markdown --out selects the export folder and skips label lookups", async () => {
   const f = await fixture();
   const result = await f.run(
-    ["--last", "1d", "--format", "markdown", "--out", "custom.json"],
+    ["--last", "1d", "--format", "markdown", "--out", "custom"],
     { directoryStatus: 401 },
   );
   expect(result.code).toBe(0);
   const summary = JSON.parse(result.stdout);
-  expect(summary.output).toBe(join(f.dir, "custom.json"));
-  expect(summary.markdown).toBe(join(f.dir, "custom.md"));
+  expect(summary.output).toBe(join(f.dir, "custom", "chat.json"));
+  expect(summary.markdown).toBe(join(f.dir, "custom", "chat.md"));
   expect(
     JSON.parse(await readFile(summary.output, "utf8")).requests,
   ).toMatchObject({ total: 1, directory: 0 });
@@ -211,15 +223,11 @@ test("Markdown --out remains the JSON destination and skips label lookups", asyn
 
 test("--no-media retains the text-only manifest and incompatible refresh flags fail early", async () => {
   const f = await fixture();
-  const skipped = await f.run([
-    "--last",
-    "1d",
-    "--out",
-    "text.json",
-    "--no-media",
-  ]);
+  const skipped = await f.run(["--last", "1d", "--out", "text", "--no-media"]);
   expect(skipped.code).toBe(0);
-  const archive = JSON.parse(await readFile(join(f.dir, "text.json"), "utf8"));
+  const archive = JSON.parse(
+    await readFile(join(f.dir, "text", "chat.json"), "utf8"),
+  );
   expect(archive.media).toEqual({ status: "not-downloaded" });
   expect(archive.requests.media).toBe(0);
   const conflict = await f.run([
@@ -235,20 +243,23 @@ test("--no-media retains the text-only manifest and incompatible refresh flags f
 
 test("an existing Markdown destination stops export before history retrieval", async () => {
   const f = await fixture();
-  await writeFile(join(f.dir, "custom.md"), "previous Markdown");
+  await mkdir(join(f.dir, "custom"));
+  await writeFile(join(f.dir, "custom", "chat.md"), "previous Markdown");
   const result = await f.run([
     "--last",
     "1d",
     "--format",
     "markdown",
     "--out",
-    "custom.json",
+    "custom",
   ]);
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("already exists");
   expect(result.stderr).not.toContain("HTTP attempts:");
-  expect(await Bun.file(join(f.dir, "custom.json")).exists()).toBe(false);
-  expect(await readFile(join(f.dir, "custom.md"), "utf8")).toBe(
+  expect(await Bun.file(join(f.dir, "custom", "chat.json")).exists()).toBe(
+    false,
+  );
+  expect(await readFile(join(f.dir, "custom", "chat.md"), "utf8")).toBe(
     "previous Markdown",
   );
 });
@@ -259,7 +270,7 @@ test.each([true, false])(
     const f = await fixture({ directoryToken });
     const result = await f.run(["--last", "1d"], { chats: [] });
     expect(result.code).toBe(0);
-    expect(basename(JSON.parse(result.stdout).output)).toMatch(
+    expect(basename(dirname(JSON.parse(result.stdout).output))).toMatch(
       /^chat-[a-f0-9]{10}--last-1d--/,
     );
     expect(result.stderr).toContain("Chat label unavailable");
@@ -277,8 +288,8 @@ test("repeating an explicit range preserves the previous export and stops before
   const first = await f.run(args);
   expect(first.code).toBe(0);
   const output = JSON.parse(first.stdout).output;
-  expect(basename(output)).toBe(
-    "cafe-project-alpha--from-2026-11-01T00-00-00-000Z--to-2026-11-05T00-00-00-000Z.json",
+  expect(basename(dirname(output))).toBe(
+    "cafe-project-alpha--from-2026-11-01T00-00-00-000Z--to-2026-11-05T00-00-00-000Z",
   );
   const bytes = await readFile(output, "utf8");
   const repeated = await f.run(args);
@@ -286,7 +297,9 @@ test("repeating an explicit range preserves the previous export and stops before
   expect(repeated.stderr).toContain("already exists");
   expect(repeated.stderr).toContain("history: 0");
   expect(await readFile(output, "utf8")).toBe(bytes);
-  expect(await readdir(join(f.dir, "exports"))).toEqual([basename(output)]);
+  expect(await readdir(join(f.dir, "exports"))).toEqual([
+    basename(dirname(output)),
+  ]);
 });
 
 test.each([{ directoryStatus: 401 }, { historyStatus: 401 }])(

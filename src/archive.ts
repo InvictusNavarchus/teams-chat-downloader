@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import { parse, sep } from "node:path";
 import { z } from "zod";
 import { AppError, validationError } from "./errors.ts";
 
@@ -10,10 +9,7 @@ const timestamp = z.iso
 const imageSchema = z.looseObject({
   messageId: z.string().min(1),
   key: z.string().regex(/^[a-f0-9]{64}$/),
-  path: z
-    .string()
-    .regex(/^[^/\x00]+\.media\/[a-f0-9]{64}\.(jpg|png|gif|webp)$/)
-    .refine((path) => !parse(path).root && !path.split(sep).includes("..")),
+  path: z.string().regex(/^media\/[a-f0-9]{64}\.(jpg|png|gif|webp)$/),
   bytes: z.number().int().positive(),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
   mediaType: z.enum(["image/jpeg", "image/png", "image/gif", "image/webp"]),

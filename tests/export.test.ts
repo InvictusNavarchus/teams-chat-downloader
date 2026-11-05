@@ -33,11 +33,12 @@ afterEach(async () => {
 
 test("exports preserved messages and truthful manifest without credentials or cursors", async () => {
   const dir = await temporary();
-  const out = join(dir, "export.json");
+  const directory = join(dir, "export");
+  const out = join(directory, "chat.json");
   const options = resolveExportOptions({
     chat: "fixture",
     credentials: "unused.json",
-    out,
+    out: directory,
     from: "2026-08-01T00:00:00Z",
     to: "2026-08-08T00:00:00Z",
   });
@@ -80,7 +81,8 @@ test("exports preserved messages and truthful manifest without credentials or cu
   });
   expect(raw).not.toContain("private-header");
   expect(raw).not.toContain("private-cursor");
-  expect(await readdir(dir)).toEqual(["export.json"]);
+  expect(await readdir(dir)).toEqual(["export"]);
+  expect(await readdir(directory)).toEqual(["chat.json"]);
   await expect(
     exportChat(
       options,
@@ -99,11 +101,12 @@ test("exports preserved messages and truthful manifest without credentials or cu
 
 test("a later page failure creates no complete-looking export", async () => {
   const dir = await temporary();
-  const out = join(dir, "export.json");
+  const directory = join(dir, "export");
+  const out = join(directory, "chat.json");
   const options = resolveExportOptions({
     chat: "fixture",
     credentials: "unused.json",
-    out,
+    out: directory,
     last: "7d",
   });
   const stats = requestStats();
@@ -149,14 +152,24 @@ test("a later page failure creates no complete-looking export", async () => {
 
 test("a conversion failure preserves the saved JSON for an offline retry", async () => {
   const dir = await temporary();
-  const out = join(dir, "history.json");
-  const markdown = join(dir, "history.md");
+  const directory = join(dir, "history");
+  const out = join(directory, "chat.json");
+  const markdown = join(directory, "chat.md");
   const stats = requestStats();
   const http = createHttp({
     stats,
-    fetch: async () => {
-      // Simulate another process publishing Markdown after the preflight check.
-      await writeFile(markdown, "previous Markdown");
+    fetch: async (request) => {
+      if (new URL(request.url).hostname === "us-api.asm.skype.com") {
+        // Simulate another writer after this export reserves its directory.
+        await writeFile(markdown, "previous Markdown");
+        return new Response(
+          Buffer.from(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1sAAAAASUVORK5CYII=",
+            "base64",
+          ),
+          { headers: { "content-type": "image/png" } },
+        );
+      }
       return Response.json({
         messages: [
           {
@@ -166,6 +179,13 @@ test("a conversion failure preserves the saved JSON for an offline retry", async
             content: "Retained content",
             unknownField: { retained: true },
           },
+          {
+            id: "2",
+            originalarrivaltime: "2026-11-01T12:00:00Z",
+            messagetype: "RichText/Html",
+            content:
+              '<img src="https://us-api.asm.skype.com/v1/objects/synthetic/views/imgo">',
+          },
         ],
         _metadata: {},
       });
@@ -173,24 +193,34 @@ test("a conversion failure preserves the saved JSON for an offline retry", async
   });
   const options = resolveExportOptions({
     chat: "fixture",
-    out,
+    out: directory,
     format: "markdown",
     from: "2026-11-01T00:00:00Z",
     to: "2026-11-02T00:00:00Z",
   });
-  await expect(
-    exportChat(
-      options,
-      {
-        version: 1,
-        accountId: "fixture",
-        historyAuthentication: "fixture-history",
-      },
-      http,
-      stats,
-      historyProgress(),
-    ),
-  ).rejects.toThrow(`JSON export saved to ${out}. Markdown conversion failed`);
+  const previousCache = process.env.XDG_CACHE_HOME;
+  process.env.XDG_CACHE_HOME = join(dir, "cache");
+  try {
+    await expect(
+      exportChat(
+        options,
+        {
+          version: 1,
+          accountId: "fixture",
+          historyAuthentication: "fixture-history",
+          mediaCookies: { "https://us-api.asm.skype.com": "fixture-media" },
+        },
+        http,
+        stats,
+        historyProgress(),
+      ),
+    ).rejects.toThrow(
+      `JSON export saved to ${out}. Markdown conversion failed`,
+    );
+  } finally {
+    if (previousCache === undefined) delete process.env.XDG_CACHE_HOME;
+    else process.env.XDG_CACHE_HOME = previousCache;
+  }
   const raw = await readFile(out, "utf8");
   expect(JSON.parse(raw).messages[0]).toMatchObject({
     content: "Retained content",

@@ -63,8 +63,8 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option("--refresh-media", "Revalidate cached images with Teams")
     .option("--credentials <file>", "Override automatic credential file lookup")
     .option(
-      "--out <file>",
-      "Output JSON file (default: exports/<chat-label>--<period>.json); never overwritten",
+      "--out <directory>",
+      "New export directory (default: exports/<chat-label>--<period>)",
     )
     .option("--last <duration>", "Rolling duration, for example 7d")
     .option(
@@ -112,7 +112,7 @@ export async function runCli(argv = process.argv): Promise<number> {
       "Convert JSON exports that have no sibling Markdown destination",
     )
     .option("--dir <directory>", "Directory of JSON exports (default: exports)")
-    .option("--recursive", "Include subdirectories")
+    .option("--recursive", "Include exports nested beyond direct child folders")
     .option("--format <format>", "Output format (default: markdown)")
     .action(async (raw: Record<string, unknown>) => {
       const { "--": _trailing, ...input } = raw;

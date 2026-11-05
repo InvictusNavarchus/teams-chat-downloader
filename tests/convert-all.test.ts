@@ -125,6 +125,38 @@ test("convert-all defaults to exports, converts missing Markdown offline, and is
   expect(await readFile(join(f.exports, "first.md"), "utf8")).toBe(markdown);
 });
 
+test("default scanning converts direct export folders and recursion reaches deeper bundles", async () => {
+  const f = await fixture();
+  const source = await f.put("first/chat.json");
+  await f.put("done/chat.json", "Already converted");
+  await f.put("done/chat.md", "Previous Markdown");
+  await f.put("nested/deeper/chat.json");
+  const result = await f.run();
+  expect(result.code).toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    converted: 1,
+    skipped: 1,
+    failed: 0,
+  });
+  expect(await readFile(join(f.exports, "first/chat.md"), "utf8")).toContain(
+    "Example sender",
+  );
+  expect(await readFile(source.path, "utf8")).toBe(source.raw);
+  expect(
+    await Bun.file(join(f.exports, "nested/deeper/chat.md")).exists(),
+  ).toBe(false);
+  const nested = await f.run(["--recursive"]);
+  expect(nested.code).toBe(0);
+  expect(JSON.parse(nested.stdout)).toMatchObject({
+    converted: 1,
+    skipped: 2,
+    failed: 0,
+  });
+  expect(
+    await Bun.file(join(f.exports, "nested/deeper/chat.md")).exists(),
+  ).toBe(true);
+});
+
 test("--dir selects another directory and --recursive includes nested exports", async () => {
   const f = await fixture();
   await f.put("unselected.json");

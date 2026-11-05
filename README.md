@@ -85,28 +85,37 @@ Export a rolling seven-day window, or select an older period directly:
 ```sh
 bun run teams export --chat '<raw-chat-id>' --last 7d
 bun run teams export --chat '<raw-chat-id>' --from '2026-08-01T00:00:00Z' --to '2026-08-08T00:00:00Z'
-bun run teams export --chat '<raw-chat-id>' --last 7d --out exports/last-week.json
+bun run teams export --chat '<raw-chat-id>' --last 7d --out exports/last-week
 ```
 
 Choose exactly one of `--last Nd`, `--since <timestamp>`, or `--from <timestamp> --to <timestamp>`. Full timestamps must include `Z` or an offset and use at most millisecond precision; date-only values are rejected. The start is inclusive and the end exclusive. `--last 7d` means 168 hours ending at one captured invocation time. Filtering and sorting use `originalarrivaltime`.
 
-`--out` is optional. By default, files go into `exports/` under the current working directory. The chat label becomes normalized lowercase kebab-case: accents are removed, other Unicode letters and numbers are retained, separators become hyphens, and labels are capped at 40 characters to keep filenames within filesystem limits. For a label of "Project Alpha":
+`--out <directory>` is optional. By default, each export gets its own folder under `exports/` in the current working directory, named from the chat label and selected period. The chat label becomes normalized lowercase kebab-case: accents are removed, other Unicode letters and numbers are retained, separators become hyphens, and labels are capped at 40 characters to keep directory names within filesystem limits. For a label of "Project Alpha":
 
-| Selection | Example filename |
+| Selection | Example directory under `exports/` |
 | --- | --- |
-| `--last 1d` | `project-alpha--last-1d--to-2026-11-05T10-30-00-000Z.json` |
-| `--since '2026-11-01T00:00:00Z'` | `project-alpha--since-2026-11-01T00-00-00-000Z--to-2026-11-05T10-30-00-000Z.json` |
-| `--from '2026-11-01T00:00:00Z' --to '2026-11-05T00:00:00Z'` | `project-alpha--from-2026-11-01T00-00-00-000Z--to-2026-11-05T00-00-00-000Z.json` |
+| `--last 1d` | `project-alpha--last-1d--to-2026-11-05T10-30-00-000Z` |
+| `--since '2026-11-01T00:00:00Z'` | `project-alpha--since-2026-11-01T00-00-00-000Z--to-2026-11-05T10-30-00-000Z` |
+| `--from '2026-11-01T00:00:00Z' --to '2026-11-05T00:00:00Z'` | `project-alpha--from-2026-11-01T00-00-00-000Z--to-2026-11-05T00-00-00-000Z` |
 
-Filename timestamps use UTC with milliseconds and filename-safe separators. The `to` timestamp is the exclusive end of the actual export window; including it distinguishes rolling exports run at different times. Successful stdout JSON includes the absolute saved path as `output`. If directory credentials or a matching chat label are unavailable, naming uses a short hash of the chat ID; generic untitled/unresolved labels also include that hash. Directory and profile request failures still fail explicitly. Use `--out <file>` to select any other path and skip label lookup. Existing files are never overwritten, including a repeated export of the same explicit range; choose another `--out` path if needed.
+Directory timestamps use UTC with milliseconds and filesystem-safe separators. The `to` timestamp is the exclusive end of the actual export window; including it distinguishes rolling exports run at different times. Successful stdout JSON includes the absolute `chat.json` path as `output`. If directory credentials or a matching chat label are unavailable, naming uses a short hash of the chat ID; generic untitled/unresolved labels also include that hash. Directory and profile request failures still fail explicitly. Use `--out <directory>` to select a new export folder and skip label lookup. The destination directory must not already exist, including for a repeated export of the same explicit range; choose another `--out` directory if needed.
 
 `--chat` accepts the raw ID printed by `chats`. History pages use the tested size of 200 and preserve the original bounds on continuation. Identical duplicates are removed; conflicting records for one ID, invalid payloads, unexpected destinations, non-progress, and out-of-window messages fail explicitly.
 
-Every history export saves one JSON file containing source messages and a versioned manifest with window, completion, pagination, and request counts. Existing files are never overwritten. The JSON file is published only after history retrieval and writing finish; failed history retrieval leaves no new complete-looking export. Retrieval currently holds the chosen window in memory and has no durable resume checkpoint.
+Every history export saves `chat.json` containing source messages and a versioned manifest with window, completion, pagination, and request counts. Existing files are never overwritten. The JSON file is published only after history retrieval and writing finish; failed history retrieval leaves no new complete-looking export. Retrieval currently holds the chosen window in memory and has no durable resume checkpoint.
 
 ### Images
 
-Exports download supported inline chat images by default. An export to `exports/last-week.json` stores images in `exports/last-week.json.media/`. Keep this directory beside the JSON and Markdown when copying an export. The manifest maps source messages to relative image paths, byte lengths, media types, and SHA-256 hashes; source messages remain unchanged. No image directory is created when there are no supported images.
+Exports download supported inline chat images by default. An export with `--out exports/last-week` creates:
+
+```text
+exports/last-week/
+├── chat.json
+├── chat.md      # with --format markdown
+└── media/       # when supported images are included
+```
+
+Copy or delete the whole folder to manage the complete export. The manifest maps source messages to relative image paths, byte lengths, media types, and SHA-256 hashes; source messages remain unchanged. No image directory is created when there are no supported images.
 
 ```sh
 bun run teams export --chat '<raw-chat-id>' --last 7d --format markdown
@@ -118,7 +127,7 @@ Complete images are reused from `$XDG_CACHE_HOME/teams-chat-download/media/` (de
 
 The supported adapter handles absolute HTTPS `imgo` URLs in HTML `<img src>` on `us-api.asm.skype.com` and `experimental-api.asm.skype.com`, with an optional namespace. Responses must be HTTP 200 JPEG, PNG, GIF, or WebP, with matching file signatures and container endings; each response is limited to 50 MiB. Downloads run sequentially. External URLs, signed/query-bearing URLs, other views, and opaque-only `amsreferences` are not resolved. They are counted as unsupported, rendered as placeholders, and mark `media.status` as `partial`; history completion remains separate. Otherwise media is `complete`, including exports with no images.
 
-Authentication, HTTP, invalid-image, and write failures stop the command before JSON publication. Completed cache entries survive for a retry, and this attempt's image directory is removed. Existing output/image directories are never overwritten. Stderr reports reused, downloaded, unfinished, and unsupported counts; media HTTP attempts and retries are included in request accounting. See the [image export reference](docs/10-image-export.md) for storage, refresh, and validation limits.
+Authentication, HTTP, invalid-image, and write failures stop the command before JSON publication. Completed cache entries survive for a retry, and this attempt's entire export folder is removed. Existing export folders are never overwritten. Stderr reports reused, downloaded, unfinished, and unsupported counts; media HTTP attempts and retries are included in request accounting. See the [image export reference](docs/10-image-export.md) for storage, refresh, and validation limits.
 
 ### Markdown and offline conversion
 
@@ -126,16 +135,16 @@ Add `--format markdown` to save JSON first and then generate Markdown from that 
 
 ```sh
 bun run teams export --chat '<raw-chat-id>' --last 7d --format markdown
-bun run teams export --chat '<raw-chat-id>' --last 7d --format markdown --out exports/last-week.json
+bun run teams export --chat '<raw-chat-id>' --last 7d --format markdown --out exports/last-week
 ```
 
-The default format is `json`. `--out` always selects the **JSON destination**, including when `--format markdown` is used. Markdown is saved beside it, replacing a final `.json` extension with `.md` (case-insensitive), or appending `.md` when the JSON path has another extension. For example, the second command saves `exports/last-week.json` and `exports/last-week.md`. Successful stdout includes the JSON path as `output` and the Markdown path as `markdown`.
+The default format is `json`. Export `--out` selects the **export directory**, including when `--format markdown` is used. JSON is always named `chat.json`, with optional `chat.md` beside it. The second command saves `exports/last-week/chat.json` and `exports/last-week/chat.md`. Successful stdout includes the JSON path as `output` and the Markdown path as `markdown`.
 
 Convert an existing export later without credentials, browser access, or Teams requests:
 
 ```sh
-bun run teams convert --input exports/last-week.json
-bun run teams convert --input exports/last-week.json --format markdown --out exports/readable-chat.md
+bun run teams convert --input exports/last-week/chat.json
+bun run teams convert --input exports/last-week/chat.json --format markdown --out exports/readable-chat.md
 ```
 
 `convert` defaults to Markdown beside the source JSON. Its stdout reports `input`, `output`, `format`, and `messages`. Both commands refuse to overwrite any existing destination and publish private output files atomically. If Markdown conversion fails after JSON was saved, the command exits unsuccessfully and reports the saved JSON path. Keep that file and retry with `convert --out <new-path>`; history does not need to be downloaded again.
@@ -148,13 +157,13 @@ bun run teams convert-all --dir /path/to/exports
 bun run teams convert-all --dir /path/to/exports --recursive
 ```
 
-`convert-all` defaults to the `exports/` directory under the current working directory. It scans regular `.json` files (case-insensitive), visiting subdirectories only with `--recursive`; symlink entries are ignored. Conversion is sequential and offline, using the same validation, renderer, and atomic writer as `convert`. An existing sibling `.md` destination is skipped without reading its JSON, so rerunning the command converts only missing outputs. Existing Markdown is not refreshed, and the batch command does not accept a shared `--out` path.
+`convert-all` defaults to the `exports/` directory under the current working directory. It scans regular `.json` files (case-insensitive) in that directory and `chat.json` inside each direct export folder. Add `--recursive` for exports nested deeper; symlink entries are ignored. Conversion is sequential and offline, using the same validation, renderer, and atomic writer as `convert`. An existing sibling `.md` destination is skipped without reading its JSON, so rerunning the command converts only missing outputs. Existing Markdown is not refreshed, and the batch command does not accept a shared `--out` path.
 
 Stdout contains `directory`, `format`, `recursive`, `converted`, `skipped`, `failed`, and per-file `files` results with absolute input/output paths, status, and any conversion error. Invalid JSON, unsupported archives, and per-file write failures are reported while remaining files continue; any failed file makes the command exit with code 1. Empty directories succeed with zero counts. Missing or unreadable directories fail explicitly. Completed files and all source JSON are kept if a later file fails or the run is cancelled. Like `convert`, the only supported format is `markdown`.
 
-Conversion accepts complete version 1 exports, including files from before this feature. A shared reader validates the version, required rendering fields, and date window while retaining unknown fields. Markdown reads as a chronological transcript: one heading per calendar day, then compact speaker turns such as `**Alice · 09:15–09:17**`. Consecutive messages from the same source sender are grouped when the gap from the previous message is at most five minutes, with each message kept as its own paragraphs or rich-text blocks. A sender change, longer pause, new day, or system event starts a new turn. Missing sender identities stay separate; matching display names alone do not establish the same author. Available sender names fall back to the source sender ID or "Unknown sender". Message IDs and technical type labels remain in JSON.
+Conversion accepts complete version 1 exports using the current media paths. A shared reader validates the version, required rendering fields, and date window while retaining unknown fields. Markdown reads as a chronological transcript: one heading per calendar day, then compact speaker turns such as `**Alice · 09:15–09:17**`. Consecutive messages from the same source sender are grouped when the gap from the previous message is at most five minutes, with each message kept as its own paragraphs or rich-text blocks. A sender change, longer pause, new day, or system event starts a new turn. Missing sender identities stay separate; matching display names alone do not establish the same author. Available sender names fall back to the source sender ID or "Unknown sender". Message IDs and technical type labels remain in JSON.
 
-Dates and 24-hour times use the machine's local timezone, labeled once at the top; set `TZ` when converting to use another zone (for example, `TZ=UTC bun run teams convert --input exports/last-week.json --out exports/utc-chat.md`). JSON retains the original timestamps and exact window bounds. Existing exports can be converted again with a new `--out` path to get the transcript layout without fetching history.
+Dates and 24-hour times use the machine's local timezone, labeled once at the top; set `TZ` when converting to use another zone (for example, `TZ=UTC bun run teams convert --input exports/last-week/chat.json --out exports/utc-chat.md`). JSON retains the original timestamps and exact window bounds. Existing exports can be converted again with a new `--out` path to get the transcript layout without fetching history.
 
 Rich HTML supports paragraphs, emphasis, lists, blockquotes, code, and ordinary HTTP(S)/email links. Explicit `Text` messages remain literal text. Unsupported message types retain available content as literal text; missing/non-string content gets an explicit placeholder. Tables, cards, Teams-specific replies, reactions, and other complex structures are not fully reconstructed; JSON retains the source data.
 

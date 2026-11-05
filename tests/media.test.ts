@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
+  mkdir,
   mkdtemp,
   readFile,
   readdir,
@@ -82,7 +83,7 @@ async function fixture(fetch?: Fetch) {
         });
       }),
   });
-  const out = join(dir, "history.json");
+  const out = join(dir, "history", "chat.json");
   const options = { cacheRoot: join(dir, "cache") };
   return { dir, stats, http, out, options };
 }
@@ -121,7 +122,7 @@ test("downloads one copy per logical image, preserves source, and reuses cache w
   expect(f.stats).toMatchObject({ total: 1, media: 1, history: 0 });
   expect(JSON.stringify(messages)).toBe(before);
   expect(await readdir(mediaDirectory(f.out))).toHaveLength(1);
-  const file = join(f.dir, first.images[0]!.path);
+  const file = join(dirname(f.out), first.images[0]!.path);
   expect(await readFile(file)).toEqual(png);
   if (process.platform !== "win32") {
     expect((await stat(file)).mode & 0o777).toBe(0o600);
@@ -163,7 +164,7 @@ test("accounts do not share image cache entries", async () => {
   await expect(
     downloadImages(
       [message()],
-      join(f.dir, "other.json"),
+      join(f.dir, "other", "chat.json"),
       { ...credentials, accountId: "other-account", mediaCookies: undefined },
       f.http,
       f.options,
@@ -247,13 +248,15 @@ test("explicit refresh reuses 304 bodies and preserves the cache after failed re
   });
   const refreshed = await downloadImages(
     [message()],
-    join(f.dir, "refreshed.json"),
+    join(f.dir, "refreshed", "chat.json"),
     credentials,
     http,
     { ...f.options, refresh: true },
   );
   expect(refreshed).toMatchObject({ downloaded: 0, cacheHits: 1 });
-  expect(await readFile(join(f.dir, refreshed.images[0]!.path))).toEqual(png);
+  expect(
+    await readFile(join(f.dir, "refreshed", refreshed.images[0]!.path)),
+  ).toEqual(png);
   expect(f.stats.media).toBe(2);
   const failedHttp = createHttp({
     stats: f.stats,
@@ -262,7 +265,7 @@ test("explicit refresh reuses 304 bodies and preserves the cache after failed re
   await expect(
     downloadImages(
       [message()],
-      join(f.dir, "failed.json"),
+      join(f.dir, "failed", "chat.json"),
       credentials,
       failedHttp,
       { ...f.options, refresh: true },
@@ -270,7 +273,7 @@ test("explicit refresh reuses 304 bodies and preserves the cache after failed re
   ).rejects.toThrow("HTTP 401");
   const reused = await downloadImages(
     [message()],
-    join(f.dir, "retry.json"),
+    join(f.dir, "retry", "chat.json"),
     credentials,
     failedHttp,
     f.options,
@@ -304,7 +307,7 @@ test.each(["missing", "corrupt"])(
     });
     const result = await downloadImages(
       [message()],
-      join(f.dir, "retry.json"),
+      join(f.dir, "retry", "chat.json"),
       credentials,
       http,
       f.options,
@@ -389,7 +392,7 @@ test("cancellation after receiving a body publishes no image directory", async (
       signal: controller.signal,
     }),
   ).rejects.toThrow("cancelled");
-  expect(await readdir(f.dir)).not.toContain("history.json.media");
+  expect(await readdir(f.dir)).not.toContain("history");
 });
 
 test("media shares HTTP retries, accounting, and body deadlines", async () => {
@@ -442,7 +445,7 @@ test("export saves portable images, offline conversion rebases links, and --no-m
     });
     const options = resolveExportOptions({
       chat: "fixture",
-      out: f.out,
+      out: dirname(f.out),
       from: "2026-11-01T00:00:00Z",
       to: "2026-11-02T00:00:00Z",
       format: "markdown",
@@ -459,13 +462,19 @@ test("export saves portable images, offline conversion rebases links, and --no-m
     if (archive.media.status === "not-downloaded")
       throw new Error("images missing");
     const image = archive.media.images[0]!;
+    expect(image.path).toBe(`media/${image.key}.png`);
+    expect((await readdir(dirname(result.output))).sort()).toEqual([
+      "chat.json",
+      "chat.md",
+      "media",
+    ]);
     expect(archive.messages[0]!.content).toBe(message().content);
     expect(await readFile(result.markdown!, "utf8")).toContain(
       `![A &amp; B](${image.path})`,
     );
     const converted = await convertArchive({
       input: result.output,
-      out: join(f.dir, "readable", "moved.md"),
+      out: join(dirname(f.out), "readable", "moved.md"),
       format: "markdown",
     });
     expect(await readFile(converted.output, "utf8")).toContain(
@@ -473,7 +482,7 @@ test("export saves portable images, offline conversion rebases links, and --no-m
     );
     expect(archive.requests).toMatchObject({ history: 1, media: 1, total: 2 });
     const skipped = await exportChat(
-      { ...options, media: false, out: join(f.dir, "text.json") },
+      { ...options, media: false, out: join(f.dir, "text") },
       { ...credentials, mediaCookies: undefined },
       http,
       f.stats,
@@ -486,18 +495,20 @@ test("export saves portable images, offline conversion rebases links, and --no-m
       "Image not downloaded",
     );
     expect(f.stats.media).toBe(1);
-    expect(dirname(converted.output)).toBe(join(f.dir, "readable"));
-    const raceOutput = join(f.dir, "race.json");
+    expect(dirname(converted.output)).toBe(join(dirname(f.out), "readable"));
+    const raceDirectory = join(f.dir, "race");
+    const raceOutput = join(raceDirectory, "chat.json");
     const raceHttp = createHttp({
       stats: f.stats,
       fetch: async () => {
+        await mkdir(raceDirectory);
         await writeFile(raceOutput, "another export won");
         return Response.json({ messages: [message()], _metadata: {} });
       },
     });
     await expect(
       exportChat(
-        { ...options, out: raceOutput },
+        { ...options, out: raceDirectory },
         credentials,
         raceHttp,
         f.stats,
@@ -505,11 +516,42 @@ test("export saves portable images, offline conversion rebases links, and --no-m
       ),
     ).rejects.toThrow("already exists");
     expect(await readFile(raceOutput, "utf8")).toBe("another export won");
-    expect(await readdir(f.dir)).not.toContain("race.json.media");
+    expect(await readdir(raceDirectory)).toEqual(["chat.json"]);
+    const failedDirectory = join(f.dir, "failed-export");
+    const rejectedHttp = createHttp({
+      stats: f.stats,
+      fetch: async (request) =>
+        new URL(request.url).origin === origin
+          ? new Response("private", { status: 403 })
+          : Response.json({
+              messages: [
+                message(
+                  message()
+                    .content!.toString()
+                    .replace("synthetic-object", "uncached-object"),
+                ),
+              ],
+              _metadata: {},
+            }),
+    });
+    await expect(
+      exportChat(
+        { ...options, out: failedDirectory },
+        credentials,
+        rejectedHttp,
+        f.stats,
+        historyProgress(),
+      ),
+    ).rejects.toThrow("HTTP 403");
+    expect(await readdir(f.dir)).not.toContain("failed-export");
+    expect(await readFile(result.output, "utf8")).toContain(
+      '"status": "complete"',
+    );
     for (const path of [
-      "../outside.media/",
-      "/absolute.media/",
-      "normal.media/../",
+      "../media/",
+      "/media/",
+      "media/../",
+      "history.json.media/",
     ]) {
       const invalid = {
         ...archive,
@@ -524,7 +566,7 @@ test("export saves portable images, offline conversion rebases links, and --no-m
     }
     if (process.platform !== "win32") {
       const special = await exportChat(
-        { ...options, out: join(f.dir, "chat (offline):photo.json") },
+        { ...options, out: join(f.dir, "chat (offline):photo") },
         credentials,
         http,
         f.stats,

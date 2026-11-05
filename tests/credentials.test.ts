@@ -113,7 +113,7 @@ test("chats and export load user state without a flag from an unrelated cwd", as
     "--last",
     "7d",
     "--out",
-    join(f.dir, "export.json"),
+    join(f.dir, "export"),
   ]);
   expect(exported.code).toBe(0);
   expect(exported.stderr).toContain("history: 1");

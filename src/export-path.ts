@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { ExportOptions } from "./options.ts";
 
-export function defaultExportPath(
+export function defaultExportDirectory(
   options: ExportOptions,
   label?: string,
 ): string {
@@ -11,7 +11,7 @@ export function defaultExportPath(
     .toLowerCase()
     .replace(/\p{M}+/gu, "")
     .replace(/[^\p{L}\p{N}]+/gu, "-");
-  // Bound even multibyte labels so the full filename fits a filesystem component.
+  // Bound even multibyte labels so the directory name fits a filesystem component.
   const slug = Array.from(normalized)
     .slice(0, 40)
     .join("")
@@ -28,7 +28,7 @@ export function defaultExportPath(
   const period = options.last
     ? `last-${options.last}--to-${to}`
     : `${options.since ? "since" : "from"}-${from}--to-${to}`;
-  return join("exports", `${name}--${period}.json`);
+  return join("exports", `${name}--${period}`);
 }
 
 function filenameTimestamp(value: number): string {

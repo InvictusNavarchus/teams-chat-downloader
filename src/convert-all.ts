@@ -85,8 +85,19 @@ async function* jsonFiles(
   entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   for (const entry of entries) {
     const path = join(directory, entry.name);
-    if (entry.isDirectory() && recursive) yield* jsonFiles(path, recursive);
-    else if (entry.isFile() && /\.json$/i.test(entry.name)) yield path;
+    if (entry.isDirectory()) {
+      if (recursive) yield* jsonFiles(path, recursive);
+      else {
+        const input = join(path, "chat.json");
+        const info = await lstat(input).catch(
+          (error: NodeJS.ErrnoException) => {
+            if (error.code === "ENOENT") return;
+            throw new AppError(`Could not inspect export folder: ${path}.`);
+          },
+        );
+        if (info?.isFile()) yield input;
+      }
+    } else if (entry.isFile() && /\.json$/i.test(entry.name)) yield path;
   }
 }
 

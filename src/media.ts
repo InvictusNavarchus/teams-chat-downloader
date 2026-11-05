@@ -44,7 +44,7 @@ export function imageUrl(source: string): URL | undefined {
 }
 
 export function mediaDirectory(output: string): string {
-  return `${resolve(output)}.media`;
+  return join(dirname(resolve(output)), "media");
 }
 
 export function defaultMediaCache(
