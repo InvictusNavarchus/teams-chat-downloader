@@ -99,14 +99,21 @@ export async function runCli(argv = process.argv): Promise<number> {
             }
             case "media-start":
               console.log(
-                `[media] Found ${event.total} image(s); verifying cache and downloading...`,
+                `[media] Found ${event.total} image(s); processing...`,
               );
               break;
-            case "media-progress":
+            case "media-progress": {
+              const outcome = {
+                cache: "reused from local cache",
+                revalidated:
+                  "revalidated with Teams: HTTP 304; reused cached bytes",
+                downloaded: "downloaded: HTTP 200",
+              }[event.outcome];
               console.log(
-                `[media] Image ${event.current}/${event.total} (${event.cached ? "reused from cache" : "downloaded"})`,
+                `[media] Image ${event.current}/${event.total} (${outcome})`,
               );
               break;
+            }
             case "save":
               console.log("[export] Saved JSON archive.");
               break;

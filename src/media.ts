@@ -159,9 +159,16 @@ async function publishCache(
   }
 }
 
+export type MediaOutcome = "cache" | "revalidated" | "downloaded";
+
 export type MediaProgress =
   | { phase: "start"; total: number }
-  | { phase: "progress"; current: number; total: number; cached: boolean };
+  | {
+      phase: "progress";
+      current: number;
+      total: number;
+      outcome: MediaOutcome;
+    };
 
 export async function downloadImages(
   messages: Message[],
@@ -218,6 +225,7 @@ export async function downloadImages(
     digest(credentials.accountId),
   );
   let completed = 0;
+  let revalidated = 0;
   let failed = 0;
   let ownsDirectory = false;
   if (resources.size > 0) {
@@ -228,10 +236,10 @@ export async function downloadImages(
     for (const [key, resource] of resources) {
       options.signal?.throwIfAborted();
       let image = await cached(cache, key);
-      let cachedHit = false;
+      let outcome: MediaOutcome;
       if (image && !options.refresh) {
         media.cacheHits++;
-        cachedHit = true;
+        outcome = "cache";
       } else {
         const cookie =
           credentials.mediaCookies?.[
@@ -264,7 +272,8 @@ export async function downloadImages(
               "Media returned 304 without a complete cached image.",
             );
           media.cacheHits++;
-          cachedHit = true;
+          revalidated++;
+          outcome = "revalidated";
         } else {
           if (response.status !== 200)
             throw new AppError(
@@ -303,6 +312,7 @@ export async function downloadImages(
           );
           image = { entry, bytes: response.bytes };
           media.downloaded++;
+          outcome = "downloaded";
         }
       }
       const directory = mediaDirectory(output);
@@ -332,7 +342,7 @@ export async function downloadImages(
         phase: "progress",
         current: completed,
         total: resources.size,
-        cached: cachedHit,
+        outcome,
       });
     }
     options.signal?.throwIfAborted();
@@ -349,7 +359,7 @@ export async function downloadImages(
     );
   } finally {
     console.log(
-      `Images: ${media.cacheHits} reused from cache, ${media.downloaded} downloaded, ${failed} unfinished; unsupported media references: ${media.unsupported}.`,
+      `Images: ${media.cacheHits - revalidated} reused from local cache, ${revalidated} revalidated with Teams (HTTP 304), ${media.downloaded} downloaded (HTTP 200), ${failed} unfinished; unsupported media references: ${media.unsupported}.`,
     );
   }
 }

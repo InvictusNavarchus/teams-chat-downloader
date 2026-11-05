@@ -11,7 +11,7 @@ Supported URLs use HTTPS on exactly `us-api.asm.skype.com` or `experimental-api.
 JSON remains version 1, preserves source messages, and adds a media manifest:
 
 - `status`: `complete` when all discovered references are supported, or `partial` when unsupported references exist. This is separate from completed history retrieval. `--no-media` uses `not-downloaded`.
-- `cacheHits`, `downloaded`: distinct supported image keys reused or fetched, including explicit refresh results.
+- `cacheHits`, `downloaded`: distinct supported image keys reused or fetched, including explicit refresh results. `cacheHits` includes both local reuse without a request and reuse after an HTTP 304; terminal summaries report these separately.
 - `unsupported`: unresolved reference count.
 - `images`: message ID, logical key, relative local path, byte length, SHA-256 digest, and media type. Repeated appearances of one image in a message share one mapping.
 
@@ -36,6 +36,8 @@ Each key has an independent versioned JSON metadata file; bodies are named by co
 A hit requires valid metadata, a present body, matching byte length and digest, and matching type/signature checks. Complete hits perform no HTTP request, including no HEAD, and require no current media cookie. Missing/corrupt entries miss the cache. Other filesystem errors fail explicitly. Repeated logical keys download once per invocation. Local copies keep export contents independent of later cache changes or deletion.
 
 Explicit refresh sends `If-None-Match` when an ETag exists, otherwise `If-Modified-Since` when Last-Modified exists. Without a validator, refresh is unconditional. A `304` reuses the already loaded, verified body; deleting the cache body while the request is in flight cannot remove those bytes. A `304` without a valid cached body fails. Missing/corrupt bodies start with an unconditional request. A `200` replaces the mapping only after validation and complete cache publication; a failed refresh keeps the old entry usable. Default reuse prioritizes avoiding repeat requests and can retain stale remote images until explicit refresh.
+
+Per-image progress distinguishes `reused from local cache`, `revalidated with Teams: HTTP 304; reused cached bytes`, and `downloaded: HTTP 200`. The image summary counts local reuse, revalidated reuse, and downloads separately, including on failure. Progress is emitted after each image is saved to the export; refresh requests run sequentially, so revalidated images can take longer than local reuse even though their bytes are not downloaded again.
 
 ## Offline rendering and limits
 

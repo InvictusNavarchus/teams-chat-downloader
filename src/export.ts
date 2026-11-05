@@ -6,7 +6,7 @@ import type { Credentials } from "./credentials.ts";
 import { AppError } from "./errors.ts";
 import { defaultExportDirectory } from "./export-path.ts";
 import type { Http, RequestStats } from "./http.ts";
-import { downloadImages } from "./media.ts";
+import { downloadImages, type MediaOutcome } from "./media.ts";
 import type { ExportOptions } from "./options.ts";
 import { checkOutput, writeExport } from "./output.ts";
 import {
@@ -19,7 +19,12 @@ import {
 export type ExportProgressEvent =
   | ({ type: "history" } & HistoryPageProgress)
   | { type: "media-start"; total: number }
-  | { type: "media-progress"; current: number; total: number; cached: boolean }
+  | {
+      type: "media-progress";
+      current: number;
+      total: number;
+      outcome: MediaOutcome;
+    }
   | { type: "save"; format: "json"; destination: string }
   | { type: "convert"; format: "markdown"; destination: string };
 
@@ -84,7 +89,7 @@ export async function exportChat(
                 type: "media-progress",
                 current: m.current,
                 total: m.total,
-                cached: m.cached,
+                outcome: m.outcome,
               });
             }
           },

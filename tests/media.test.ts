@@ -469,7 +469,7 @@ test("export saves portable images, offline conversion rebases links, and --no-m
         hasMore: false,
       },
       { type: "media-start", total: 1 },
-      { type: "media-progress", current: 1, total: 1, cached: false },
+      { type: "media-progress", current: 1, total: 1, outcome: "downloaded" },
       { type: "save", format: "json", destination: result.output },
       { type: "convert", format: "markdown", destination: result.markdown },
     ]);
