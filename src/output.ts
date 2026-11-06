@@ -20,6 +20,15 @@ export async function writeExport(
   return writeJson(path, document, "export", signal);
 }
 
+// Only the media workflow updates an archive that has already been published.
+export async function updateExport(
+  path: string,
+  document: unknown,
+  signal?: AbortSignal,
+): Promise<string> {
+  return writeJson(path, document, "export", signal, true);
+}
+
 export async function writeChatList(
   path: string,
   document: unknown,
@@ -36,17 +45,27 @@ export async function writeMarkdown(
   return writeText(path, markdown, "export", signal);
 }
 
+export async function updateMarkdown(
+  path: string,
+  markdown: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  return writeText(path, markdown, "export", signal, true);
+}
+
 function writeJson(
   path: string,
   document: unknown,
   kind: "export" | "chat list",
   signal?: AbortSignal,
+  replace = false,
 ): Promise<string> {
   return writeText(
     path,
     `${JSON.stringify(document, null, 2)}\n`,
     kind,
     signal,
+    replace,
   );
 }
 
@@ -55,6 +74,7 @@ async function writeText(
   text: string,
   kind: "export" | "chat list",
   signal?: AbortSignal,
+  replace = false,
 ): Promise<string> {
   const destination = resolve(path);
   await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
@@ -68,14 +88,20 @@ async function writeText(
       await file.close();
     }
     signal?.throwIfAborted();
-    if (kind === "chat list") {
-      // A reference list is refreshed in place; readers see either complete version.
+    if (kind === "chat list" || replace) {
+      // Readers see either the complete previous file or the complete update.
       await rename(temporary, destination);
     } else {
       // History exports must not replace a destination created during retrieval.
       await link(temporary, destination);
     }
   } catch (error) {
+    if (replace)
+      throw new AppError(
+        signal?.aborted
+          ? "Export update cancelled; previous file kept."
+          : "Could not update the saved export; previous file kept.",
+      );
     if (signal?.aborted)
       throw new AppError(
         kind === "export"

@@ -1,12 +1,13 @@
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { Archive } from "./archive.ts";
+import { downloadArchiveMedia } from "./archive-media.ts";
 import { convertArchive } from "./convert.ts";
 import type { Credentials } from "./credentials.ts";
 import { AppError } from "./errors.ts";
 import { defaultExportDirectory } from "./export-path.ts";
 import type { Http, RequestStats } from "./http.ts";
-import { downloadImages, type MediaOutcome } from "./media.ts";
+import type { MediaOutcome } from "./media.ts";
 import type { ExportOptions } from "./options.ts";
 import { checkOutput, writeExport } from "./output.ts";
 import {
@@ -77,24 +78,6 @@ export async function exportChat(
   }
   let published = false;
   try {
-    const media = options.media
-      ? await downloadImages(messages, out, credentials, http, {
-          refresh: options.refreshMedia,
-          signal,
-          onProgress: (m) => {
-            if (m.phase === "start") {
-              onProgress?.({ type: "media-start", total: m.total });
-            } else {
-              onProgress?.({
-                type: "media-progress",
-                current: m.current,
-                total: m.total,
-                outcome: m.outcome,
-              });
-            }
-          },
-        })
-      : { status: "not-downloaded" as const };
     const document = {
       version: 1,
       status: "complete",
@@ -117,12 +100,13 @@ export async function exportChat(
         scope:
           "HTTP client attempts; retries included; redirects refused; browser traffic excluded",
       },
-      media,
+      media: { status: "not-downloaded" },
       messages,
     } satisfies Archive;
     const output = await writeExport(out, document, signal);
     published = true;
     onProgress?.({ type: "save", format: "json", destination: output });
+    let markdown: string | undefined;
     if (options.markdown) {
       try {
         const converted = await convertArchive(
@@ -134,11 +118,7 @@ export async function exportChat(
           format: "markdown",
           destination: converted.output,
         });
-        return {
-          output,
-          messages: messages.length,
-          markdown: converted.output,
-        };
+        markdown = converted.output;
       } catch (error) {
         const reason =
           error instanceof AppError
@@ -149,7 +129,24 @@ export async function exportChat(
         );
       }
     }
-    return { output, messages: messages.length };
+    if (options.media)
+      return await downloadArchiveMedia(
+        {
+          input: output,
+          markdown: options.markdown,
+          refreshMedia: options.refreshMedia,
+        },
+        credentials,
+        http,
+        stats,
+        signal,
+        onProgress,
+      );
+    return {
+      output,
+      messages: messages.length,
+      ...(markdown ? { markdown } : {}),
+    };
   } catch (error) {
     if (!published) await rm(directory, { recursive: true, force: true });
     throw error;

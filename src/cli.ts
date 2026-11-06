@@ -1,15 +1,17 @@
 import { cac } from "cac";
 import { z } from "zod";
+import { downloadArchiveMedia } from "./archive-media.ts";
 import { convertAllArchives } from "./convert-all.ts";
 import { convertArchive } from "./convert.ts";
 import { loadCredentials } from "./credentials.ts";
 import { AppError, errorMessage, validationError } from "./errors.ts";
-import { exportChat } from "./export.ts";
+import { exportChat, type ExportProgressEvent } from "./export.ts";
 import { createHttp, requestStats } from "./http.ts";
 import {
   resolveBatchConvertOptions,
   resolveConvertOptions,
   resolveExportOptions,
+  resolveMediaOptions,
 } from "./options.ts";
 import { writeChatList } from "./output.ts";
 import { historyProgress, listChats } from "./teams.ts";
@@ -21,6 +23,40 @@ export async function runCli(argv = process.argv): Promise<number> {
   const controller = new AbortController();
   const cancel = () => controller.abort();
   const http = createHttp({ stats, signal: controller.signal });
+  const reportProgress = (event: ExportProgressEvent) => {
+    switch (event.type) {
+      case "history": {
+        const reach = event.earliestTimestamp
+          ? ` — reached ${event.earliestTimestamp}`
+          : "";
+        const status = event.hasMore ? "" : " (history complete)";
+        console.log(
+          `[history] Page ${event.page}: ${event.pageMessages} messages (total: ${event.totalMessages})${reach}${status}`,
+        );
+        break;
+      }
+      case "media-start":
+        console.log(`[media] Found ${event.total} image(s); processing...`);
+        break;
+      case "media-progress": {
+        const outcome = {
+          cache: "reused from local cache",
+          revalidated: "revalidated with Teams: HTTP 304; reused cached bytes",
+          downloaded: "downloaded: HTTP 200",
+        }[event.outcome];
+        console.log(
+          `[media] Image ${event.current}/${event.total} (${outcome})`,
+        );
+        break;
+      }
+      case "save":
+        console.log(`[export] Saved JSON archive: ${event.destination}`);
+        break;
+      case "convert":
+        console.log("[convert] Converted to Markdown.");
+        break;
+    }
+  };
   cli
     .command("login", "Sign in in a visible browser and save fresh credentials")
     .option(
@@ -85,43 +121,30 @@ export async function runCli(argv = process.argv): Promise<number> {
         stats,
         progress,
         controller.signal,
-        (event) => {
-          switch (event.type) {
-            case "history": {
-              const reach = event.earliestTimestamp
-                ? ` — reached ${event.earliestTimestamp}`
-                : "";
-              const status = event.hasMore ? "" : " (history complete)";
-              console.log(
-                `[history] Page ${event.page}: ${event.pageMessages} messages (total: ${event.totalMessages})${reach}${status}`,
-              );
-              break;
-            }
-            case "media-start":
-              console.log(
-                `[media] Found ${event.total} image(s); processing...`,
-              );
-              break;
-            case "media-progress": {
-              const outcome = {
-                cache: "reused from local cache",
-                revalidated:
-                  "revalidated with Teams: HTTP 304; reused cached bytes",
-                downloaded: "downloaded: HTTP 200",
-              }[event.outcome];
-              console.log(
-                `[media] Image ${event.current}/${event.total} (${outcome})`,
-              );
-              break;
-            }
-            case "save":
-              console.log("[export] Saved JSON archive.");
-              break;
-            case "convert":
-              console.log("[convert] Converted to Markdown.");
-              break;
-          }
-        },
+        reportProgress,
+      );
+      console.log(JSON.stringify(result));
+    });
+  cli
+    .command(
+      "media",
+      "Download images for a saved JSON export without fetching history",
+    )
+    .option("--input <file>", "Existing version 1 JSON export to update")
+    .option("--credentials <file>", "Override automatic credential file lookup")
+    .option("--refresh-media", "Revalidate cached images with Teams")
+    .option("--no-markdown", "Skip regenerating sibling Markdown")
+    .action(async (raw: Record<string, unknown>) => {
+      const { "--": _trailing, ...input } = raw;
+      const options = resolveMediaOptions(input);
+      const credentials = await loadCredentials(options.credentials);
+      const result = await downloadArchiveMedia(
+        options,
+        credentials,
+        http,
+        stats,
+        controller.signal,
+        reportProgress,
       );
       console.log(JSON.stringify(result));
     });

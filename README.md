@@ -104,11 +104,11 @@ Directory timestamps use UTC with milliseconds and filesystem-safe separators. T
 
 `--chat` accepts the raw ID printed by `chats`. History pages use the tested size of 200 and preserve the original bounds on continuation. Continuation links accept equivalent percent encodings of the same chat ID while retaining strict HTTPS, host, and route checks. Identical duplicates are removed; conflicting records for one ID, invalid payloads, unexpected destinations, non-progress, and out-of-window messages fail explicitly.
 
-Every history export saves `chat.json` containing source messages and a versioned manifest with window, completion, pagination, and request counts. Existing files are never overwritten. The JSON file is published only after history retrieval and writing finish; failed history retrieval leaves no new complete-looking export. Retrieval currently holds the chosen window in memory and has no durable resume checkpoint.
+Every history export saves `chat.json` containing source messages and a versioned manifest with window, completion, pagination, and request counts. New exports refuse existing directories. After history retrieval finishes, JSON and the default Markdown transcript are saved **before any images are downloaded**. The initial media status is `not-downloaded`, and Markdown uses image placeholders. Failed history retrieval leaves no new complete-looking export. Retrieval currently holds the chosen window in memory and has no durable checkpoint during history pagination.
 
 ### Images
 
-Exports download supported inline chat images by default. An export with `--out exports/last-week` creates:
+Exports download supported inline chat images by default, after saving the text. A successful media pass atomically updates the JSON manifest and then regenerates Markdown with local image links. An export with `--out exports/last-week` creates:
 
 ```text
 exports/last-week/
@@ -128,9 +128,18 @@ bun run teams export --chat '<raw-chat-id>' --last 7d --no-media
 
 Complete images are reused from `$XDG_CACHE_HOME/teams-chat-download/media/` (default `~/.cache/teams-chat-download/media/`; relative XDG values are ignored). Cache entries are isolated by account and keyed by media origin, object path, and representation. Repeated references download once per export. Default reuse makes **zero media requests**, even without media credentials. `--refresh-media` explicitly revalidates cached images using ETag or Last-Modified when available; a `304` reuses the checked local bytes. Missing or corrupt entries are downloaded unconditionally. `--no-media` skips downloading and preserves the earlier not-downloaded manifest and placeholders; it cannot be combined with `--refresh-media`.
 
+Save text now and download images later without fetching history again:
+
+```sh
+bun run teams export --chat '<raw-chat-id>' --last 7d --out exports/last-week --no-media
+bun run teams media --input exports/last-week/chat.json
+```
+
+`media` uses the saved source references and credentials for the account that created the archive. It updates that JSON in place and regenerates its sibling Markdown, creating Markdown if absent. Add `--no-markdown` to preserve an edited transcript or keep a JSON-only archive; add `--refresh-media` to revalidate cached images. `--credentials <file>` overrides automatic credential lookup. Source messages, history metadata, and the history completion timestamp remain unchanged. `mediaUpdatedAt` records the successful media pass, and archive request counts accumulate published passes; failed media attempts are reported in terminal summaries rather than saved in the archive.
+
 The supported adapter handles absolute HTTPS `imgo` URLs in HTML `<img src>` on `us-api.asm.skype.com` and `experimental-api.asm.skype.com`, with an optional namespace. Responses must be HTTP 200 JPEG, PNG, GIF, or WebP, with matching file signatures and container endings; each response is limited to 50 MiB. Downloads run sequentially. External URLs, signed/query-bearing URLs, other views, and opaque-only `amsreferences` are not resolved. They are counted as unsupported, rendered as placeholders, and mark `media.status` as `partial`; history completion remains separate. Otherwise media is `complete`, including exports with no images.
 
-Authentication, HTTP, invalid-image, and write failures stop the command before JSON publication. Completed cache entries survive for a retry, and this attempt's entire export folder is removed. Existing export folders are never overwritten. Progress and summary output distinguish local cache reuse (no request), revalidation with Teams (`HTTP 304`, cached bytes reused), and downloads (`HTTP 200`). Summaries also report unfinished and unsupported counts; media HTTP attempts and retries are included in request accounting. See the [image export reference](docs/10-image-export.md) for storage, refresh, and validation limits.
+Media authentication, HTTP, invalid-image, write failures, and cancellation keep the saved text, previous media manifest, and completed images/cache entries. Retry with `teams media --input <saved-json>`; completed cached images require no new download. Files use content hashes, so a failed refresh also preserves the images referenced by an earlier manifest. Media failures still exit unsuccessfully. JSON and Markdown updates are individually atomic: if Markdown updating fails after the manifest was saved, retry `media` to regenerate it. Progress and summary output distinguish local cache reuse (no request), revalidation with Teams (`HTTP 304`, cached bytes reused), and downloads (`HTTP 200`). Summaries also report unfinished and unsupported counts; media HTTP attempts and retries are included in request accounting. See the [image export reference](docs/10-image-export.md) for storage, refresh, and validation limits.
 
 ### Markdown and offline conversion
 
@@ -151,7 +160,7 @@ bun run teams convert --input exports/last-week/chat.json
 bun run teams convert --input exports/last-week/chat.json --format markdown --out exports/readable-chat.md
 ```
 
-`convert` defaults to Markdown beside the source JSON. Its stdout reports `input`, `output`, `format`, and `messages`. Both commands refuse to overwrite any existing destination and publish private output files atomically. If Markdown conversion fails after JSON was saved, the command exits unsuccessfully and reports the saved JSON path. Keep that file and retry with `convert --out <new-path>`; history does not need to be downloaded again.
+`convert` defaults to Markdown beside the source JSON. Its stdout reports `input`, `output`, `format`, and `messages`. New exports and offline conversion refuse existing destinations and publish private output files atomically; the media phase explicitly updates the saved archive and generated sibling Markdown. If initial Markdown conversion fails after JSON was saved, the command exits unsuccessfully before downloading images and reports the saved JSON path. Keep that file and retry with `convert --out <new-path>`, or use `media` to download images and regenerate sibling Markdown; history does not need to be downloaded again.
 
 Convert all JSON exports that do not already have a sibling Markdown destination:
 

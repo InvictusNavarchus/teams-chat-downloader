@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import {
+  lstat,
   mkdir,
   readFile,
   rename,
-  rm,
   unlink,
   writeFile,
 } from "node:fs/promises";
@@ -227,7 +227,6 @@ export async function downloadImages(
   let completed = 0;
   let revalidated = 0;
   let failed = 0;
-  let ownsDirectory = false;
   if (resources.size > 0) {
     options.onProgress?.({ phase: "start", total: resources.size });
   }
@@ -316,17 +315,14 @@ export async function downloadImages(
         }
       }
       const directory = mediaDirectory(output);
-      if (!ownsDirectory) {
-        await mkdir(dirname(directory), { recursive: true, mode: 0o700 });
-        await mkdir(directory, { mode: 0o700 });
-        ownsDirectory = true;
-      }
-      const name = `${key}.${image.entry.extension}`;
-      await writeFile(join(directory, name), image.bytes, {
-        mode: 0o600,
-        flag: "wx",
-        signal: options.signal,
-      });
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      if (!(await lstat(directory)).isDirectory())
+        throw new AppError(
+          "Export media path must be a directory; symbolic links are refused.",
+        );
+      // Content-based paths keep an earlier manifest valid if a refresh fails later.
+      const name = `${image.entry.sha256}.${image.entry.extension}`;
+      await publishCache(join(directory, name), image.bytes, options.signal);
       for (const messageId of resource.messages) {
         media.images.push({
           messageId,
@@ -349,13 +345,11 @@ export async function downloadImages(
     return media;
   } catch (error) {
     failed = resources.size - completed;
-    if (ownsDirectory)
-      await rm(mediaDirectory(output), { recursive: true, force: true });
     if (options.signal?.aborted)
-      throw new AppError("Export cancelled; completed cached images kept.");
+      throw new AppError("Export cancelled; completed images and cache kept.");
     if (error instanceof AppError) throw error;
     throw new AppError(
-      "Could not save export images; completed cached images kept.",
+      "Could not save export images; completed images and cache kept.",
     );
   } finally {
     console.log(

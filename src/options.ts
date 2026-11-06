@@ -26,6 +26,21 @@ const exportOptions = z.strictObject({
 export type Window = { from: number; to: number };
 export type ExportOptions = z.infer<typeof exportOptions> & { window: Window };
 
+const mediaOptions = z.strictObject({
+  input: z.string().min(1),
+  credentials: z.string().min(1).optional(),
+  markdown: z.boolean().default(true),
+  refreshMedia: z.boolean().default(false),
+});
+
+export type MediaOptions = z.infer<typeof mediaOptions>;
+
+export function resolveMediaOptions(input: unknown): MediaOptions {
+  const result = mediaOptions.safeParse(input);
+  if (!result.success) throw validationError("Media options", result.error);
+  return result.data;
+}
+
 const convertOptions = z.strictObject({
   input: z.string().min(1),
   out: z.string().min(1).optional(),

@@ -91,12 +91,14 @@ async function fixture({
       historyStatus = 200,
       messages = [],
       imageStatus = 200,
+      command = "export",
     }: {
       chats?: unknown[];
       directoryStatus?: number;
       historyStatus?: number;
       messages?: unknown[];
       imageStatus?: number;
+      command?: "export" | "media";
     } = {},
   ) {
     await writeFile(
@@ -118,11 +120,10 @@ async function fixture({
         "--preload",
         preload,
         fileURLToPath(new URL("../src/cli.ts", import.meta.url)),
-        "export",
+        command,
         "--credentials",
         credentials,
-        "--chat",
-        "fixture",
+        ...(command === "export" ? ["--chat", "fixture"] : []),
         ...args,
       ],
       {
@@ -154,7 +155,7 @@ test("export without --out publishes a label-based export folder and reports the
   expect(result.stdout).toContain(
     "[history] Page 1: 0 messages (total: 0) (history complete)",
   );
-  expect(result.stdout).toContain("[export] Saved JSON archive.");
+  expect(result.stdout).toContain("[export] Saved JSON archive:");
   expect(result.stdout).toContain("[convert] Converted to Markdown.");
   expect(result.stdout).toContain(
     "Images: 0 reused from local cache, 0 revalidated with Teams (HTTP 304), 0 downloaded (HTTP 200)",
@@ -265,6 +266,69 @@ test("media logs distinguish local reuse, HTTP 304 revalidation, and HTTP 200 do
       downloaded: scenario.downloaded,
     });
   }
+});
+
+test("media command enriches a text-only archive, reuses cache, and never fetches history", async () => {
+  const f = await fixture({ media: true });
+  const result = await f.run(
+    [
+      "--from",
+      "2026-11-01T00:00:00Z",
+      "--to",
+      "2026-11-02T00:00:00Z",
+      "--out",
+      "later",
+      "--no-media",
+    ],
+    {
+      messages: [
+        {
+          id: "image-message",
+          originalarrivaltime: "2026-11-01T12:00:00Z",
+          messagetype: "RichText/Html",
+          content:
+            '<p>Text first</p><img src="https://us-api.asm.skype.com/v1/objects/fixture-image/views/imgo">',
+        },
+      ],
+    },
+  );
+  expect(result.code).toBe(0);
+  const saved = readSummary(result.stdout);
+  expect(await readFile(saved.markdown, "utf8")).toContain(
+    "Image not downloaded",
+  );
+
+  const enriched = await f.run(["--input", saved.output], {
+    command: "media",
+    historyStatus: 401,
+    directoryStatus: 401,
+  });
+  expect(enriched.code).toBe(0);
+  expect(enriched.stderr).toBe("");
+  expect(enriched.stdout).toContain(
+    "HTTP attempts: 1 (history: 0, directory: 0, profiles: 0, media: 1)",
+  );
+  expect(enriched.stdout).toContain("[media] Image 1/1 (downloaded: HTTP 200)");
+  expect(readSummary(enriched.stdout)).toEqual(saved);
+  expect(await readFile(saved.markdown, "utf8")).toContain("](media/");
+
+  const cached = await f.run(["--input", saved.output], {
+    command: "media",
+    imageStatus: 401,
+    historyStatus: 401,
+  });
+  expect(cached.code).toBe(0);
+  expect(cached.stdout).toContain("reused from local cache");
+  expect(cached.stdout).not.toContain("HTTP attempts:");
+  const refreshed = await f.run(
+    ["--input", saved.output, "--refresh-media", "--no-markdown"],
+    { command: "media", imageStatus: 304 },
+  );
+  expect(refreshed.code).toBe(0);
+  expect(refreshed.stdout).toContain("revalidated with Teams: HTTP 304");
+  expect(refreshed.stdout).not.toContain("[convert]");
+  const document = JSON.parse(await readFile(saved.output, "utf8"));
+  expect(document.requests).toMatchObject({ total: 3, history: 1, media: 2 });
 });
 
 test("automatic naming resolves only the selected chat's participant label", async () => {

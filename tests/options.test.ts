@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
-import { resolveConvertOptions, resolveExportOptions } from "../src/options.ts";
+import {
+  resolveConvertOptions,
+  resolveExportOptions,
+  resolveMediaOptions,
+} from "../src/options.ts";
 
 const base = {
   chat: "synthetic-chat",
@@ -8,6 +12,23 @@ const base = {
   out: "export.json",
 };
 const now = Date.parse("2026-11-04T12:00:00Z");
+
+test("media options require an archive and support refresh and skipping Markdown", () => {
+  expect(resolveMediaOptions({ input: "chat.json" })).toEqual({
+    input: "chat.json",
+    markdown: true,
+    refreshMedia: false,
+  });
+  expect(
+    resolveMediaOptions({
+      input: "chat.json",
+      refreshMedia: true,
+      markdown: false,
+    }),
+  ).toMatchObject({ refreshMedia: true, markdown: false });
+  for (const options of [{}, { input: "" }, { input: "chat.json", chat: "id" }])
+    expect(() => resolveMediaOptions(options)).toThrow("Media options");
+});
 
 test("images default on, can be skipped, and refresh requires media", () => {
   expect(resolveExportOptions({ ...base, last: "1d" }, now).media).toBe(true);

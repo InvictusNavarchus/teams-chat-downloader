@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
 import {
   chmod,
   mkdtemp,
@@ -158,18 +159,7 @@ test("a conversion failure preserves the saved JSON for an offline retry", async
   const stats = requestStats();
   const http = createHttp({
     stats,
-    fetch: async (request) => {
-      if (new URL(request.url).hostname === "us-api.asm.skype.com") {
-        // Simulate another writer after this export reserves its directory.
-        await writeFile(markdown, "previous Markdown");
-        return new Response(
-          Buffer.from(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1sAAAAASUVORK5CYII=",
-            "base64",
-          ),
-          { headers: { "content-type": "image/png" } },
-        );
-      }
+    fetch: async () => {
       return Response.json({
         messages: [
           {
@@ -212,6 +202,12 @@ test("a conversion failure preserves the saved JSON for an offline retry", async
         http,
         stats,
         historyProgress(),
+        undefined,
+        (event) => {
+          // Simulate another writer before initial Markdown publication.
+          if (event.type === "save")
+            writeFileSync(markdown, "previous Markdown");
+        },
       ),
     ).rejects.toThrow(
       `JSON export saved to ${out}. Markdown conversion failed`,
@@ -236,6 +232,7 @@ test("a conversion failure preserves the saved JSON for an offline retry", async
   );
   expect(await readFile(out, "utf8")).toBe(raw);
   expect(stats.history).toBe(1);
+  expect(stats.media).toBe(0);
 });
 
 test("atomic publication never overwrites an existing destination", async () => {

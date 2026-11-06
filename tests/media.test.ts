@@ -349,7 +349,7 @@ test.each([
   },
 );
 
-test("a later media failure removes partial output and keeps earlier cached images", async () => {
+test("a later media failure keeps completed output and cached images for retry", async () => {
   const f = await fixture(async (request) =>
     request.url === url
       ? new Response(png, { headers: { "content-type": "image/png" } })
@@ -368,7 +368,7 @@ test("a later media failure removes partial output and keeps earlier cached imag
       f.options,
     ),
   ).rejects.toThrow("HTTP 403");
-  expect(await Bun.file(mediaDirectory(f.out)).exists()).toBe(false);
+  expect(await readdir(mediaDirectory(f.out))).toHaveLength(1);
   const result = await downloadImages(
     [message()],
     f.out,
@@ -468,6 +468,8 @@ test("export saves portable images, offline conversion rebases links, and --no-m
         earliestTimestamp: "2026-11-01T12:00:00Z",
         hasMore: false,
       },
+      { type: "save", format: "json", destination: result.output },
+      { type: "convert", format: "markdown", destination: result.markdown },
       { type: "media-start", total: 1 },
       { type: "media-progress", current: 1, total: 1, outcome: "downloaded" },
       { type: "save", format: "json", destination: result.output },
@@ -478,7 +480,7 @@ test("export saves portable images, offline conversion rebases links, and --no-m
     if (archive.media.status === "not-downloaded")
       throw new Error("images missing");
     const image = archive.media.images[0]!;
-    expect(image.path).toBe(`media/${image.key}.png`);
+    expect(image.path).toBe(`media/${image.sha256}.png`);
     expect((await readdir(dirname(result.output))).sort()).toEqual([
       "chat.json",
       "chat.md",
@@ -559,7 +561,12 @@ test("export saves portable images, offline conversion rebases links, and --no-m
         historyProgress(),
       ),
     ).rejects.toThrow("HTTP 403");
-    expect(await readdir(f.dir)).not.toContain("failed-export");
+    expect(
+      (await readArchive(join(failedDirectory, "chat.json"))).media.status,
+    ).toBe("not-downloaded");
+    expect(await readFile(join(failedDirectory, "chat.md"), "utf8")).toContain(
+      "Image not downloaded",
+    );
     expect(await readFile(result.output, "utf8")).toContain(
       '"status": "complete"',
     );
