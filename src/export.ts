@@ -64,6 +64,11 @@ export async function exportChat(
     options.window,
     progress,
     (h) => onProgress?.({ type: "history", ...h }),
+    {
+      pageDelayMin: options.pageDelayMin,
+      pageDelayMax: options.pageDelayMax,
+      signal,
+    },
   );
   signal?.throwIfAborted();
   try {

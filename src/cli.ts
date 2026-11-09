@@ -98,6 +98,14 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option("--no-media", "Skip image downloading and use placeholders")
     .option("--no-markdown", "Skip rendering Markdown transcript beside JSON")
     .option("--refresh-media", "Revalidate cached images with Teams")
+    .option(
+      "--page-delay-min <seconds>",
+      "Minimum pause between history pages, 0–3600 seconds (default: 2)",
+    )
+    .option(
+      "--page-delay-max <seconds>",
+      "Maximum pause between history pages, 0–3600 seconds (default: 5)",
+    )
     .option("--credentials <file>", "Override automatic credential file lookup")
     .option(
       "--out <directory>",

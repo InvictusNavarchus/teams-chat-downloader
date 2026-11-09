@@ -104,6 +104,14 @@ Directory timestamps use UTC with milliseconds and filesystem-safe separators. T
 
 `--chat` accepts the raw ID printed by `chats`. History pages use the tested size of 200 and preserve the original bounds on continuation. Continuation links accept equivalent percent encodings of the same chat ID while retaining strict HTTPS, host, and route checks. Identical duplicates are removed; conflicting records for one ID, invalid payloads, unexpected destinations, non-progress, and out-of-window messages fail explicitly.
 
+The first history request starts immediately. After each successful page, fetching a valid continuation waits a randomly selected **2–5 seconds** by default; there is no wait after the final page. Configure this range with `--page-delay-min <seconds>` and `--page-delay-max <seconds>` (each accepts 0–3600 seconds, including decimals; minimum must not exceed maximum). Equal values give a fixed pause; setting both to `0` disables the pause. For example:
+
+```sh
+bun run teams export --chat '<raw-chat-id>' --last 7d --page-delay-min 3 --page-delay-max 8
+```
+
+Pacing lowers the history request rate without changing the page size or total data requested. These are client settings, not verified Teams quotas or evidence of human-like traffic. SIGINT/SIGTERM interrupts the wait and prevents the next request. HTTP retry backoff and server `Retry-After` handling remain separate; the pause happens outside each HTTP operation's timeout budget.
+
 Every history export saves `chat.json` containing source messages and a versioned manifest with window, completion, pagination, and request counts. New exports refuse existing directories. After history retrieval finishes, JSON and the default Markdown transcript are saved **before any images are downloaded**. The initial media status is `not-downloaded`, and Markdown uses image placeholders. Failed history retrieval leaves no new complete-looking export. Retrieval currently holds the chosen window in memory and has no durable checkpoint during history pagination.
 
 ### Images

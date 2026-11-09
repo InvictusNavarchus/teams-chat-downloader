@@ -1,10 +1,16 @@
+import { setTimeout as wait } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { type Message, messageSchema } from "./archive.ts";
 import type { Credentials } from "./credentials.ts";
 import { AppError, validationError } from "./errors.ts";
 import type { Http } from "./http.ts";
-import { assertWindow, type Window } from "./options.ts";
+import {
+  assertWindow,
+  defaultPageDelay,
+  type ExportOptions,
+  type Window,
+} from "./options.ts";
 import { resolveChatNames, type ProfileOptions } from "./profiles.ts";
 
 const view =
@@ -79,6 +85,9 @@ export async function readHistory(
   window: Window,
   progress = historyProgress(),
   onProgress?: (progress: HistoryPageProgress) => void,
+  options: Partial<Pick<ExportOptions, "pageDelayMin" | "pageDelayMax">> & {
+    signal?: AbortSignal;
+  } = {},
 ): Promise<Message[]> {
   assertWindow(window);
   if (!chat) throw new AppError("A chat ID is required.");
@@ -107,6 +116,17 @@ export async function readHistory(
         "History returned a repeated continuation; export stopped.",
       );
     seenPages.add(url.href);
+    if (seenPages.size > 1) {
+      const min = options.pageDelayMin ?? defaultPageDelay.min;
+      const max = options.pageDelayMax ?? defaultPageDelay.max;
+      const delayMs = Math.round((min + Math.random() * (max - min)) * 1000);
+      try {
+        await wait(delayMs, undefined, { signal: options.signal });
+      } catch (error) {
+        if (options.signal?.aborted) throw new AppError("Export cancelled.");
+        throw error;
+      }
+    }
     const data = await http.json(
       url,
       "history",

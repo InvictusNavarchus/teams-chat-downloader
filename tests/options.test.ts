@@ -13,6 +13,53 @@ const base = {
 };
 const now = Date.parse("2026-11-04T12:00:00Z");
 
+describe("history page delay options", () => {
+  test("defaults to 2–5 seconds and accepts numeric CLI strings", () => {
+    expect(resolveExportOptions({ ...base, last: "1d" }, now)).toMatchObject({
+      pageDelayMin: 2,
+      pageDelayMax: 5,
+    });
+    expect(
+      resolveExportOptions({
+        ...base,
+        last: "1d",
+        pageDelayMin: "0.05",
+        pageDelayMax: "1.5",
+      }),
+    ).toMatchObject({ pageDelayMin: 0.05, pageDelayMax: 1.5 });
+    expect(
+      resolveExportOptions({
+        ...base,
+        last: "1d",
+        pageDelayMin: 0,
+        pageDelayMax: 0,
+      }),
+    ).toMatchObject({ pageDelayMin: 0, pageDelayMax: 0 });
+  });
+
+  test.each([-1, 3601, Infinity, NaN, "", " ", "slow", "1s", true, null])(
+    "rejects invalid delay bounds: %s",
+    (value) => {
+      for (const name of ["pageDelayMin", "pageDelayMax"]) {
+        expect(() =>
+          resolveExportOptions({ ...base, last: "1d", [name]: value }),
+        ).toThrow("Export options");
+      }
+    },
+  );
+
+  test("rejects a minimum above the maximum", () => {
+    expect(() =>
+      resolveExportOptions({
+        ...base,
+        last: "1d",
+        pageDelayMin: "6",
+        pageDelayMax: "3",
+      }),
+    ).toThrow("--page-delay-min must not exceed --page-delay-max");
+  });
+});
+
 test("media options require an archive and support refresh and skipping Markdown", () => {
   expect(resolveMediaOptions({ input: "chat.json" })).toEqual({
     input: "chat.json",

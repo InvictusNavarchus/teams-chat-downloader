@@ -60,7 +60,13 @@ async function fixture({
     globalThis.fetch = async (input) => {
       const url = new URL(input instanceof Request ? input.url : input);
       if (url.pathname.endsWith("/users/me")) return Response.json(fixtures.directory, { status: fixtures.directoryStatus });
-      if (url.pathname.endsWith("/messages")) return Response.json({ messages: fixtures.messages, _metadata: {} }, { status: fixtures.historyStatus });
+      if (url.pathname.endsWith("/messages")) {
+        const index = Number(url.searchParams.get("fixturePage") ?? 0);
+        const messages = fixtures.historyPages?.[index] ?? fixtures.messages;
+        const next = fixtures.historyPages && index + 1 < fixtures.historyPages.length;
+        url.searchParams.set("fixturePage", String(index + 1));
+        return Response.json({ messages, _metadata: next ? { backwardLink: url.href } : {} }, { status: fixtures.historyStatus });
+      }
       if (url.origin === "https://us-api.asm.skype.com" && url.pathname === "/v1/objects/fixture-image/views/imgo") {
         if (fixtures.imageStatus === 304) {
           if (input.headers.get("if-none-match") !== '"fixture-image"') throw new Error("Expected conditional image request");
@@ -90,6 +96,7 @@ async function fixture({
       directoryStatus = 200,
       historyStatus = 200,
       messages = [],
+      historyPages,
       imageStatus = 200,
       command = "export",
     }: {
@@ -97,6 +104,7 @@ async function fixture({
       directoryStatus?: number;
       historyStatus?: number;
       messages?: unknown[];
+      historyPages?: unknown[][];
       imageStatus?: number;
       command?: "export" | "media";
     } = {},
@@ -111,6 +119,7 @@ async function fixture({
         directoryStatus,
         historyStatus,
         messages,
+        historyPages,
         imageStatus,
       }),
     );
@@ -146,6 +155,54 @@ async function fixture({
   }
   return { dir, run };
 }
+
+test("export accepts page delay flags and retrieves multiple history pages", async () => {
+  const f = await fixture();
+  const result = await f.run(
+    [
+      "--from",
+      "2026-11-01T00:00:00Z",
+      "--to",
+      "2026-11-02T00:00:00Z",
+      "--out",
+      "paced",
+      "--page-delay-min",
+      "0.04",
+      "--page-delay-max",
+      "0.08",
+      "--no-media",
+    ],
+    {
+      historyPages: [
+        [{ id: "1", originalarrivaltime: "2026-11-01T12:00:00Z" }],
+        [{ id: "2", originalarrivaltime: "2026-11-01T11:00:00Z" }],
+      ],
+    },
+  );
+  expect(result.code).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(readSummary(result.stdout).messages).toBe(2);
+  expect(result.stdout).toContain("[history] Page 2:");
+  expect(result.stdout).toContain("HTTP attempts: 2 (history: 2, directory: 0");
+});
+
+test("export rejects reversed page delay bounds before making requests", async () => {
+  const f = await fixture();
+  const result = await f.run([
+    "--last",
+    "7d",
+    "--page-delay-min",
+    "6",
+    "--page-delay-max",
+    "3",
+  ]);
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain(
+    "--page-delay-min must not exceed --page-delay-max",
+  );
+  expect(result.stdout).not.toContain("HTTP attempts:");
+  expect(await readdir(f.dir)).not.toContain("exports");
+});
 
 test("export without --out publishes a label-based export folder and reports the saved path", async () => {
   const f = await fixture();

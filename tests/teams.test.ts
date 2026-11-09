@@ -16,6 +16,7 @@ const credentials: Credentials = {
   directoryToken: "directory-fixture",
 };
 const window = { from: 1785542400000, to: 1786147200000 };
+const noDelay = { pageDelayMin: 0, pageDelayMax: 0 };
 const message = (id: string, time = "2026-08-03T00:00:00Z") => ({
   id,
   originalarrivaltime: time,
@@ -65,6 +66,7 @@ describe("bounded history", () => {
       window,
       progress,
       (update) => updates.push(update),
+      noDelay,
     );
     expect(calls[0]?.searchParams.has("syncState")).toBe(false);
     expect(calls[0]?.pathname).toContain(encodeURIComponent(chat));
@@ -137,6 +139,9 @@ describe("bounded history", () => {
       credentials,
       "19:example@thread.v2",
       window,
+      undefined,
+      undefined,
+      noDelay,
     );
     expect(messages.map((item) => item.id)).toEqual(["a", "b"]);
     expect(stats.history).toBe(2);
@@ -176,9 +181,17 @@ describe("bounded history", () => {
       stats,
       fetch: async () => page([message(String(++calls))], continuation("same")),
     });
-    await expect(readHistory(http, credentials, chat, window)).rejects.toThrow(
-      "repeated continuation",
-    );
+    await expect(
+      readHistory(
+        http,
+        credentials,
+        chat,
+        window,
+        undefined,
+        undefined,
+        noDelay,
+      ),
+    ).rejects.toThrow("repeated continuation");
     expect(stats.total).toBe(2);
   });
 
@@ -246,6 +259,85 @@ describe("bounded history", () => {
         (item) => item.id,
       ),
     ).toEqual(["a", "b"]);
+  });
+});
+
+describe("history pacing", () => {
+  test("does not delay the first request or wait after the final page", async () => {
+    const stats = requestStats();
+    const http = createHttp({
+      stats,
+      fetch: async () => page([message("a")]),
+    });
+    expect(
+      await readHistory(http, credentials, chat, window, undefined, undefined, {
+        pageDelayMin: 30,
+        pageDelayMax: 30,
+      }),
+    ).toHaveLength(1);
+    expect(stats.history).toBe(1);
+  });
+
+  test("paces every continuation after reporting the successful page", async () => {
+    const stats = requestStats();
+    const updates: number[] = [];
+    const http = createHttp({
+      stats,
+      fetch: async () => {
+        if (stats.history > 1) {
+          expect(updates).toHaveLength(stats.history - 1);
+          expect(performance.now() - updates.at(-1)!).toBeGreaterThanOrEqual(
+            35,
+          );
+        }
+        return page(
+          [message(String(stats.history))],
+          stats.history < 3 ? continuation(String(stats.history)) : undefined,
+        );
+      },
+    });
+    const messages = await readHistory(
+      http,
+      credentials,
+      chat,
+      window,
+      undefined,
+      () => updates.push(performance.now()),
+      { pageDelayMin: 0.04, pageDelayMax: 0.08 },
+    );
+    expect(messages).toHaveLength(3);
+    expect(stats.history).toBe(3);
+    expect(stats.retries).toBe(0);
+  });
+
+  test("cancellation interrupts the default pause before the next request", async () => {
+    const controller = new AbortController();
+    const stats = requestStats();
+    const http = createHttp({
+      stats,
+      signal: controller.signal,
+      fetch: async () => page([message("a")], continuation("next")),
+    });
+    let cancel: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await expect(
+        readHistory(
+          http,
+          credentials,
+          chat,
+          window,
+          undefined,
+          () => {
+            cancel = setTimeout(() => controller.abort(), 10);
+          },
+          { signal: controller.signal },
+        ),
+      ).rejects.toThrow("Export cancelled.");
+      expect(stats.history).toBe(1);
+      expect(stats.retries).toBe(0);
+    } finally {
+      clearTimeout(cancel);
+    }
   });
 });
 

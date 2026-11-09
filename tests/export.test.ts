@@ -109,6 +109,8 @@ test("a later page failure creates no complete-looking export", async () => {
     credentials: "unused.json",
     out: directory,
     last: "7d",
+    pageDelayMin: 0,
+    pageDelayMax: 0,
   });
   const stats = requestStats();
   const http = createHttp({
@@ -149,6 +151,57 @@ test("a later page failure creates no complete-looking export", async () => {
   expect(await readdir(dir)).toEqual([]);
   expect(progress.pages).toBe(1);
   expect(stats.total).toBe(2);
+});
+
+test("cancellation during history pacing makes no further requests or export files", async () => {
+  const dir = await temporary();
+  const controller = new AbortController();
+  const options = resolveExportOptions({
+    chat: "fixture",
+    out: join(dir, "export"),
+    last: "7d",
+  });
+  const stats = requestStats();
+  const http = createHttp({
+    stats,
+    signal: controller.signal,
+    fetch: async () =>
+      Response.json({
+        messages: [
+          {
+            id: "1",
+            originalarrivaltime: new Date(options.window.from).toISOString(),
+          },
+        ],
+        _metadata: {
+          backwardLink:
+            "https://msgapi.teams.live.com/v1/users/ME/conversations/fixture/messages?syncState=next",
+        },
+      }),
+  });
+  const progress = historyProgress();
+  let cancel: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await expect(
+      exportChat(
+        options,
+        { version: 1, accountId: "fixture", historyAuthentication: "fixture" },
+        http,
+        stats,
+        progress,
+        controller.signal,
+        (event) => {
+          if (event.type === "history")
+            cancel = setTimeout(() => controller.abort(), 10);
+        },
+      ),
+    ).rejects.toThrow("Export cancelled.");
+    expect(stats.total).toBe(1);
+    expect(progress.pages).toBe(1);
+    expect(await readdir(dir)).toEqual([]);
+  } finally {
+    clearTimeout(cancel);
+  }
 });
 
 test("a conversion failure preserves the saved JSON for an offline retry", async () => {

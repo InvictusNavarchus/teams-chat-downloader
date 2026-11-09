@@ -7,6 +7,16 @@ const timestamp = z.iso
   .refine(
     (value) => Number.isFinite(Date.parse(value)) && !/\.\d{4}/.test(value),
   );
+export const defaultPageDelay = { min: 2, max: 5 };
+const pageDelay = z
+  .union([
+    z.number(),
+    z
+      .string()
+      .regex(/^\d+(?:\.\d+)?$/)
+      .transform(Number),
+  ])
+  .pipe(z.number().min(0).max(3600));
 const exportOptions = z.strictObject({
   chat: z.string().min(1),
   credentials: z.string().min(1).optional(),
@@ -14,6 +24,8 @@ const exportOptions = z.strictObject({
   markdown: z.boolean().default(true),
   media: z.boolean().default(true),
   refreshMedia: z.boolean().default(false),
+  pageDelayMin: pageDelay.default(defaultPageDelay.min),
+  pageDelayMax: pageDelay.default(defaultPageDelay.max),
   from: timestamp.optional(),
   to: timestamp.optional(),
   since: timestamp.optional(),
@@ -79,6 +91,8 @@ export function resolveExportOptions(
   const result = exportOptions.safeParse(input);
   if (!result.success) throw validationError("Export options", result.error);
   const options = result.data;
+  if (options.pageDelayMin > options.pageDelayMax)
+    throw new AppError("--page-delay-min must not exceed --page-delay-max.");
   if (!options.media && options.refreshMedia)
     throw new AppError("--refresh-media cannot be combined with --no-media.");
   const modes =

@@ -313,10 +313,15 @@ export async function login(
     });
     if (chats.length) {
       const now = Date.now();
-      await readHistory(http, credentials, chats[0]!.id, {
-        from: now - 1,
-        to: now,
-      });
+      await readHistory(
+        http,
+        credentials,
+        chats[0]!.id,
+        { from: now - 1, to: now },
+        undefined,
+        undefined,
+        { signal },
+      );
     } else {
       const url = new URL(
         "https://teams.live.com/api/chatsvc/consumer/v1/users/ME/properties",
