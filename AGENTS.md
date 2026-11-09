@@ -38,7 +38,7 @@ teams-chat-download/
 │   ├── convert-all.ts    # Batch offline JSON-to-Markdown conversion
 │   ├── credentials.ts    # XDG state loading, credential validation, and file permission checks
 │   ├── errors.ts         # Domain error classes, validation errors, and sanitized formatters
-│   ├── export.ts         # Chat export orchestrator (history retrieval + text + media)
+│   ├── export.ts         # Label selection and chat export orchestration (history + text + media)
 │   ├── export-path.ts    # Destination folder formatting and kebab-case label sanitization
 │   ├── http.ts           # Ky HTTP client wrapper, retry policy, backoff, and request accounting
 │   ├── login.ts          # Playwright helper for interactive browser sign-in and token capture
@@ -92,6 +92,12 @@ When modifying or extending this codebase, agents **must** respect these domain 
    - Use direct, explicit file imports (e.g. `import { exportChat } from "./export.ts"`).
 6. **Zero Credential Leakage**:
    - Never print raw URLs containing auth tokens, cookies, or auth headers in logs, terminal summaries, or error messages.
+7. **Unambiguous Chat Selection**:
+   - Export requires exactly one of `--chat <raw-id>` or `--chat-label <label>`.
+   - Match resolved `label`, including profile-derived one-to-one names when `title` is null, exactly after trimming surrounding whitespace and ignoring case. Generic fallback labels cannot select chats.
+   - Resolve labels against the current directory with the existing profile cache. Missing or duplicate matches fail before history retrieval; duplicate errors list matching labels and raw IDs.
+   - Reuse the matched label for folder naming. Raw-ID exports with explicit `--out` skip directory/profile lookup; label selection requires lookup even with `--out`. Archives always store the resolved raw chat ID.
+   - Saved chat lists remain explicit `chats --out <file>` snapshots; selection does not read or automatically maintain them.
 
 ---
 

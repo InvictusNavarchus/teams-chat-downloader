@@ -61,6 +61,8 @@ async function fixture({
       const url = new URL(input instanceof Request ? input.url : input);
       if (url.pathname.endsWith("/users/me")) return Response.json(fixtures.directory, { status: fixtures.directoryStatus });
       if (url.pathname.endsWith("/messages")) {
+        const chat = decodeURIComponent(url.pathname.split("/").at(-2));
+        if (chat !== fixtures.expectedChat) throw new Error("History requested the wrong chat");
         const index = Number(url.searchParams.get("fixturePage") ?? 0);
         const messages = fixtures.historyPages?.[index] ?? fixtures.messages;
         const next = fixtures.historyPages && index + 1 < fixtures.historyPages.length;
@@ -99,6 +101,7 @@ async function fixture({
       historyPages,
       imageStatus = 200,
       command = "export",
+      expectedChat = "fixture",
     }: {
       chats?: unknown[];
       directoryStatus?: number;
@@ -107,6 +110,7 @@ async function fixture({
       historyPages?: unknown[][];
       imageStatus?: number;
       command?: "export" | "media";
+      expectedChat?: string;
     } = {},
   ) {
     await writeFile(
@@ -121,6 +125,7 @@ async function fixture({
         messages,
         historyPages,
         imageStatus,
+        expectedChat,
       }),
     );
     const child = Bun.spawn(
@@ -132,7 +137,11 @@ async function fixture({
         command,
         "--credentials",
         credentials,
-        ...(command === "export" ? ["--chat", "fixture"] : []),
+        ...(command === "export" &&
+        !args.includes("--chat-label") &&
+        !args.includes("--chat")
+          ? ["--chat", "fixture"]
+          : []),
         ...args,
       ],
       {
@@ -155,6 +164,148 @@ async function fixture({
   }
   return { dir, run };
 }
+
+test("export selects a group label case-insensitively and reuses it for naming", async () => {
+  const f = await fixture();
+  const chat = "19:opaque-long-group-id@thread.v2";
+  const result = await f.run(
+    ["--chat-label", "  CAFÉ / project alpha  ", "--last", "1d"],
+    {
+      chats: [{ id: chat, title: "Café / Project Alpha", isOneOnOne: false }],
+      expectedChat: chat,
+    },
+  );
+  expect(result.code).toBe(0);
+  expect(result.stderr).toBe("");
+  const summary = readSummary(result.stdout);
+  expect(basename(dirname(summary.output))).toStartWith(
+    "cafe-project-alpha--last-1d--",
+  );
+  const archive = JSON.parse(await readFile(summary.output, "utf8"));
+  expect(archive.chatId).toBe(chat);
+  expect(archive.requests).toMatchObject({
+    total: 2,
+    directory: 1,
+    history: 1,
+    profiles: 0,
+  });
+});
+
+test("export selects an untitled direct chat by its resolved participant label with --out", async () => {
+  const f = await fixture({ profileAuthorization: true });
+  const chats = [
+    {
+      id: "fixture",
+      title: null,
+      isOneOnOne: true,
+      members: [{ mri: "8:live:self" }, { mri: "8:live:other" }],
+    },
+  ];
+  for (const [out, profiles] of [
+    ["cold", 2],
+    ["warm", 0],
+  ] as const) {
+    const result = await f.run(
+      ["--chat-label", "jane doe", "--last", "1d", "--out", out],
+      { chats },
+    );
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    const summary = readSummary(result.stdout);
+    expect(summary.output).toBe(join(f.dir, out, "chat.json"));
+    const archive = JSON.parse(await readFile(summary.output, "utf8"));
+    expect(archive.chatId).toBe("fixture");
+    expect(archive.requests).toMatchObject({
+      total: 2 + profiles,
+      directory: 1,
+      history: 1,
+      profiles,
+    });
+  }
+});
+
+test("duplicate labels report matching IDs without fetching history or writing an export", async () => {
+  const f = await fixture();
+  const result = await f.run(
+    ["--chat-label", "project alpha", "--last", "1d"],
+    {
+      chats: [
+        { id: "group-a", title: "Project Alpha", isOneOnOne: false },
+        { id: "group-b", title: "PROJECT ALPHA", isOneOnOne: false },
+      ],
+    },
+  );
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("Multiple chats match --chat-label");
+  expect(result.stderr).toContain('"Project Alpha": "group-a"');
+  expect(result.stderr).toContain('"PROJECT ALPHA": "group-b"');
+  expect(result.stdout).toContain("history: 0, directory: 1");
+  expect(await readdir(f.dir)).not.toContain("exports");
+});
+
+test("partial label matches fail with guidance before fetching history", async () => {
+  const f = await fixture();
+  const result = await f.run([
+    "--chat-label",
+    "Project",
+    "--last",
+    "1d",
+    "--out",
+    "missing",
+  ]);
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("No chat matches --chat-label");
+  expect(result.stderr).toContain("--refresh-names");
+  expect(result.stdout).toContain("history: 0, directory: 1");
+  expect(await readdir(f.dir)).not.toContain("missing");
+});
+
+test.each(["Untitled chat", "UNRESOLVED ONE-TO-ONE CHAT"])(
+  "generic label %s cannot select a chat",
+  async (label) => {
+    const f = await fixture();
+    const result = await f.run(["--chat-label", label, "--last", "1d"]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      "Generic fallback labels cannot select a chat",
+    );
+    expect(result.stdout).not.toContain("HTTP attempts:");
+    expect(await readdir(f.dir)).not.toContain("exports");
+  },
+);
+
+test("label selection requires directory credentials even with an explicit output folder", async () => {
+  const f = await fixture({ directoryToken: false });
+  const result = await f.run([
+    "--chat-label",
+    "Project Alpha",
+    "--last",
+    "1d",
+    "--out",
+    "custom",
+  ]);
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("Credential file lacks directoryToken");
+  expect(result.stdout).not.toContain("HTTP attempts:");
+  expect(await readdir(f.dir)).not.toContain("custom");
+});
+
+test("conflicting chat selectors fail before any HTTP requests", async () => {
+  const f = await fixture();
+  const result = await f.run([
+    "--chat",
+    "fixture",
+    "--chat-label",
+    "Project Alpha",
+    "--last",
+    "1d",
+  ]);
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain(
+    "Choose exactly one of --chat <id> or --chat-label <label>",
+  );
+  expect(result.stdout).not.toContain("HTTP attempts:");
+});
 
 test("export accepts page delay flags and retrieves multiple history pages", async () => {
   const f = await fixture();

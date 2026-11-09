@@ -18,7 +18,8 @@ const pageDelay = z
   ])
   .pipe(z.number().min(0).max(3600));
 const exportOptions = z.strictObject({
-  chat: z.string().min(1),
+  chat: z.string().min(1).optional(),
+  chatLabel: z.string().trim().min(1).optional(),
   credentials: z.string().min(1).optional(),
   out: z.string().min(1).optional(),
   markdown: z.boolean().default(true),
@@ -91,6 +92,14 @@ export function resolveExportOptions(
   const result = exportOptions.safeParse(input);
   if (!result.success) throw validationError("Export options", result.error);
   const options = result.data;
+  if (
+    Number(options.chat !== undefined) +
+      Number(options.chatLabel !== undefined) !==
+    1
+  )
+    throw new AppError(
+      "Choose exactly one of --chat <id> or --chat-label <label>.",
+    );
   if (options.pageDelayMin > options.pageDelayMax)
     throw new AppError("--page-delay-min must not exceed --page-delay-max.");
   if (!options.media && options.refreshMedia)

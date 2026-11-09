@@ -68,7 +68,7 @@ Save a local reference for copying chat IDs. Run the same command whenever you w
 bun run teams chats --out .private/chats.json
 ```
 
-The file contains the JSON chat array printed in the terminal, including IDs and resolved labels, without status messages or request summaries. Every invocation fetches the current directory and reuses the name cache. To refresh names too, add `--refresh-names`. Successful saves atomically replace the previous list; failed retrieval, failed writing, or cancellation leaves the previous file intact. New files use private permissions. The `.private/` example is ignored by Git. This replacement behavior applies to chat lists; history exports still refuse to overwrite existing files.
+The file contains the JSON chat array printed in the terminal, including IDs and resolved labels, without status messages or request summaries. Every invocation fetches the current directory and reuses the name cache. To refresh names too, add `--refresh-names`. Chat lists are saved only with `--out`; export selection does not read or automatically maintain this file. Successful saves atomically replace the previous list; failed retrieval, failed writing, or cancellation leaves the previous file intact. New files use private permissions. The `.private/` example is ignored by Git. This replacement behavior applies to chat lists; history exports still refuse to overwrite existing files.
 
 Named group titles are preserved. Untitled one-to-one chats use the other participant's display name; `title` remains null because it reflects the source title. Unavailable or ambiguous profiles retain an explicit unresolved label. Without `profileAuthorization`, listing still works and warns that names are unresolved. Profile authentication or HTTP failures fail explicitly. If Teams reports a partial directory, the command fails rather than presenting it as a complete listing.
 
@@ -78,7 +78,18 @@ Names and self identity are cached for 24 hours in `$XDG_CACHE_HOME/teams-chat-d
 bun run teams chats --refresh-names
 ```
 
-The [participant profile reference](docs/08-participant-profiles.md) records the observed requests, cache policy, and remaining limits. Name caching is separate from the image cache. Automatic export filenames resolve the selected chat's label through the same directory and name cache. Exports with an explicit `--out` do not request the directory or profiles.
+The [participant profile reference](docs/08-participant-profiles.md) records the observed requests, cache policy, and remaining limits. Name caching is separate from the image cache. Automatic export filenames resolve the selected chat's label through the same directory and name cache. Exports using a raw `--chat` ID and explicit `--out` do not request the directory or profiles. Label selection always needs a directory lookup, including with `--out`.
+
+Select a chat by the resolved `label` printed by `chats`:
+
+```sh
+bun run teams export --chat-label 'Jane Doe' --last 7d
+bun run teams export --chat-label 'Project Alpha' --last 7d --out exports/alpha-week
+```
+
+Choose exactly one of `--chat <raw-id>` or `--chat-label <label>`. Labels match exactly after trimming surrounding whitespace and ignoring case; partial matches are not used. One-to-one chats can be selected by the participant's resolved name even when `title` is null. Generic labels `Untitled chat` and `Unresolved one-to-one chat` cannot be used for selection. Missing matches fail with guidance to list chats; duplicate matches report their labels and raw IDs so you can choose with `--chat`. No history is fetched for either failure.
+
+Label selection fetches the current directory, resolves participant names with the existing 24-hour profile cache, and reuses the selected label for automatic folder naming without a second directory request. It requires `directoryToken`; untitled one-to-one names also need `profileAuthorization` or remain unresolved. After a participant rename, refresh the name cache with `bun run teams chats --refresh-names` before selecting the new label. Raw IDs remain useful for scripts because labels can change or be duplicated.
 
 Export the last seven calendar days including today, or select an older period directly:
 
@@ -100,7 +111,7 @@ Choose exactly one of `--last Nd`, `--since <timestamp>`, or `--from <timestamp>
 | `--since '2026-11-01T00:00:00Z'`                            | `project-alpha--since-2026-11-01T00-00-00-000Z--to-2026-11-05T10-30-00-000Z` |
 | `--from '2026-11-01T00:00:00Z' --to '2026-11-05T00:00:00Z'` | `project-alpha--from-2026-11-01T00-00-00-000Z--to-2026-11-05T00-00-00-000Z`  |
 
-Directory timestamps use UTC with milliseconds and filesystem-safe separators. The `to` timestamp is the exclusive end of the actual export window; including it distinguishes exports ending at different invocation times. Successful stdout JSON includes the absolute `chat.json` path as `output`. If directory credentials or a matching chat label are unavailable, naming uses a short hash of the chat ID; generic untitled/unresolved labels also include that hash. Directory and profile request failures still fail explicitly. Use `--out <directory>` to select a new export folder and skip label lookup. The destination directory must not already exist, including for a repeated export of the same explicit range; choose another `--out` directory if needed.
+Directory timestamps use UTC with milliseconds and filesystem-safe separators. The `to` timestamp is the exclusive end of the actual export window; including it distinguishes exports ending at different invocation times. Successful stdout JSON includes the absolute `chat.json` path as `output`. If directory credentials or a matching chat label are unavailable for a raw-ID export, naming uses a short hash of the chat ID; generic untitled/unresolved labels also include that hash. Directory and profile request failures still fail explicitly. Use `--out <directory>` to select a new export folder; paired with a raw `--chat` ID, it also skips label lookup. The destination directory must not already exist, including for a repeated export of the same explicit range; choose another `--out` directory if needed.
 
 `--chat` accepts the raw ID printed by `chats`. History pages use the tested size of 200 and preserve the original bounds on continuation. Continuation links accept equivalent percent encodings of the same chat ID while retaining strict HTTPS, host, and route checks. Identical duplicates are removed; conflicting records for one ID, invalid payloads, unexpected destinations, non-progress, and out-of-window messages fail explicitly.
 

@@ -83,6 +83,10 @@ teams export --chat <chat-id> --from <timestamp> --to <timestamp> --images
 
 An interactive picker could be a convenience on top of `chats`, not a requirement for noninteractive scripting. Always retain an explicit-ID route so ambiguity between chats with the same title does not select the wrong conversation.
 
+**Implemented label selection:** `export` accepts exactly one of `--chat <raw-id>` or `--chat-label <label>`. The latter matches the resolved `label`, including profile-derived one-to-one names when `title` is null, after trimming surrounding whitespace and ignoring case. It does not use partial matching. The generic labels `Untitled chat` and `Unresolved one-to-one chat` are excluded. Missing matches fail with listing/refresh guidance; duplicate matches report their labels and raw IDs and require selection with `--chat`. Both fail before fetching history.
+
+Label selection fetches the current directory and uses the existing 24-hour profile cache. It reuses the selected label for automatic directory naming, avoiding a second directory request. `--out` skips directory/profile lookup only for raw-ID selection. Chat lists are saved/refreshed explicitly with `chats --out <file>`; selection does not read or automatically maintain a saved snapshot. Refresh renamed participants with `chats --refresh-names`. Raw IDs remain the stable choice for scripts.
+
 Do not require a development server or a frontend framework for this workflow.
 
 ## 4. Date semantics

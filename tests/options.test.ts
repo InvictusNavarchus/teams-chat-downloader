@@ -13,6 +13,35 @@ const base = {
 };
 const now = Date.parse("2026-11-04T12:00:00Z");
 
+describe("chat selection", () => {
+  test("accepts a label without a raw ID and trims surrounding whitespace", () => {
+    const options = resolveExportOptions(
+      { chatLabel: "  Jane Doe  ", last: "1d" },
+      now,
+    );
+    expect(options.chat).toBeUndefined();
+    expect(options.chatLabel).toBe("Jane Doe");
+  });
+
+  test.each([{}, { chat: "fixture", chatLabel: "Jane Doe" }])(
+    "requires exactly one selector: %j",
+    (selection) => {
+      expect(() =>
+        resolveExportOptions({ ...selection, last: "1d" }, now),
+      ).toThrow("Choose exactly one of --chat <id> or --chat-label <label>");
+    },
+  );
+
+  test.each(["", "   ", true, 3])(
+    "rejects an invalid chat label: %s",
+    (chatLabel) => {
+      expect(() =>
+        resolveExportOptions({ chatLabel, last: "1d" }, now),
+      ).toThrow("Export options");
+    },
+  );
+});
+
 describe("history page delay options", () => {
   test("defaults to 2–5 seconds and accepts numeric CLI strings", () => {
     expect(resolveExportOptions({ ...base, last: "1d" }, now)).toMatchObject({

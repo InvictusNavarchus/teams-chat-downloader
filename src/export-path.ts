@@ -1,11 +1,16 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { AppError } from "./errors.ts";
 import type { ExportOptions } from "./options.ts";
 
 export function defaultExportDirectory(
   options: ExportOptions,
   label?: string,
 ): string {
+  if (options.chat === undefined)
+    throw new AppError(
+      "Resolve the chat label to a raw ID before naming an export.",
+    );
   const normalized = (label ?? "")
     .normalize("NFKD")
     .toLowerCase()

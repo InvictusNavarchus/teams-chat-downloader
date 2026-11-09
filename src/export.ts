@@ -38,12 +38,45 @@ export async function exportChat(
   signal?: AbortSignal,
   onProgress?: (event: ExportProgressEvent) => void,
 ) {
+  let chat = options.chat;
+  let label: string | undefined;
+  if (options.chatLabel !== undefined) {
+    const requested = options.chatLabel.toLowerCase();
+    if (
+      requested === "untitled chat" ||
+      requested === "unresolved one-to-one chat"
+    )
+      throw new AppError(
+        "Generic fallback labels cannot select a chat; use --chat <id> from teams chats.",
+      );
+    const chats = await listChats(http, credentials, {
+      warn: (message) => console.warn(message),
+      signal,
+    });
+    const matches = chats.filter(
+      (item) => item.label.trim().toLowerCase() === requested,
+    );
+    if (matches.length === 0)
+      throw new AppError(
+        "No chat matches --chat-label. Run teams chats to see current labels; use --refresh-names if a participant was renamed.",
+      );
+    if (matches.length > 1)
+      throw new AppError(
+        `Multiple chats match --chat-label; select one with --chat <id>:\n${matches.map((item) => `${JSON.stringify(item.label)}: ${JSON.stringify(item.id)}`).join("\n")}`,
+      );
+    const selected = matches[0]!;
+    chat = selected.id;
+    label = selected.label;
+  }
+  if (chat === undefined)
+    throw new AppError(
+      "Choose exactly one of --chat <id> or --chat-label <label>.",
+    );
   let directory = options.out;
   if (directory === undefined) {
-    let label: string | undefined;
-    if (credentials.directoryToken) {
+    if (label === undefined && credentials.directoryToken) {
       const chats = await listChats(http, credentials, {
-        chatId: options.chat,
+        chatId: chat,
         warn: (message) => console.warn(message),
         signal,
       });
@@ -53,14 +86,14 @@ export async function exportChat(
       console.warn(
         "Chat label unavailable; using a chat identifier in the directory name.",
       );
-    directory = defaultExportDirectory(options, label);
+    directory = defaultExportDirectory({ ...options, chat }, label);
   }
   await checkOutput(directory);
   const out = join(directory, "chat.json");
   const messages = await readHistory(
     http,
     credentials,
-    options.chat,
+    chat,
     options.window,
     progress,
     (h) => onProgress?.({ type: "history", ...h }),
@@ -87,7 +120,7 @@ export async function exportChat(
       version: 1,
       status: "complete",
       accountId: credentials.accountId,
-      chatId: options.chat,
+      chatId: chat,
       window: {
         from: new Date(options.window.from).toISOString(),
         toExclusive: new Date(options.window.to).toISOString(),

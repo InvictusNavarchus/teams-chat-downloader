@@ -95,6 +95,10 @@ export async function runCli(argv = process.argv): Promise<number> {
       "Save chat history as JSON and render Markdown transcript",
     )
     .option("--chat <id>", "Raw chat ID")
+    .option(
+      "--chat-label <label>",
+      "Exact resolved chat label (case-insensitive)",
+    )
     .option("--no-media", "Skip image downloading and use placeholders")
     .option("--no-markdown", "Skip rendering Markdown transcript beside JSON")
     .option("--refresh-media", "Revalidate cached images with Teams")
