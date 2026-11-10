@@ -16,7 +16,10 @@ import { convertArchive } from "../src/convert.ts";
 import type { Credentials } from "../src/credentials.ts";
 import { exportChat } from "../src/export.ts";
 import { createHttp, requestStats, type Fetch } from "../src/http.ts";
-import { resolveExportOptions, resolveMediaOptions } from "../src/options.ts";
+import {
+  resolveExportOptions,
+  resolveMediaOptions,
+} from "../src/command-validation.ts";
 import { updateExport, writeExport } from "../src/output.ts";
 import { historyProgress } from "../src/teams.ts";
 import { archive } from "./fixtures/archive.ts";

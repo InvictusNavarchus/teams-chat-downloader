@@ -23,7 +23,7 @@ import {
   imageUrl,
   mediaDirectory,
 } from "../src/media.ts";
-import { resolveExportOptions } from "../src/options.ts";
+import { resolveExportOptions } from "../src/command-validation.ts";
 import { historyProgress } from "../src/teams.ts";
 
 const png = Buffer.from(

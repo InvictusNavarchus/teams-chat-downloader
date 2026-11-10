@@ -17,17 +17,16 @@ import type {
   Response as BrowserResponse,
 } from "playwright-core";
 import {
+  resolveLoginOptions,
+  type LoginOptions,
+} from "../src/command-validation.ts";
+import {
   defaultCredentialsPath,
   loadCredentials,
   saveCredentials,
 } from "../src/credentials.ts";
 import { requestStats, type Fetch } from "../src/http.ts";
-import {
-  login,
-  loginLaunchOptions,
-  resolveLoginOptions,
-  type LoginOptions,
-} from "../src/login.ts";
+import { login, loginLaunchOptions } from "../src/login.ts";
 
 const history = "history-secret";
 const skype = "skype-secret";

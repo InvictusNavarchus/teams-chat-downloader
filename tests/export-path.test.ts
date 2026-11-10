@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { basename, dirname } from "node:path";
 import { defaultExportDirectory } from "../src/export-path.ts";
-import { resolveExportOptions } from "../src/options.ts";
+import { resolveExportOptions } from "../src/command-validation.ts";
 
 const now = Date.parse("2026-11-05T10:30:00.123Z");
 const last = resolveExportOptions({ chat: "fixture", last: "1d" }, now);

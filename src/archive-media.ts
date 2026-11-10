@@ -9,7 +9,7 @@ import type { ExportProgressEvent } from "./export.ts";
 import type { Http, RequestStats } from "./http.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { downloadImages } from "./media.ts";
-import type { MediaOptions } from "./options.ts";
+import type { MediaOptions } from "./command-validation.ts";
 import { updateExport, updateMarkdown } from "./output.ts";
 
 const countsSchema = z.looseObject({

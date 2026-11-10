@@ -2,15 +2,11 @@ import { setTimeout as wait } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { type Message, messageSchema } from "./archive.ts";
+import { defaultPageDelay } from "./config.ts";
 import type { Credentials } from "./credentials.ts";
+import { assertWindow, type Window } from "./date-window.ts";
 import { AppError, validationError } from "./errors.ts";
 import type { Http } from "./http.ts";
-import {
-  assertWindow,
-  defaultPageDelay,
-  type ExportOptions,
-  type Window,
-} from "./options.ts";
 import { resolveChatNames, type ProfileOptions } from "./profiles.ts";
 
 const view =
@@ -85,7 +81,9 @@ export async function readHistory(
   window: Window,
   progress = historyProgress(),
   onProgress?: (progress: HistoryPageProgress) => void,
-  options: Partial<Pick<ExportOptions, "pageDelayMin" | "pageDelayMax">> & {
+  options: {
+    pageDelayMin?: number;
+    pageDelayMax?: number;
     signal?: AbortSignal;
   } = {},
 ): Promise<Message[]> {

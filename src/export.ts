@@ -8,7 +8,7 @@ import { AppError } from "./errors.ts";
 import { defaultExportDirectory } from "./export-path.ts";
 import type { Http, RequestStats } from "./http.ts";
 import type { MediaOutcome } from "./media.ts";
-import type { ExportOptions } from "./options.ts";
+import type { ExportOptions } from "./command-validation.ts";
 import { checkOutput, writeExport } from "./output.ts";
 import {
   type HistoryPageProgress,

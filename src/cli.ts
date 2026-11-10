@@ -1,18 +1,27 @@
 import { cac } from "cac";
-import { z } from "zod";
 import { downloadArchiveMedia } from "./archive-media.ts";
+import {
+  resolveBatchConvertOptions,
+  resolveChatsOptions,
+  resolveConvertOptions,
+  resolveExportOptions,
+  resolveLoginOptions,
+  resolveMediaOptions,
+} from "./command-validation.ts";
+import {
+  commandDefaults,
+  defaultExportRoot,
+  defaultOutputFormat,
+  defaultPageDelay,
+  loginTimeout,
+  pageDelayLimits,
+} from "./config.ts";
 import { convertAllArchives } from "./convert-all.ts";
 import { convertArchive } from "./convert.ts";
 import { loadCredentials } from "./credentials.ts";
-import { AppError, errorMessage, validationError } from "./errors.ts";
+import { AppError, errorMessage } from "./errors.ts";
 import { exportChat, type ExportProgressEvent } from "./export.ts";
 import { createHttp, requestStats } from "./http.ts";
-import {
-  resolveBatchConvertOptions,
-  resolveConvertOptions,
-  resolveExportOptions,
-  resolveMediaOptions,
-} from "./options.ts";
 import { writeChatList } from "./output.ts";
 import { historyProgress, listChats } from "./teams.ts";
 
@@ -77,11 +86,11 @@ export async function runCli(argv = process.argv): Promise<number> {
     )
     .option(
       "--timeout <seconds>",
-      "Login time budget, 1–3600 seconds (default: 600)",
+      `Login time budget, ${loginTimeout.min}–${loginTimeout.max} seconds (default: ${loginTimeout.default})`,
     )
     .action(async (raw: Record<string, unknown>) => {
       const { "--": _trailing, ...input } = raw;
-      const { login, resolveLoginOptions } = await import("./login.ts");
+      const { login } = await import("./login.ts");
       const result = await login(resolveLoginOptions(input), {
         stats,
         signal: controller.signal,
@@ -99,21 +108,25 @@ export async function runCli(argv = process.argv): Promise<number> {
       "--chat-label <label>",
       "Exact resolved chat label (case-insensitive)",
     )
-    .option("--no-media", "Skip image downloading and use placeholders")
-    .option("--no-markdown", "Skip rendering Markdown transcript beside JSON")
+    .option("--no-media", "Skip image downloading and use placeholders", {
+      default: commandDefaults.media,
+    })
+    .option("--no-markdown", "Skip rendering Markdown transcript beside JSON", {
+      default: commandDefaults.markdown,
+    })
     .option("--refresh-media", "Revalidate cached images with Teams")
     .option(
       "--page-delay-min <seconds>",
-      "Minimum pause between history pages, 0–3600 seconds (default: 2)",
+      `Minimum pause between history pages, ${pageDelayLimits.min}–${pageDelayLimits.max} seconds (default: ${defaultPageDelay.min})`,
     )
     .option(
       "--page-delay-max <seconds>",
-      "Maximum pause between history pages, 0–3600 seconds (default: 5)",
+      `Maximum pause between history pages, ${pageDelayLimits.min}–${pageDelayLimits.max} seconds (default: ${defaultPageDelay.max})`,
     )
     .option("--credentials <file>", "Override automatic credential file lookup")
     .option(
       "--out <directory>",
-      "New export directory (default: exports/<chat-label>--<period>)",
+      `New export directory (default: ${defaultExportRoot}/<chat-label>--<period>)`,
     )
     .option(
       "--last <Nd>",
@@ -145,7 +158,9 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option("--input <file>", "Existing version 1 JSON export to update")
     .option("--credentials <file>", "Override automatic credential file lookup")
     .option("--refresh-media", "Revalidate cached images with Teams")
-    .option("--no-markdown", "Skip regenerating sibling Markdown")
+    .option("--no-markdown", "Skip regenerating sibling Markdown", {
+      default: commandDefaults.markdown,
+    })
     .action(async (raw: Record<string, unknown>) => {
       const { "--": _trailing, ...input } = raw;
       const options = resolveMediaOptions(input);
@@ -163,7 +178,10 @@ export async function runCli(argv = process.argv): Promise<number> {
   cli
     .command("convert", "Convert a saved JSON export without contacting Teams")
     .option("--input <file>", "Existing version 1 JSON export")
-    .option("--format <format>", "Output format (default: markdown)")
+    .option(
+      "--format <format>",
+      `Output format (default: ${defaultOutputFormat})`,
+    )
     .option(
       "--out <file>",
       "Markdown destination (default: beside JSON); never overwritten",
@@ -180,9 +198,15 @@ export async function runCli(argv = process.argv): Promise<number> {
       "convert-all",
       "Convert JSON exports that have no sibling Markdown destination",
     )
-    .option("--dir <directory>", "Directory of JSON exports (default: exports)")
+    .option(
+      "--dir <directory>",
+      `Directory of JSON exports (default: ${defaultExportRoot})`,
+    )
     .option("--recursive", "Include exports nested beyond direct child folders")
-    .option("--format <format>", "Output format (default: markdown)")
+    .option(
+      "--format <format>",
+      `Output format (default: ${defaultOutputFormat})`,
+    )
     .action(async (raw: Record<string, unknown>) => {
       const { "--": _trailing, ...input } = raw;
       const result = await convertAllArchives(
@@ -204,15 +228,7 @@ export async function runCli(argv = process.argv): Promise<number> {
       "Refresh participant names instead of using cached profiles",
     )
     .action(async (raw: Record<string, unknown>) => {
-      const result = z
-        .object({
-          credentials: z.string().min(1).optional(),
-          out: z.string().min(1).optional(),
-          refreshNames: z.boolean().optional(),
-        })
-        .safeParse(raw);
-      if (!result.success) throw validationError("Chat options", result.error);
-      const options = result.data;
+      const options = resolveChatsOptions(raw);
       const credentials = await loadCredentials(options.credentials);
       const chats = await listChats(http, credentials, {
         refresh: options.refreshNames === true,

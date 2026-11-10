@@ -4,7 +4,7 @@ import {
   resolveConvertOptions,
   resolveExportOptions,
   resolveMediaOptions,
-} from "../src/options.ts";
+} from "../src/command-validation.ts";
 
 const base = {
   chat: "synthetic-chat",
@@ -190,7 +190,7 @@ describe("date options", () => {
         [
           process.execPath,
           "--eval",
-          `import { resolveExportOptions } from ${JSON.stringify(fileURLToPath(new URL("../src/options.ts", import.meta.url)))};
+          `import { resolveExportOptions } from ${JSON.stringify(fileURLToPath(new URL("../src/command-validation.ts", import.meta.url)))};
       console.log(JSON.stringify(resolveExportOptions({ chat: "fixture", last: ${JSON.stringify(last)} }, ${Date.parse(invocation)}).window));`,
         ],
         {

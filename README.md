@@ -205,6 +205,8 @@ The CLI is intended for standalone terminal use. Stdout contains command results
 
 ## Development and verification
 
+Shared command defaults and limits live in `src/config.ts`; CLI help and runtime fallbacks use those same values. `src/cli.ts` parses arguments with CAC and dispatches commands. `src/command-validation.ts` validates the resulting objects with Zod, applies defaults, and resolves command options, including export date windows and login paths. The shared date-window contract lives in `src/date-window.ts`. Environment-dependent credential and media paths are resolved by their existing helpers when invoked.
+
 ```sh
 bun run typecheck
 bun run test

@@ -167,3 +167,11 @@ Credential lookup uses `$XDG_STATE_HOME/teams-chat-download/credentials.json`, d
 The [login implementation](09-browser-login.md) uses lazily imported `playwright-core` 1.64.1, an installed Chromium executable, sandboxed visible mode, and native Wayland when present. E20 verifies two login runs plus a listing/export after the login browser closes. It does not attach to MCP, migrate profiles, collect media cookies, or promise unattended renewal. Only the login command imports the browser module.
 
 The detailed behavior checks remain in [validation sections 9.1–9.5](05-validation-and-open-questions.md#9-regression-checks-for-future-implementation). The implemented synthetic suite covers history, directory, request policy, dates, credentials, and output publication; media checks remain future work. This plan does not by itself authorize unrelated scope or global configuration changes.
+
+## Command configuration ownership
+
+`src/cli.ts` owns CAC flag declarations, argument parsing, command dispatch, and terminal output. `src/command-validation.ts` owns the schemas and option resolution for all six commands, including cross-option checks, date-window calculation, and login browser/path discovery. Schema constants use the `Schema` suffix; command data types retain names such as `ExportOptions`.
+
+`src/config.ts` is the authoritative source for shared command defaults and limits: page delays, login timeout, export root, output format, and default command toggles. Validation applies these defaults, help descriptions interpolate displayed values, and runtime fallbacks import the same definitions. This is an internal defaults module, not a new user configuration file or configuration precedence layer. Environment-dependent paths remain resolved at invocation time by existing helpers; protocol constants remain local to their domain modules.
+
+`src/date-window.ts` owns the shared window type and validity checks. The Teams history client imports that contract and paging defaults directly, and declares its own paging inputs without depending on export command types. Command validation imports no browser automation implementation; the login command loads that implementation lazily.

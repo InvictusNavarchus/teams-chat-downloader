@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { convertAllArchives } from "../src/convert-all.ts";
-import { resolveBatchConvertOptions } from "../src/options.ts";
+import { resolveBatchConvertOptions } from "../src/command-validation.ts";
 import { archive } from "./fixtures/archive.ts";
 
 const directories: string[] = [];

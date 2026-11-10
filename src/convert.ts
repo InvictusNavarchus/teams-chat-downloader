@@ -2,7 +2,7 @@ import { dirname, relative, resolve, sep } from "node:path";
 import { readArchive } from "./archive.ts";
 import { AppError } from "./errors.ts";
 import { renderMarkdown } from "./markdown.ts";
-import type { ConvertOptions } from "./options.ts";
+import type { ConvertOptions } from "./command-validation.ts";
 import { checkOutput, writeMarkdown } from "./output.ts";
 
 export function markdownPath(input: string): string {

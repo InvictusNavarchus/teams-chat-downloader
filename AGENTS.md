@@ -33,10 +33,13 @@ teams-chat-download/
 ├── src/                  # Application source code
 │   ├── archive.ts        # Version 1 JSON archive schema, serialization, and validation
 │   ├── archive-media.ts  # Media download coordination for archives (inline and post-export)
-│   ├── cli.ts            # CAC command registration, terminal progress, and exit handling
+│   ├── cli.ts            # CAC argument parsing, command dispatch, terminal progress, and exit handling
+│   ├── command-validation.ts # Command schemas, inferred types, defaults application, and resolution
+│   ├── config.ts         # Shared application defaults and command limits
 │   ├── convert.ts        # Offline single-archive JSON-to-Markdown conversion
 │   ├── convert-all.ts    # Batch offline JSON-to-Markdown conversion
 │   ├── credentials.ts    # XDG state loading, credential validation, and file permission checks
+│   ├── date-window.ts    # Shared history date-window contract and validation
 │   ├── errors.ts         # Domain error classes, validation errors, and sanitized formatters
 │   ├── export.ts         # Label selection and chat export orchestration (history + text + media)
 │   ├── export-path.ts    # Destination folder formatting and kebab-case label sanitization
@@ -44,7 +47,6 @@ teams-chat-download/
 │   ├── login.ts          # Playwright helper for interactive browser sign-in and token capture
 │   ├── markdown.ts       # Turndown-based HTML-to-Markdown conversion and transcript rendering
 │   ├── media.ts          # Media URI parsing, AMS/Skype ASM cookie handling, and cache lookup
-│   ├── options.ts        # Zod input validation schemas for CLI flags and date-window calculations
 │   ├── output.ts         # Atomic filesystem writes and directory permission enforcement
 │   ├── profiles.ts       # Participant name resolution and 24-hour disk caching
 │   └── teams.ts          # Teams API client (directory listing, bounded history, pacing delay)
@@ -61,7 +63,7 @@ teams-chat-download/
 │   ├── login.test.ts
 │   ├── markdown.test.ts
 │   ├── media.test.ts
-│   ├── options.test.ts
+│   ├── command-validation.test.ts
 │   ├── profiles.test.ts
 │   └── teams.test.ts
 ├── biome.json            # Biome formatter and linter configuration
@@ -122,6 +124,8 @@ When modifying or extending this codebase, agents **must** respect these domain 
 ---
 
 ## 5. Development & Testing Commands
+
+`src/config.ts` owns shared command defaults and limits. Import those values in command validation, CLI help, and runtime fallbacks rather than duplicating literals. `src/command-validation.ts` owns all command input schemas, their types, and option resolution; `src/cli.ts` owns argument parsing and dispatch. `src/date-window.ts` owns the shared window contract so the Teams client does not depend on command validation. Resolve environment-dependent credential and media paths at invocation time in their existing helpers. Keep protocol constants in their domain modules.
 
 Use caret (`^`) ranges for dependencies and dev dependencies in `package.json`. Keep the workspace ranges in `bun.lock` synchronized; its resolved package versions provide reproducible installs.
 

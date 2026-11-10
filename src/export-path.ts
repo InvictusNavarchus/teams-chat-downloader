@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { defaultExportRoot } from "./config.ts";
 import { AppError } from "./errors.ts";
-import type { ExportOptions } from "./options.ts";
+import type { ExportOptions } from "./command-validation.ts";
 
 export function defaultExportDirectory(
   options: ExportOptions,
@@ -33,7 +34,7 @@ export function defaultExportDirectory(
   const period = options.last
     ? `last-${options.last}--to-${to}`
     : `${options.since ? "since" : "from"}-${from}--to-${to}`;
-  return join("exports", `${name}--${period}`);
+  return join(defaultExportRoot, `${name}--${period}`);
 }
 
 function filenameTimestamp(value: number): string {

@@ -14,7 +14,7 @@ import { loadCredentials } from "../src/credentials.ts";
 import { convertArchive } from "../src/convert.ts";
 import { exportChat } from "../src/export.ts";
 import { createHttp, requestStats } from "../src/http.ts";
-import { resolveExportOptions } from "../src/options.ts";
+import { resolveExportOptions } from "../src/command-validation.ts";
 import { writeExport } from "../src/output.ts";
 import { historyProgress } from "../src/teams.ts";
 

@@ -1,66 +1,19 @@
 import { createHash } from "node:crypto";
 import { mkdir, stat } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
 import type { BrowserContext, BrowserType, Response } from "playwright-core";
 import { z } from "zod";
-import {
-  defaultCredentialsPath,
-  saveCredentials,
-  type Credentials,
-} from "./credentials.ts";
+import type { LoginOptions } from "./command-validation.ts";
+import { saveCredentials, type Credentials } from "./credentials.ts";
 import { AppError, validationError } from "./errors.ts";
 import { createHttp, type Fetch, type RequestStats } from "./http.ts";
 import { imageUrl, mediaOrigins } from "./media.ts";
 import { listChats, readHistory } from "./teams.ts";
 
-const optionsSchema = z.strictObject({
-  credentials: z.string().min(1).optional(),
-  browser: z.string().min(1).optional(),
-  browserProfile: z.string().min(1).optional(),
-  waitForMedia: z.boolean().default(false),
-  timeout: z
-    .union([z.number(), z.string().regex(/^\d+$/).transform(Number)])
-    .pipe(z.number().int().min(1).max(3600))
-    .default(600),
-});
-export type LoginOptions = {
-  credentials: string;
-  browser?: string;
-  browserProfile: string;
-  timeout: number;
-  waitForMedia?: boolean;
-};
 type LaunchOptions = Parameters<BrowserType["launchPersistentContext"]>[1];
 type Launch = (
   profile: string,
   options: LaunchOptions,
 ) => Promise<BrowserContext>;
-
-export function resolveLoginOptions(input: unknown): LoginOptions {
-  const result = optionsSchema.safeParse(input);
-  if (!result.success) throw validationError("Login options", result.error);
-  const options = result.data;
-  return {
-    credentials: resolve(options.credentials ?? defaultCredentialsPath()),
-    browser:
-      options.browser ??
-      [
-        "chromium-browser",
-        "chromium",
-        "google-chrome",
-        "google-chrome-stable",
-        "msedge",
-      ]
-        .map((name) => Bun.which(name))
-        .find((path) => path !== null),
-    browserProfile: resolve(
-      options.browserProfile ??
-        join(dirname(defaultCredentialsPath()), "browser"),
-    ),
-    timeout: options.timeout,
-    waitForMedia: options.waitForMedia,
-  };
-}
 
 export function loginLaunchOptions(
   options: LoginOptions,

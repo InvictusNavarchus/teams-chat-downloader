@@ -2,7 +2,7 @@ import { lstat, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { convertArchive, markdownPath } from "./convert.ts";
 import { AppError } from "./errors.ts";
-import type { BatchConvertOptions } from "./options.ts";
+import type { BatchConvertOptions } from "./command-validation.ts";
 
 type FileResult = {
   input: string;

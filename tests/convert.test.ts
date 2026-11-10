@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { readArchive } from "../src/archive.ts";
 import { convertArchive } from "../src/convert.ts";
 import { AppError } from "../src/errors.ts";
-import { resolveConvertOptions } from "../src/options.ts";
+import { resolveConvertOptions } from "../src/command-validation.ts";
 import { archive } from "./fixtures/archive.ts";
 
 const directories: string[] = [];
