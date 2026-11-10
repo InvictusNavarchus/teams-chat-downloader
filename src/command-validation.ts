@@ -50,6 +50,32 @@ export type ExportOptions = z.infer<typeof exportOptionsSchema> & {
   window: Window;
 };
 
+const liveSmokeOptionsSchema = z.strictObject({
+  chat: z.string().trim().min(1),
+  from: timestampSchema,
+  to: timestampSchema,
+  credentials: z.string().min(1).optional(),
+});
+
+export type LiveSmokeOptions = z.infer<typeof liveSmokeOptionsSchema> & {
+  window: Window;
+};
+
+export function resolveLiveSmokeOptions(
+  input: unknown,
+  now = Date.now(),
+): LiveSmokeOptions {
+  const result = liveSmokeOptionsSchema.safeParse(input);
+  if (!result.success)
+    throw validationError("Live smoke options", result.error);
+  const options = result.data;
+  const window = { from: Date.parse(options.from), to: Date.parse(options.to) };
+  assertWindow(window);
+  if (window.to > now)
+    throw new AppError("Live smoke --to must be in the past.");
+  return { ...options, window };
+}
+
 const mediaOptionsSchema = z.strictObject({
   input: z.string().min(1),
   credentials: z.string().min(1).optional(),

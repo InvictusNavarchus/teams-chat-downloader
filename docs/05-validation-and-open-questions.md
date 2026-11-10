@@ -284,3 +284,11 @@ For each new live discovery:
 5. Sanitize identifiers, message bodies, credential values, authenticated URLs, and cursors before creating fixtures.
 
 Existing `.playwright-mcp/` snapshots/logs are not safe fixture material by default. Do not commit or publish them just to preserve research evidence. Their existence was left unchanged by this documentation task.
+
+## 12. Automated live smoke test
+
+Added **2026-11-11** for Teams Free with a personal Microsoft account. The opt-in `bun run test:live` runner and its invocation, request budget, temporary-cache policy, and exit codes are documented in the [README](../README.md#live-smoke-test) and [architecture reference](07-architecture.md#bounded-live-smoke-test). Ordinary `bun test` remains offline; synthetic coverage exercises successful bounded traversal/download/revalidation and failure reporting.
+
+The first live attempt used saved credentials and a historical chat/window selected from an existing archive with more than 400 messages and supported images. With network access available, the directory and first history GET each returned **HTTP 401**. Two HTTP attempts were made without retries. Profiles, pagination, cold media download, local media reuse, and conditional revalidation remained **unverified**; this was an unsuccessful smoke run, not evidence that these services work with the current credentials.
+
+The user separately attempted `bun run teams login --wait-for-media`: directory/profile and history headers were captured, then the self-profile verification request returned **HTTP 409**, after one profile attempt without retries. This is a user-reported login result, distinct from the automated smoke run. The response cause remains unresolved. Login/authentication changes and a successful live rerun are deferred at the user's request; neither HTTP status establishes a root cause or justifies changing retry policy.

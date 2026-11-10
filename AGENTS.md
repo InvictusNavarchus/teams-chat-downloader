@@ -45,11 +45,12 @@ teams-chat-download/
 │   ├── export-path.ts    # Destination folder formatting and kebab-case label sanitization
 │   ├── http.ts           # Ky HTTP client wrapper, retry policy, backoff, and request accounting
 │   ├── login.ts          # Playwright helper for interactive browser sign-in and token capture
+│   ├── live-smoke.ts     # Opt-in live HTTP probe, bounded sampling, temporary caches, and CLI
 │   ├── markdown.ts       # Turndown-based HTML-to-Markdown conversion and transcript rendering
 │   ├── media.ts          # Media URI parsing, AMS/Skype ASM cookie handling, and cache lookup
 │   ├── output.ts         # Atomic filesystem writes and directory permission enforcement
 │   ├── profiles.ts       # Participant name resolution and 24-hour disk caching
-│   └── teams.ts          # Teams API client (directory listing, bounded history, pacing delay)
+│   └── teams.ts          # Teams API client (raw directory, validated page iterator, full history, pacing)
 ├── tests/                # Bun test suites (unit, mock HTTP, and integration flows)
 │   ├── archive-media.test.ts
 │   ├── chats-output.test.ts
@@ -61,6 +62,7 @@ teams-chat-download/
 │   ├── export.test.ts
 │   ├── http.test.ts
 │   ├── login.test.ts
+│   ├── live-smoke.test.ts # Synthetic coverage of live-runner budgets, checks, and credential isolation
 │   ├── markdown.test.ts
 │   ├── media.test.ts
 │   ├── command-validation.test.ts
@@ -100,6 +102,13 @@ When modifying or extending this codebase, agents **must** respect these domain 
    - Resolve labels against the current directory with the existing profile cache. Missing or duplicate matches fail before history retrieval; duplicate errors list matching labels and raw IDs.
    - Reuse the matched label for folder naming. Raw-ID exports with explicit `--out` skip directory/profile lookup; label selection requires lookup even with `--out`. Archives always store the resolved raw chat ID.
    - Saved chat lists remain explicit `chats --out <file>` snapshots; selection does not read or automatically maintain them.
+8. **Bounded Live Verification**:
+   - `bun run test:live --chat <id> --from <timestamp> --to <timestamp>` is explicitly opt-in and must never run as part of ordinary `bun test`.
+   - Saved credentials use the normal lookup or explicit `--credentials`; both timezone-qualified bounds are required and the end cannot be in the future.
+   - Share `readHistoryPages` between the smoke runner and full `readHistory`; only the runner stops after two pages. Sampling must never publish a complete archive or alter export exhaustion semantics.
+   - Read the directory once, resolve one untitled one-to-one participant, and download at most one supported image from the history sample. Use private temporary caches so cached state cannot mask expired credentials; clean them on handled completion/failure/cancellation.
+   - Validate cold download, zero-request local reuse, and conditional refresh when validators exist. Report missing coverage as `UNVERIFIED` and exit 1 if any required check fails or remains unverified. A conditional HTTP 200 passes refresh validation but must explicitly say that the HTTP 304 branch was not verified.
+   - Keep normal caches, credentials, and exports unchanged. Never log credentials, source URLs, or message bodies. Live coverage is limited to the sampled participant family and media origin; it does not verify login capture or full history exhaustion.
 
 ---
 
@@ -139,6 +148,9 @@ bun run teams --help
 
 # Run all test suites
 bun test
+
+# Explicit live smoke check (requires suitable saved credentials and sample window)
+bun run test:live --chat '<raw-chat-id>' --from '2026-08-01T00:00:00Z' --to '2026-08-08T00:00:00Z'
 
 # Type checking (strict TypeScript, noEmit)
 bun run typecheck

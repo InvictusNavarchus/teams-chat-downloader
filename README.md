@@ -214,6 +214,22 @@ bun run test
 
 Offline tests use synthetic responses for pagination, validation, retries, cancellation, and output publication. An ordinary live check listed 15 chats with one directory request and exported 5 messages from a seven-day window with one history request, without retries. The browser remained open; a browser-closed check is still outstanding. See [E17](docs/01-findings-and-evidence.md#e17--first-bun-cli-live-check).
 
+### Live smoke test
+
+Run an explicit, bounded check against live Teams using saved credentials:
+
+```sh
+bun run test:live --chat '<raw-chat-id>' --from '2026-08-01T00:00:00Z' --to '2026-08-08T00:00:00Z'
+```
+
+Choose a historical window with enough messages for two pages and a supported inline image in those pages. Both timestamps require a timezone; the start is inclusive and the end exclusive, and the end cannot be in the future. `--credentials <file>` overrides the usual saved-credential lookup. `--help` describes the arguments. This runner is separate from `bun test` and never opens a browser or refreshes credentials automatically.
+
+The runner checks the complete chat directory, resolves one untitled one-to-one participant using a fresh temporary name cache, reads at most two history pages at the existing page size of 200, and downloads only the first supported image from that sample. Pagination follows the server continuation through the same URL, date-bound, duplicate, progress, and payload checks used by exports, with the configured default pacing. A fresh temporary image cache forces a real HTTP 200 request to verify that image's origin-specific cookie. The runner then checks local reuse with zero requests and sends a conditional refresh if the image supplies ETag or Last-Modified. HTTP 304 verifies cached-byte reuse; HTTP 200 verifies the refresh fallback and explicitly leaves the 304 branch unverified.
+
+Each check prints `PASS`, `FAIL`, or `UNVERIFIED`, followed by HTTP attempt counts including retries. Exit code 0 requires all checks to pass; a failed check, missing continuation/image/participant/validator, invalid arguments, or cancellation exits with code 1. Checks that can run independently continue after a failure. A typical successful run uses seven HTTP attempts without retries: one directory, two profiles, two history, and two media. It prints neither credentials nor message bodies or source URLs. Temporary cache/image files are removed on normal completion, handled failure, and cancellation; saved credentials, exports, and normal caches are untouched. Abrupt termination such as SIGKILL can leave the private temporary directory behind.
+
+This is a sample-based HTTP smoke test, covering the selected history route, one participant profile family, and one image origin. It does not prove history exhaustion, every media origin, browser-login capture/renewal, or archive/Markdown publication. Those remain covered separately by offline tests and ordinary usage. See the [architecture reference](docs/07-architecture.md#bounded-live-smoke-test) and [current live verification result](docs/05-validation-and-open-questions.md#12-automated-live-smoke-test).
+
 The participant-name CLI check resolved all eight one-to-one names in a 15-chat directory. The first run used four requests; the next reused the cache and used one directory request, both without retries. See [E19](docs/01-findings-and-evidence.md#e19--participant-name-cli-and-cache-check).
 
 The login check completed twice using its dedicated persistent browser, three HTTP validation requests per run without retries. After the login browser closed, separate CLI processes listed all 15 chats with eight resolved one-to-one names and exported five messages successfully. The independent research MCP browser remained open. See [E20](docs/01-findings-and-evidence.md#e20--standalone-browser-login-and-saved-credential-reuse).

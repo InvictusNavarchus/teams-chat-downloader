@@ -74,19 +74,23 @@ export function validateHistoryUrl(url: URL, chat: string): void {
   }
 }
 
-export async function readHistory(
+type HistoryOptions = {
+  pageDelayMin?: number;
+  pageDelayMax?: number;
+  signal?: AbortSignal;
+};
+
+// Stopping iteration bounds a probe without treating sampled history as an export.
+// Each page contains only new records, after the same validation used by exports.
+export async function* readHistoryPages(
   http: Http,
   credentials: Credentials,
   chat: string,
   window: Window,
   progress = historyProgress(),
   onProgress?: (progress: HistoryPageProgress) => void,
-  options: {
-    pageDelayMin?: number;
-    pageDelayMax?: number;
-    signal?: AbortSignal;
-  } = {},
-): Promise<Message[]> {
+  options: HistoryOptions = {},
+): AsyncGenerator<Message[]> {
   assertWindow(window);
   if (!chat) throw new AppError("A chat ID is required.");
   if (!credentials.historyAuthentication)
@@ -135,7 +139,7 @@ export async function readHistory(
     if (!result.success)
       throw validationError("History response", result.error);
     const page = result.data;
-    let added = 0;
+    const added: Message[] = [];
     for (const message of page.messages) {
       const time = Date.parse(message.originalarrivaltime);
       if (time < window.from || time >= window.to)
@@ -151,13 +155,13 @@ export async function readHistory(
         progress.duplicates++;
       } else {
         messages.set(message.id, message);
-        added++;
+        added.push(message);
       }
     }
     progress.pages++;
     progress.records += page.messages.length;
     next = page._metadata.backwardLink;
-    if (next !== undefined && added === 0)
+    if (next !== undefined && added.length === 0)
       throw new AppError(
         "History continuation made no progress; export stopped.",
       );
@@ -177,19 +181,39 @@ export async function readHistory(
       earliestTimestamp,
       hasMore: next !== undefined,
     });
+    yield added;
   }
-  return [...messages.values()].sort(
+}
+
+export async function readHistory(
+  http: Http,
+  credentials: Credentials,
+  chat: string,
+  window: Window,
+  progress = historyProgress(),
+  onProgress?: (progress: HistoryPageProgress) => void,
+  options: HistoryOptions = {},
+): Promise<Message[]> {
+  const messages: Message[] = [];
+  for await (const page of readHistoryPages(
+    http,
+    credentials,
+    chat,
+    window,
+    progress,
+    onProgress,
+    options,
+  )) {
+    messages.push(...page);
+  }
+  return messages.sort(
     (a, b) =>
       Date.parse(a.originalarrivaltime) - Date.parse(b.originalarrivaltime) ||
       (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
 }
 
-export async function listChats(
-  http: Http,
-  credentials: Credentials,
-  options: ProfileOptions & { chatId?: string } = {},
-) {
+export async function readChatDirectory(http: Http, credentials: Credentials) {
   if (!credentials.directoryToken)
     throw new AppError("Credential file lacks directoryToken.");
   const url = new URL("https://teams.live.com/api/csa/api/v3/teams/users/me");
@@ -223,22 +247,29 @@ export async function listChats(
     throw new AppError(
       "Directory is partial; directory continuation is not yet supported.",
     );
+  return result.data.chats.map((chat) => ({
+    id: chat.id,
+    title: chat.title || null,
+    label:
+      chat.title ||
+      (chat.isOneOnOne ? "Unresolved one-to-one chat" : "Untitled chat"),
+    isOneOnOne: chat.isOneOnOne ?? null,
+    members: chat.members?.map((member) => member.mri) ?? [],
+  }));
+}
+
+export async function listChats(
+  http: Http,
+  credentials: Credentials,
+  options: ProfileOptions & { chatId?: string } = {},
+) {
+  const chats = await readChatDirectory(http, credentials);
   return resolveChatNames(
     http,
     credentials,
-    result.data.chats
-      .filter(
-        (chat) => options.chatId === undefined || chat.id === options.chatId,
-      )
-      .map((chat) => ({
-        id: chat.id,
-        title: chat.title || null,
-        label:
-          chat.title ||
-          (chat.isOneOnOne ? "Unresolved one-to-one chat" : "Untitled chat"),
-        isOneOnOne: chat.isOneOnOne ?? null,
-        members: chat.members?.map((member) => member.mri) ?? [],
-      })),
+    chats.filter(
+      (chat) => options.chatId === undefined || chat.id === options.chatId,
+    ),
     options,
   );
 }

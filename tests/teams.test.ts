@@ -6,6 +6,7 @@ import {
   historyProgress,
   listChats,
   readHistory,
+  readHistoryPages,
 } from "../src/teams.ts";
 
 const chat = "synthetic:/chat?@thread.v2";
@@ -29,6 +30,39 @@ const page = (messages: unknown[], backwardLink?: string) =>
   Response.json({ messages, _metadata: backwardLink ? { backwardLink } : {} });
 
 describe("bounded history", () => {
+  test("a two-page probe stops without requesting page three or declaring exhaustion", async () => {
+    const stats = requestStats();
+    const progress = historyProgress();
+    const http = createHttp({
+      stats,
+      fetch: async (request) => {
+        const url = new URL(request.url);
+        expect(url.searchParams.get("endTime")).toBe(String(window.to - 1));
+        expect(url.searchParams.get("startTime")).toBe(String(window.from));
+        if (stats.history > 2) throw new Error("Unexpected third request");
+        return page(
+          [message(String(stats.history))],
+          continuation(String(stats.history)),
+        );
+      },
+    });
+    const updates: HistoryPageProgress[] = [];
+    for await (const _page of readHistoryPages(
+      http,
+      credentials,
+      chat,
+      window,
+      progress,
+      (update) => updates.push(update),
+      noDelay,
+    )) {
+      if (progress.pages === 2) break;
+    }
+    expect(stats.history).toBe(2);
+    expect(progress.records).toBe(2);
+    expect(updates.map((update) => update.hasMore)).toEqual([true, true]);
+  });
+
   test("seeks directly, preserves bounds on a short continuing page, sorts and preserves fields", async () => {
     const stats = requestStats();
     const progress = historyProgress();
