@@ -5,6 +5,7 @@ import { assertSelectableChatLabel } from "./chat-selection.ts";
 import {
   commandDefaults,
   defaultExportRoot,
+  defaultLiveSmokeDays,
   defaultOutputFormat,
   defaultPageDelay,
   loginTimeout,
@@ -54,8 +55,8 @@ export type ExportOptions = z.infer<typeof exportOptionsSchema> & {
 const liveSmokeOptionsSchema = z.strictObject({
   chat: z.string().trim().min(1).optional(),
   chatLabel: z.string().trim().min(1).optional(),
-  from: timestampSchema,
-  to: timestampSchema,
+  from: timestampSchema.optional(),
+  to: timestampSchema.optional(),
   credentials: z.string().min(1).optional(),
 });
 
@@ -74,10 +75,19 @@ export function resolveLiveSmokeOptions(
   assertChatSelection(options);
   if (options.chatLabel !== undefined)
     assertSelectableChatLabel(options.chatLabel);
-  const window = { from: Date.parse(options.from), to: Date.parse(options.to) };
+  if ((options.from === undefined) !== (options.to === undefined))
+    throw new AppError(
+      "Supply both --from and --to, or omit both to use the default live smoke window.",
+    );
+  const to = options.to === undefined ? now : Date.parse(options.to);
+  const from =
+    options.from === undefined
+      ? calendarDayStart(to, defaultLiveSmokeDays)
+      : Date.parse(options.from);
+  const window = { from, to };
   assertWindow(window);
   if (window.to > now)
-    throw new AppError("Live smoke --to must be in the past.");
+    throw new AppError("Live smoke --to must not be in the future.");
   return { ...options, window };
 }
 
@@ -156,13 +166,17 @@ export function resolveExportOptions(
   const to = options.to === undefined ? now : Date.parse(options.to);
   const from =
     options.last !== undefined
-      ? dayjs(to)
-          .subtract(Number(options.last.slice(0, -1)) - 1, "day")
-          .startOf("day")
-          .valueOf()
+      ? calendarDayStart(to, Number(options.last.slice(0, -1)))
       : Date.parse(options.since ?? options.from ?? "");
   assertWindow({ from, to });
   return { ...options, window: { from, to } };
+}
+
+function calendarDayStart(to: number, days: number): number {
+  return dayjs(to)
+    .subtract(days - 1, "day")
+    .startOf("day")
+    .valueOf();
 }
 
 function assertChatSelection(options: {

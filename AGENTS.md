@@ -104,8 +104,9 @@ When modifying or extending this codebase, agents **must** respect these domain 
    - Reuse the matched label for folder naming. Raw-ID exports with explicit `--out` skip directory/profile lookup; label selection requires lookup even with `--out`. Archives always store the resolved raw chat ID.
    - Saved chat lists remain explicit `chats --out <file>` snapshots; selection does not read or automatically maintain them.
 8. **Bounded Live Verification**:
-   - `bun run test:live` requires exactly one of `--chat <id>` or `--chat-label <label>` plus `--from <timestamp> --to <timestamp>`. It is explicitly opt-in and must never run as part of ordinary `bun test`. Both export and smoke selection use `src/chat-selection.ts` for exact label matching, generic fallback rejection, and duplicate diagnostics.
-   - Saved credentials use the normal lookup or explicit `--credentials`; both timezone-qualified bounds are required and the end cannot be in the future.
+   - `bun run test:live` requires exactly one of `--chat <id>` or `--chat-label <label>`. It is explicitly opt-in and must never run as part of ordinary `bun test`. Both export and smoke selection use `src/chat-selection.ts` for exact label matching, generic fallback rejection, and duplicate diagnostics.
+   - With no date arguments, default to the last two local calendar days including today, matching `export --last 2d`: yesterday at local midnight to one captured invocation time. `src/config.ts` owns `defaultLiveSmokeDays`; command validation shares the calendar-day calculation with exports. Explicit overrides require both timezone-qualified `--from` and `--to`; reject single bounds and future ends. Print the resolved window before requests; never widen it automatically to satisfy pagination/media coverage.
+   - Saved credentials use the normal lookup or explicit `--credentials`.
    - Share `readHistoryPages` between the smoke runner and full `readHistory`; only the runner stops after two pages. Sampling must never publish a complete archive or alter export exhaustion semantics.
    - Read the directory once; raw-ID selection resolves one untitled one-to-one participant, while label selection resolves all directory labels with the same temporary profile cache to detect duplicates before history retrieval. Profile HTTP failures prevent label selection; raw-ID history checks remain independent. Download at most one supported image from the history sample. Use private temporary caches so cached state cannot mask expired credentials; clean them on handled completion/failure/cancellation.
    - Validate cold download, zero-request local reuse, and conditional refresh when validators exist. Report missing coverage as `UNVERIFIED` and exit 1 if any required check fails or remains unverified. A conditional HTTP 200 passes refresh validation but must explicitly say that the HTTP 304 branch was not verified.
@@ -151,7 +152,9 @@ bun run teams --help
 bun test
 
 # Explicit live smoke check (requires suitable saved credentials and sample window)
-bun run test:live --chat '<raw-chat-id>' --from '2026-08-01T00:00:00Z' --to '2026-08-08T00:00:00Z'
+bun run test:live --chat '<raw-chat-id>'
+bun run test:live --chat-label 'Project Alpha'
+# Optional explicit window override (both bounds required):
 bun run test:live --chat-label 'Project Alpha' --from '2026-08-01T00:00:00Z' --to '2026-08-08T00:00:00Z'
 
 # Type checking (strict TypeScript, noEmit)

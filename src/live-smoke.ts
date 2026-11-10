@@ -8,6 +8,7 @@ import {
   type LiveSmokeOptions,
   resolveLiveSmokeOptions,
 } from "./command-validation.ts";
+import { defaultLiveSmokeDays } from "./config.ts";
 import { loadCredentials, type Credentials } from "./credentials.ts";
 import { AppError } from "./errors.ts";
 import { createHttp, requestStats, type Fetch, type Http } from "./http.ts";
@@ -114,6 +115,9 @@ export async function runLiveSmoke(
     return result.status === "pass";
   }
   try {
+    log(
+      `History window: ${new Date(options.window.from).toISOString()} (inclusive) to ${new Date(options.window.to).toISOString()} (exclusive).`,
+    );
     let chats: Awaited<ReturnType<typeof readChatDirectory>> | undefined;
     await check("directory", async () => {
       chats = await readChatDirectory(http, credentials);
@@ -282,7 +286,7 @@ export async function runLiveSmokeCli(argv = process.argv): Promise<number> {
   cli
     .command(
       "",
-      "Probe saved credentials, two history pages and one image against live Teams",
+      `Probe live Teams (default: last ${defaultLiveSmokeDays} local calendar days, including today)`,
     )
     .option("--chat <id>", "Raw chat ID with enough history for two pages")
     .option(
@@ -291,11 +295,11 @@ export async function runLiveSmokeCli(argv = process.argv): Promise<number> {
     )
     .option(
       "--from <timestamp>",
-      "Inclusive historical start (timestamp with timezone)",
+      "Inclusive start timestamp with timezone (supply with --to to override default window)",
     )
     .option(
       "--to <timestamp>",
-      "Exclusive historical end (timestamp with timezone)",
+      "Exclusive end timestamp with timezone (supply with --from; default window ends now)",
     )
     .option("--credentials <file>", "Override saved credential lookup")
     .action(async (raw: Record<string, unknown>) => {

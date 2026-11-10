@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import { resolveLiveSmokeOptions } from "../src/command-validation.ts";
 import type { Credentials } from "../src/credentials.ts";
 import type { Fetch } from "../src/http.ts";
@@ -402,7 +403,65 @@ test("cancellation prevents further requests and leaves checks unverified", asyn
   expect(report.checks.every((c) => c.status === "unverified")).toBe(true);
 });
 
-test("live CLI requires explicit targets and timezone-qualified historical bounds", async () => {
+test.each([
+  ["Asia/Jakarta", "2026-11-05T15:00:00+07:00", "2026-11-04T00:00:00+07:00"],
+  ["UTC", "2026-01-01T12:00:00Z", "2025-12-31T00:00:00Z"],
+  [
+    "America/New_York",
+    "2026-03-09T12:00:00-04:00",
+    "2026-03-08T00:00:00-05:00",
+  ],
+  [
+    "America/New_York",
+    "2026-11-02T12:00:00-05:00",
+    "2026-11-01T00:00:00-04:00",
+  ],
+])(
+  "default smoke window matches export --last 2d in %s at %s",
+  async (zone, invocation, start) => {
+    const modulePath = fileURLToPath(
+      new URL("../src/command-validation.ts", import.meta.url),
+    );
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        "--eval",
+        `import { resolveLiveSmokeOptions, resolveExportOptions } from ${JSON.stringify(modulePath)};
+    const now = ${Date.parse(invocation)};
+    console.log(JSON.stringify({
+      raw: resolveLiveSmokeOptions({ chat: "fixture" }, now).window,
+      label: resolveLiveSmokeOptions({ chatLabel: "Project Alpha" }, now).window,
+      exported: resolveExportOptions({ chat: "fixture", last: "2d" }, now).window,
+    }));`,
+      ],
+      { env: { ...process.env, TZ: zone }, stdout: "pipe", stderr: "pipe" },
+    );
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(code).toBe(0);
+    expect(stderr).toBe("");
+    const window = { from: Date.parse(start), to: Date.parse(invocation) };
+    expect(JSON.parse(stdout)).toEqual({
+      raw: window,
+      label: window,
+      exported: window,
+    });
+  },
+);
+
+test.each([{ from: "2026-08-01T00:00:00Z" }, { to: "2026-08-08T00:00:00Z" }])(
+  "smoke window overrides require both bounds: %j",
+  (bounds) => {
+    expect(() =>
+      resolveLiveSmokeOptions({ chat: "fixture", ...bounds }),
+    ).toThrow("Supply both --from and --to");
+  },
+);
+
+test("live CLI requires an explicit target and validates optional timezone-qualified bounds", async () => {
   for (const input of [
     {},
     { from: options.from, to: options.to },

@@ -219,13 +219,17 @@ Offline tests use synthetic responses for pagination, validation, retries, cance
 Run an explicit, bounded check against live Teams using saved credentials:
 
 ```sh
-bun run test:live --chat '<raw-chat-id>' --from '2026-08-01T00:00:00Z' --to '2026-08-08T00:00:00Z'
+bun run test:live --chat '<raw-chat-id>'
+bun run test:live --chat-label 'Project Alpha'
+# Override the default window to probe a busier historical period:
 bun run test:live --chat-label 'Project Alpha' --from '2026-08-01T00:00:00Z' --to '2026-08-08T00:00:00Z'
 ```
 
 Choose exactly one of `--chat <raw-id>` or `--chat-label <label>`, as with `export`. Labels use the same exact, case-insensitive match after trimming whitespace, including resolved participant names. Generic fallback labels cannot select chats; missing or duplicate matches prevent history retrieval, and duplicate errors list matching labels and raw IDs. Label selection resolves the current directory's names using the temporary cache, reusing the single directory response. A profile HTTP failure leaves label selection unverified rather than guessing a match.
 
-Choose a historical window with enough messages for two pages and a supported inline image in those pages. Both timestamps require a timezone; the start is inclusive and the end exclusive, and the end cannot be in the future. `--credentials <file>` overrides the usual saved-credential lookup. `--help` describes the arguments. This runner is separate from `bun test` and never opens a browser or refreshes credentials automatically.
+With no date arguments, the window defaults to the last two local calendar days including today, matching `export --last 2d`: yesterday at local midnight through one captured invocation time. Set `TZ` to override the machine's timezone. Supply both `--from` and `--to` to override this window; a single bound is rejected. Explicit timestamps require a timezone; the start is inclusive and the end exclusive, and the end cannot be in the future. The resolved window is printed before requests begin.
+
+Pagination and media still need enough messages for two pages and a supported inline image in those pages. The runner does not widen the window automatically; missing coverage stays `UNVERIFIED`. Use an explicit busier window when needed. `--credentials <file>` overrides the usual saved-credential lookup. `--help` describes the arguments. This runner is separate from `bun test` and never opens a browser or refreshes credentials automatically.
 
 The runner checks the complete chat directory, resolves one untitled one-to-one participant for raw-ID selection or all resolvable directory labels for label selection using a fresh temporary name cache, reads at most two history pages at the existing page size of 200, and downloads only the first supported image from that sample. Pagination follows the server continuation through the same URL, date-bound, duplicate, progress, and payload checks used by exports, with the configured default pacing. A fresh temporary image cache forces a real HTTP 200 request to verify that image's origin-specific cookie. The runner then checks local reuse with zero requests and sends a conditional refresh if the image supplies ETag or Last-Modified. HTTP 304 verifies cached-byte reuse; HTTP 200 verifies the refresh fallback and explicitly leaves the 304 branch unverified.
 
