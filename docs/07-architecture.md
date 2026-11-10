@@ -21,7 +21,7 @@ Ordinary TypeScript execution does not replace static type checking or runtime p
 
 Use one package and direct imports/exports. Keep module boundaries as ordinary functions and explicit dependencies; no dependency-injection container or plugin framework is needed. A file-plus-JSON media index is the initial storage proposal, not an agreed database requirement.
 
-The upstream references are [S19–S22](06-sources.md#9-application-stack). Registry stable versions were checked before installation. The first implementation pins CAC **7.1.0**, Zod **4.6.7**, Ky **2.2.0**, TypeScript **7.0.2**, Bun types **1.4.4**, and Biome **2.6.5**, with a Bun lockfile. Type checking uses `tsc --noEmit`; runtime/tests were verified on Bun **1.3.14**. Recheck stable versions when changing dependencies.
+The upstream references are [S19–S22](06-sources.md#9-application-stack). Registry stable versions were checked before installation. The first implementation used CAC **7.1.0**, Zod **4.6.7**, Ky **2.2.0**, TypeScript **7.0.2**, Bun types **1.4.4**, and Biome **2.6.5**. All dependencies now use caret (`^`) ranges in `package.json`, while `bun.lock` records exact resolved versions for reproducible installs. Type checking uses `tsc --noEmit`; runtime/tests were verified on Bun **1.3.14**. Recheck stable versions when changing dependencies.
 
 ## 2. Responsibilities and data flow
 

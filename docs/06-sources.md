@@ -204,4 +204,4 @@ Documents runtime parsing, `z.infer`, default removal of unrecognized object key
 
 [Ky v2.2.0 implementation](https://github.com/sindresorhus/ky/blob/v2.2.0/source/core/Ky.ts)
 
-The reviewed release documents Bun support, configurable retries/timeouts, custom Fetch instrumentation, Standard Schema response validation, and HTTP error handling. Its `beforeRequest` hook runs once before retry handling, and `maxRetryAfter` can clamp a server-indicated delay. These details motivate explicit request accounting and retry policy. Ky 2.2.0 is now pinned in the implementation; E17 records its first ordinary Bun/Teams compatibility check.
+The reviewed release documents Bun support, configurable retries/timeouts, custom Fetch instrumentation, Standard Schema response validation, and HTTP error handling. Its `beforeRequest` hook runs once before retry handling, and `maxRetryAfter` can clamp a server-indicated delay. These details motivate explicit request accounting and retry policy. The implementation uses the Ky ^2.2.0 range with an exact resolution in `bun.lock`; E17 records its first ordinary Bun/Teams compatibility check.

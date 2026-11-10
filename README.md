@@ -12,7 +12,7 @@ One-to-one labels resolve through participant profiles and a persistent name cac
 
 ## Setup
 
-The implementation was tested with Bun **1.3.14**. Install dependencies with the committed lockfile:
+The implementation was tested with Bun **1.3.14**. Dependencies use caret (`^`) ranges in `package.json`; the committed `bun.lock` records exact resolved versions for reproducible installs. Install dependencies with the committed lockfile:
 
 ```sh
 bun install --frozen-lockfile

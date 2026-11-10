@@ -2,7 +2,7 @@
 
 Research date: **2026-11-04**. This file separates already completed investigation checks from tests that a future implementation still needs.
 
-A Bun CLI, pinned package configuration, and synthetic test suite now implement the first bounded-history slice. Use `bun run typecheck` and `bun run test` for current results. This document also retains checks for later features; inclusion in a table does not mean a media/login feature or its test already exists.
+A Bun CLI, caret dependency ranges with a committed lockfile, and synthetic test suite now implement the first bounded-history slice. Use `bun run typecheck` and `bun run test` for current results. This document also retains checks for later features; inclusion in a table does not mean a media/login feature or its test already exists.
 
 ## 1. Completed investigation checks
 

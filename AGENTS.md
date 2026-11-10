@@ -123,6 +123,8 @@ When modifying or extending this codebase, agents **must** respect these domain 
 
 ## 5. Development & Testing Commands
 
+Use caret (`^`) ranges for dependencies and dev dependencies in `package.json`. Keep the workspace ranges in `bun.lock` synchronized; its resolved package versions provide reproducible installs.
+
 Always run scripts with `bun` or `bunx`:
 
 ```sh

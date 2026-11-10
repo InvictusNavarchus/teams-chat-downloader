@@ -4,7 +4,7 @@ Implemented **2026-11-05**. `bun run teams login` acquires credentials through a
 
 ## Browser and profile ownership
 
-The runtime dependency is pinned `playwright-core` **1.64.1**, the stable registry version checked before installation. This package does not install a browser. The CLI detects installed executables in this order: `chromium-browser`, `chromium`, `google-chrome`, `google-chrome-stable`, `msedge`. `--browser <path>` overrides detection. If nothing is detected, Playwright's own managed Chromium location is attempted; an absent browser produces a safe, actionable error. Compatibility with arbitrary distribution browser versions is not promised.
+The runtime dependency is `playwright-core` **^1.64.1**, with its exact resolved version recorded in `bun.lock`; 1.64.1 was the stable registry version checked before the initial installation. This package does not install a browser. The CLI detects installed executables in this order: `chromium-browser`, `chromium`, `google-chrome`, `google-chrome-stable`, `msedge`. `--browser <path>` overrides detection. If nothing is detected, Playwright's own managed Chromium location is attempted; an absent browser produces a safe, actionable error. Compatibility with arbitrary distribution browser versions is not promised.
 
 The browser is always visible, with `chromiumSandbox: true`. Native Wayland is selected by `--ozone-platform=wayland` when `WAYLAND_DISPLAY` is set; the terminal's environment is inherited. Playwright's ordinary automation defaults remain in place. No MCP-specific flag overrides are added, no global MCP config is read or modified, and no browser is installed automatically. The command owns browser cleanup and handles SIGINT/SIGTERM through the CLI abort signal.
 
