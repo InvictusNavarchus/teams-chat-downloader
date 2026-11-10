@@ -10,7 +10,7 @@ See the [HTTP reference](02-http-protocol.md#1-endpoint-and-credential-map) for 
 
 **Proposed architecture:**
 
-~~~text
+```text
 Interactive user login
         |
         v
@@ -22,7 +22,7 @@ Service-specific credential state
         +--> HTTP directory requests
         +--> HTTP date-bounded history requests
         +--> HTTP media requests and local cache
-~~~
+```
 
 The normal exporter should not require a running browser, Playwright MCP connection, Playwright CLI daemon, or AI agent when valid credentials are already available.
 
@@ -32,12 +32,12 @@ The successful experiments were hosted by MCP for convenience. They used server-
 
 ## 2. Three distinct authentication surfaces
 
-| Surface | Captured material that worked | What remains unknown |
-| --- | --- | --- |
-| History service | Complete `Authentication` request-header value | Lifetime, precise format, independent renewal, value equivalence with other credentials |
-| Chat directory | `x-skypetoken` request-header value | Lifetime, refresh, minimal directory query parameters |
+| Surface                             | Captured material that worked                                                        | What remains unknown                                                                                    |
+| ----------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| History service                     | Complete `Authentication` request-header value                                       | Lifetime, precise format, independent renewal, value equivalence with other credentials                 |
+| Chat directory                      | `x-skypetoken` request-header value                                                  | Lifetime, refresh, minimal directory query parameters                                                   |
 | Self and participant profiles (E18) | Both complete `Authorization` Bearer value and `x-skypetoken` from a profile request | Lifetime, independent renewal, other account types; see [profile reference](08-participant-profiles.md) |
-| Image service | Matching `skypetoken_asm` cookie | Lifetime, renewal, host/region coverage, alternative authorization mechanisms |
+| Image service                       | Matching `skypetoken_asm` cookie                                                     | Lifetime, renewal, host/region coverage, alternative authorization mechanisms                           |
 
 Do not model this as one undifferentiated browser cookie blob. Conversely, do not assume these values represent unrelated underlying identities: their relationship was not tested. `profileAuthorization` is an optional field in the version-1 credential file. It is separate from `historyAuthentication`; the history exporter does not require it. The login command now captures the history header and matching profile header pair automatically. Media-cookie capture remains unimplemented.
 
@@ -97,13 +97,13 @@ A persistent browser profile keeps browser state on disk across launches. It can
 
 Keep these concepts separate:
 
-| Concept | Meaning |
-| --- | --- |
-| Browser profile | Chromium user data and site state |
-| Captured HTTP credential state | The explicit headers/cookies a standalone downloader will need |
-| Access credential validity | Whether a particular service accepts a credential at this moment |
-| Interactive authentication | A user-facing Microsoft sign-in or verification step |
-| Renewal | Obtaining a new usable service credential, potentially without another interactive login |
+| Concept                        | Meaning                                                                                  |
+| ------------------------------ | ---------------------------------------------------------------------------------------- |
+| Browser profile                | Chromium user data and site state                                                        |
+| Captured HTTP credential state | The explicit headers/cookies a standalone downloader will need                           |
+| Access credential validity     | Whether a particular service accepts a credential at this moment                         |
+| Interactive authentication     | A user-facing Microsoft sign-in or verification step                                     |
+| Renewal                        | Obtaining a new usable service credential, potentially without another interactive login |
 
 Expiry does not necessarily mean the user must enter a password again. Teams may be able to renew from browser state. That mechanism has not been characterized, so neither seamless refresh nor mandatory manual login should be promised yet.
 
@@ -127,18 +127,18 @@ An export should identify which service needs renewed authentication. A valid hi
 
 The following values describe the investigation environment, not supported-platform promises:
 
-| Component | Observed value |
-| --- | --- |
-| OS/session | Fedora KDE 44, Wayland |
-| Shell | Bash |
-| User timezone | Asia/Jakarta |
-| Browser executable | `/usr/bin/chromium-browser` |
+| Component                                      | Observed value                |
+| ---------------------------------------------- | ----------------------------- |
+| OS/session                                     | Fedora KDE 44, Wayland        |
+| Shell                                          | Bash                          |
+| User timezone                                  | Asia/Jakarta                  |
+| Browser executable                             | `/usr/bin/chromium-browser`   |
 | Chromium version observed during browser audit | `156.0.8078.79`, Fedora build |
-| MCP launch command | `bunx` |
-| MCP package resolved locally | `@playwright/mcp` `0.0.84` |
-| Playwright package resolved locally | `1.65.0-alpha-2026-10-30` |
-| Playwright core package resolved locally | `1.65.0-alpha-2026-10-30` |
-| Package selector in actual MCP config | `@playwright/mcp@latest` |
+| MCP launch command                             | `bunx`                        |
+| MCP package resolved locally                   | `@playwright/mcp` `0.0.84`    |
+| Playwright package resolved locally            | `1.65.0-alpha-2026-10-30`     |
+| Playwright core package resolved locally       | `1.65.0-alpha-2026-10-30`     |
+| Package selector in actual MCP config          | `@playwright/mcp@latest`      |
 
 The config and installed package manifests were re-read during the documentation pass. The exact Chromium version above comes from the earlier live audit; it was not a new browser-version probe during this documentation task.
 
@@ -150,7 +150,7 @@ The config and installed package manifests were re-read during the documentation
 
 The relevant portion of `~/.codex/config.toml` was:
 
-~~~toml
+```toml
 [mcp_servers.playwright]
 command = "bunx"
 args = [
@@ -159,7 +159,7 @@ args = [
   "/home/invictus/.codex/playwright-wayland.json",
 ]
 env_vars = ["WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"]
-~~~
+```
 
 This is the actual machine-specific path recorded during the investigation. It is not a portable example with shell expansion. Do not assume `~` or an environment-variable reference inside an arbitrary JSON/TOML string will be expanded by the receiving application.
 
@@ -169,7 +169,7 @@ Only the Playwright-related keys were inspected for documentation. Other MCP ent
 
 The referenced `~/.codex/playwright-wayland.json` contained:
 
-~~~json
+```json
 {
   "browser": {
     "browserName": "chromium",
@@ -181,7 +181,7 @@ The referenced `~/.codex/playwright-wayland.json` contained:
     }
   }
 }
-~~~
+```
 
 There was no explicit `userDataDir`, `isolated`, `channel`, or `ignoreDefaultArgs` entry in the inspected JSON.
 
@@ -191,13 +191,13 @@ Using a separate JSON file made nested launch options, boolean settings, and bro
 
 `chrome://version/` reported:
 
-~~~text
+```text
 Profile path:
 ~/.cache/ms-playwright-mcp/mcp-chromium-0371635/Default
 
 Corresponding user data directory:
 ~/.cache/ms-playwright-mcp/mcp-chromium-0371635
-~~~
+```
 
 `Default` is the browser profile subdirectory, not the whole Chromium user data directory. Do not pass the `Default` path as `userDataDir` without understanding that distinction.
 
@@ -253,9 +253,9 @@ This was a meaningful change to the browser's security posture, not just cosmeti
 
 After the sandbox issue was resolved, Chromium exposed a warning for:
 
-~~~text
+```text
 --disable-blink-features=AutomationControlled
-~~~
+```
 
 Inspection of MCP source showed that it adds this Chromium argument when no existing `--disable-blink-features` argument is present. The feature affects the browser automation indicator used by `navigator.webdriver`; the exact effective value can also depend on other automation overrides.
 
@@ -279,22 +279,22 @@ If additional environment overrides are needed later, use syntax accepted by the
 
 ## 9. Diagnostic methods and their limits
 
-| Method | Useful result or limitation |
-| --- | --- |
-| Temporary `chrome://version/` tab | Exposed actual command line, version, and profile path; diagnostic tab was then closed |
-| Temporary `chrome://sandbox/` tab | Confirmed effective security sandbox status |
-| CDP `Browser.getBrowserCommandLine` | Failed when `--enable-automation` was absent; not the preferred probe here |
-| CDP `Browser.getVersion` | Returned browser/version details during inspection |
-| CDP browser-window query | Failed without a target; not evidence that the visible browser failed |
-| Page `performance` entries | Partial view of relevant traffic; did not establish complete history transport |
-| Page/context response listeners | Captured fresh service responses; cached data may have loaded before attachment |
-| MCP numbered request log | Revealed earlier history requests and query patterns |
-| MCP response-body retrieval for older recorded requests | Returned empty text in attempted reads; did not prove the server's response body was empty |
-| Browser worker/service-worker inspection | Confirmed their presence, but no complete transport model was derived from it |
-| Server-side global `fetch()` | Available in the MCP snippet environment and successfully replayed ordinary HTTP operations |
-| Direct server-side copying of HTTP/2 request headers | Initially failed because names such as `:authority` are not valid Fetch header names; pseudoheaders must not be copied |
-| Browser-side `fetch` response handling | Uses the numeric `response.status` property; Playwright response objects instead have a `status()` method |
-| A unique-looking role locator | Later matched two Chat buttons; scope locators or inspect cardinality rather than assuming uniqueness forever |
+| Method                                                  | Useful result or limitation                                                                                            |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Temporary `chrome://version/` tab                       | Exposed actual command line, version, and profile path; diagnostic tab was then closed                                 |
+| Temporary `chrome://sandbox/` tab                       | Confirmed effective security sandbox status                                                                            |
+| CDP `Browser.getBrowserCommandLine`                     | Failed when `--enable-automation` was absent; not the preferred probe here                                             |
+| CDP `Browser.getVersion`                                | Returned browser/version details during inspection                                                                     |
+| CDP browser-window query                                | Failed without a target; not evidence that the visible browser failed                                                  |
+| Page `performance` entries                              | Partial view of relevant traffic; did not establish complete history transport                                         |
+| Page/context response listeners                         | Captured fresh service responses; cached data may have loaded before attachment                                        |
+| MCP numbered request log                                | Revealed earlier history requests and query patterns                                                                   |
+| MCP response-body retrieval for older recorded requests | Returned empty text in attempted reads; did not prove the server's response body was empty                             |
+| Browser worker/service-worker inspection                | Confirmed their presence, but no complete transport model was derived from it                                          |
+| Server-side global `fetch()`                            | Available in the MCP snippet environment and successfully replayed ordinary HTTP operations                            |
+| Direct server-side copying of HTTP/2 request headers    | Initially failed because names such as `:authority` are not valid Fetch header names; pseudoheaders must not be copied |
+| Browser-side `fetch` response handling                  | Uses the numeric `response.status` property; Playwright response objects instead have a `status()` method              |
+| A unique-looking role locator                           | Later matched two Chat buttons; scope locators or inspect cardinality rather than assuming uniqueness forever          |
 
 A diagnostic attempt to insert content into a Chromium internal page hit TrustedHTML restrictions. A temporary data-URL page was used instead. This did not establish a Teams problem or justify weakening browser security settings.
 
@@ -302,12 +302,12 @@ The shell environment could not inspect the desktop session as though it were th
 
 ## 10. MCP, official CLI, and library choices
 
-| Component | What it provides | Role in this project |
-| --- | --- | --- |
-| Playwright library | Browser control and network inspection APIs; also a separate HTTP request API | Possible implementation dependency for the optional login helper |
-| Playwright MCP | Structured tool interface for an agent to control/inspect a browser | Used for investigation; not required for normal exports |
-| Official `playwright-cli` | Shell commands, daemon sessions, snapshots, network inspection, and custom Playwright snippets | Possible alternative interactive login/investigation interface; not required for normal exports |
-| Project `teams` CLI | Product-specific login, listing, bounded history export, participant profiles, and request reporting | Browser login/capture, HTTP export, and cached names implemented; media caching and unattended renewal remain future work |
+| Component                 | What it provides                                                                                     | Role in this project                                                                                                      |
+| ------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Playwright library        | Browser control and network inspection APIs; also a separate HTTP request API                        | Possible implementation dependency for the optional login helper                                                          |
+| Playwright MCP            | Structured tool interface for an agent to control/inspect a browser                                  | Used for investigation; not required for normal exports                                                                   |
+| Official `playwright-cli` | Shell commands, daemon sessions, snapshots, network inspection, and custom Playwright snippets       | Possible alternative interactive login/investigation interface; not required for normal exports                           |
+| Project `teams` CLI       | Product-specific login, listing, bounded history export, participant profiles, and request reporting | Browser login/capture, HTTP export, and cached names implemented; media caching and unattended renewal remain future work |
 
 The official CLI's lower agent-context overhead does not establish faster HTTP downloads or solve Teams authentication/pagination automatically.
 

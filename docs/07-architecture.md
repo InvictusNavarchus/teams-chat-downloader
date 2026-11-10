@@ -8,14 +8,14 @@ This document records the stack agreed during architecture discussion and the re
 
 ## 1. Stack and reasons
 
-| Concern | Selected direction | Reason |
-| --- | --- | --- |
-| Runtime and language | Bun, strict TypeScript, ES modules | Matches the user's experience and supports direct TypeScript execution |
-| CLI parsing | CAC | Fits a small set of commands, flags, and asynchronous actions |
-| Runtime validation | Zod | Validates external input and derives the corresponding TypeScript types from schemas |
-| HTTP | Ky over Bun's native Fetch implementation | Supplies configurable retries, timeouts, cancellation, and instrumentation points |
-| Tests | Bun's built-in `bun:test` | Tests run in the same runtime as the CLI |
-| Interactive authentication | Separate Playwright helper | Browser interaction is needed for credential acquisition, not every export |
+| Concern                    | Selected direction                        | Reason                                                                               |
+| -------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------ |
+| Runtime and language       | Bun, strict TypeScript, ES modules        | Matches the user's experience and supports direct TypeScript execution               |
+| CLI parsing                | CAC                                       | Fits a small set of commands, flags, and asynchronous actions                        |
+| Runtime validation         | Zod                                       | Validates external input and derives the corresponding TypeScript types from schemas |
+| HTTP                       | Ky over Bun's native Fetch implementation | Supplies configurable retries, timeouts, cancellation, and instrumentation points    |
+| Tests                      | Bun's built-in `bun:test`                 | Tests run in the same runtime as the CLI                                             |
+| Interactive authentication | Separate Playwright helper                | Browser interaction is needed for credential acquisition, not every export           |
 
 Ordinary TypeScript execution does not replace static type checking or runtime payload validation. The dedicated `bun run typecheck` script invokes `tsc --noEmit`, independently of Zod's runtime checks and without requiring a newer Bun type-checking feature.
 
@@ -41,15 +41,15 @@ flowchart TD
 
 The diagram shows responsibilities, not separate processes or a mandatory file per box.
 
-| Responsibility | Owns | Boundary |
-| --- | --- | --- |
-| CLI | CAC command registration, help, asynchronous action dispatch, terminal reporting and exit status | Pass validated options to the application; do not expose CAC's permissive option types internally |
-| Input resolution | Option schemas, mutually exclusive flags, date interpretation and one fixed window | Produce typed options before making export requests |
-| Export orchestration | Coordinate one account, chat, window, cancellation signal, and run statistics | Receive credentials and options; do not parse terminal arguments or launch login |
-| Teams client | Endpoint construction, response schemas, pagination, filtering, message identity and ordering | Preserve the protocol invariants; delegate transport and retries to HTTP |
-| HTTP | Ky configuration, service-specific credentials and destinations, request attempts and retry reporting | Do not decide date semantics, parse media references, or own the cache |
-| Media | Resolve supported references, deduplicate logical media keys, reuse or download files | Cache lookup occurs before requesting media; bound concurrent downloads |
-| Output | Source records, derived values, local media references and completion metadata | Do not acquire credentials or hide failed retrieval behind a complete export |
+| Responsibility              | Owns                                                                                                               | Boundary                                                                                            |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| CLI                         | CAC command registration, help, asynchronous action dispatch, terminal reporting and exit status                   | Pass validated options to the application; do not expose CAC's permissive option types internally   |
+| Input resolution            | Option schemas, mutually exclusive flags, date interpretation and one fixed window                                 | Produce typed options before making export requests                                                 |
+| Export orchestration        | Coordinate one account, chat, window, cancellation signal, and run statistics                                      | Receive credentials and options; do not parse terminal arguments or launch login                    |
+| Teams client                | Endpoint construction, response schemas, pagination, filtering, message identity and ordering                      | Preserve the protocol invariants; delegate transport and retries to HTTP                            |
+| HTTP                        | Ky configuration, service-specific credentials and destinations, request attempts and retry reporting              | Do not decide date semantics, parse media references, or own the cache                              |
+| Media                       | Resolve supported references, deduplicate logical media keys, reuse or download files                              | Cache lookup occurs before requesting media; bound concurrent downloads                             |
+| Output                      | Source records, derived values, local media references and completion metadata                                     | Do not acquire credentials or hide failed retrieval behind a complete export                        |
 | Credential access and login | Load typed credentials; acquire/refresh through the dedicated visible browser and verify before atomic publication | Dynamic import on `login` only; no browser on ordinary reads; unattended renewal remains unresolved |
 
 A raw-ID export with explicit `--out` goes straight to that chat's history without a directory/profile lookup. Automatic naming uses a directory lookup when credentials are available; label selection always requires one to resolve the raw ID before history retrieval. Listing remains a distinct operation. History pages are fetched sequentially because continuation state depends on the preceding response. The Teams client starts the first history request immediately, then waits a random 2–5 seconds before each valid continuation by default. Export flags `--page-delay-min` and `--page-delay-max` configure this range in seconds. The wait is cancellable, adds no HTTP attempts, and sits outside the HTTP operation's timeout and retry policy; there is no pause after exhaustion. This pacing reduces request frequency without establishing Teams quotas or simulating browser interaction.
@@ -108,11 +108,11 @@ On `304`, reuse a complete local body. If the body is missing, make a bounded un
 
 ## 5. Storage and output boundaries
 
-| Data | Location and ownership | Policy |
-| --- | --- | --- |
-| Credentials and browser profile | Private account-scoped state, separate from exports and source control | Backend, exact paths, permissions, profile ownership and renewal flow still need a decision |
-| Shared media cache | Persistent account-scoped files plus a metadata index, initially proposed as JSON | Key by service/namespace, object, representation and available version; reuse across export directories |
-| Export | Canonical JSON at an automatic or user-selected destination, with optional derived Markdown | Both outputs publish atomically without overwrite; portable local media remains future work |
+| Data                            | Location and ownership                                                                      | Policy                                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Credentials and browser profile | Private account-scoped state, separate from exports and source control                      | Backend, exact paths, permissions, profile ownership and renewal flow still need a decision             |
+| Shared media cache              | Persistent account-scoped files plus a metadata index, initially proposed as JSON           | Key by service/namespace, object, representation and available version; reuse across export directories |
+| Export                          | Canonical JSON at an automatic or user-selected destination, with optional derived Markdown | Both outputs publish atomically without overwrite; portable local media remains future work             |
 
 The cache is independent of one export. Re-fetch text for the requested window; do not introduce a persistent message-range cache initially. Deduplicate media references within the run before scheduling downloads.
 
@@ -136,14 +136,14 @@ Markdown presentation groups messages under local calendar dates and compact spe
 
 The first slice uses these revisable defaults:
 
-| Decision | Recommended starting point | Current status |
-| --- | --- | --- |
-| Credential input | Optional `--credentials` override; otherwise per-user state JSON, then installation-local `.private/credentials.json` when the state file is missing | Implemented; `login` writes verified state with a stable self-MRI-derived account label; Unix group/other permissions rejected; no unattended renewal |
-| Date semantics | Half-open UTC millisecond window; full timestamps require `Z` or an offset; `--last Nd` starts at local midnight N−1 calendar days ago and ends at invocation time | Implemented with Day.js; local timezone or `TZ` override; date-only and submillisecond inputs rejected |
-| Filtering timestamp | `originalarrivaltime`, preserving the other source timestamps | Implemented; unexpected out-of-window responses fail |
-| Output | Canonical JSON with a versioned manifest, automatic label/period directory under `exports/` or explicit `--out <directory>`, containing `chat.json`, optional `chat.md`, and `media/`, optional Markdown, and no overwrite | Implemented; Markdown reads the saved JSON and is also available through offline `convert`; conversion failure retains JSON; no partial history file or durable resume |
-| Initial scope | Supplied chat ID or unique resolved label, plus directory listing and browser-assisted credentials | Implemented; retrieval holds the selected window in memory; images remain future work |
-| Operational settings | Two retries, 15-second per-attempt timeout, 60-second per-operation deadline | Implemented; redirects refused, counters at Fetch boundary; media concurrency still future work |
+| Decision             | Recommended starting point                                                                                                                                                                                                 | Current status                                                                                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Credential input     | Optional `--credentials` override; otherwise per-user state JSON, then installation-local `.private/credentials.json` when the state file is missing                                                                       | Implemented; `login` writes verified state with a stable self-MRI-derived account label; Unix group/other permissions rejected; no unattended renewal                  |
+| Date semantics       | Half-open UTC millisecond window; full timestamps require `Z` or an offset; `--last Nd` starts at local midnight N−1 calendar days ago and ends at invocation time                                                         | Implemented with Day.js; local timezone or `TZ` override; date-only and submillisecond inputs rejected                                                                 |
+| Filtering timestamp  | `originalarrivaltime`, preserving the other source timestamps                                                                                                                                                              | Implemented; unexpected out-of-window responses fail                                                                                                                   |
+| Output               | Canonical JSON with a versioned manifest, automatic label/period directory under `exports/` or explicit `--out <directory>`, containing `chat.json`, optional `chat.md`, and `media/`, optional Markdown, and no overwrite | Implemented; Markdown reads the saved JSON and is also available through offline `convert`; conversion failure retains JSON; no partial history file or durable resume |
+| Initial scope        | Supplied chat ID or unique resolved label, plus directory listing and browser-assisted credentials                                                                                                                         | Implemented; retrieval holds the selected window in memory; images remain future work                                                                                  |
+| Operational settings | Two retries, 15-second per-attempt timeout, 60-second per-operation deadline                                                                                                                                               | Implemented; redirects refused, counters at Fetch boundary; media concurrency still future work                                                                        |
 
 These defaults are not planning gates for later changes. Conflicting duplicate records fail explicitly until revision selection is established; identical duplicate records are removed. Output files use mode `0600`, and new parent directories use mode `0700`.
 

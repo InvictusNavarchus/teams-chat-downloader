@@ -26,7 +26,7 @@ These requirements do not yet select an output format, executable name, packagin
 
 Use a small HTTP-based exporter. Keep interactive login as a distinct concern.
 
-~~~text
+```text
 CLI input
    |
    +--> Resolve account, chat selection, and fixed date window
@@ -44,7 +44,7 @@ CLI input
    +--> Produce export with local media references and completion metadata
 
 Separate login command --> optional browser helper --> credential state
-~~~
+```
 
 No AI agent, MCP session, browser-scrolling loop, extension, or userscript is required for the normal export path established by the experiments.
 
@@ -52,14 +52,14 @@ The agreed stack is Bun with strict TypeScript and ES modules, CAC for CLI parsi
 
 ### Alternatives considered
 
-| Approach | Status and tradeoff for this scope |
-| --- | --- |
-| Microsoft Graph chat API | Its documented personal-account limitation prevents treating it as the supported direct solution for this account; see the sources document |
-| Official account export plus local archive parser | Documented alternative; not exercised. Could suit bulk archive processing, but does not establish the selected-chat CLI workflow by itself |
-| Browser extension | Considered, not built or tested. Can integrate a picker/export action with the live browser, but adds extension packaging and a browser dependency to a workload now shown to have an HTTP path |
-| Userscript | Considered, not built or tested. Could provide browser-local convenience, but retains a page/script-manager dependency and does not solve the authentication/caching model automatically |
-| Playwright MCP or official CLI for every export | Useful for exploration or agent-guided work, but unnecessary for the tested HTTP read path |
-| HTTP CLI plus optional browser login helper | Current proposed direction; concentrates custom code on chat selection, bounded reads, output, and media caching |
+| Approach                                          | Status and tradeoff for this scope                                                                                                                                                              |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Microsoft Graph chat API                          | Its documented personal-account limitation prevents treating it as the supported direct solution for this account; see the sources document                                                     |
+| Official account export plus local archive parser | Documented alternative; not exercised. Could suit bulk archive processing, but does not establish the selected-chat CLI workflow by itself                                                      |
+| Browser extension                                 | Considered, not built or tested. Can integrate a picker/export action with the live browser, but adds extension packaging and a browser dependency to a workload now shown to have an HTTP path |
+| Userscript                                        | Considered, not built or tested. Could provide browser-local convenience, but retains a page/script-manager dependency and does not solve the authentication/caching model automatically        |
+| Playwright MCP or official CLI for every export   | Useful for exploration or agent-guided work, but unnecessary for the tested HTTP read path                                                                                                      |
+| HTTP CLI plus optional browser login helper       | Current proposed direction; concentrates custom code on chat selection, bounded reads, output, and media caching                                                                                |
 
 These comparisons explain the current scope choice. They are not benchmarks or evidence that an extension/userscript cannot work.
 
@@ -67,19 +67,19 @@ These comparisons explain the current scope choice. They are not benchmarks or e
 
 Illustrative commands:
 
-~~~text
+```text
 teams login
 teams chats
 teams export --chat <chat-id> --last 7d --images
 teams export --chat <chat-id> --since <timestamp> --images
 teams export --chat <chat-id> --from <timestamp> --to <timestamp> --images
-~~~
+```
 
-| Operation | Proposed behavior | Unresolved detail |
-| --- | --- | --- |
-| `login` | Implemented visible dedicated browser, capture and HTTP verification, atomic private file replacement; rerun for explicit refresh | Unattended renewal, logout, media-cookie capture; see [login contract](09-browser-login.md) |
-| `chats` | Print IDs, labels/fallbacks, and useful chat types; participant lookup and name caching now implemented | Directory pagination, output modes, filtering hidden/meeting chats |
-| `export` | Retrieve one selected chat and period; preserve source metadata and cache included images | Output format, defaults, overwrite semantics, flags |
+| Operation | Proposed behavior                                                                                                                 | Unresolved detail                                                                           |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `login`   | Implemented visible dedicated browser, capture and HTTP verification, atomic private file replacement; rerun for explicit refresh | Unattended renewal, logout, media-cookie capture; see [login contract](09-browser-login.md) |
+| `chats`   | Print IDs, labels/fallbacks, and useful chat types; participant lookup and name caching now implemented                           | Directory pagination, output modes, filtering hidden/meeting chats                          |
+| `export`  | Retrieve one selected chat and period; preserve source metadata and cache included images                                         | Output format, defaults, overwrite semantics, flags                                         |
 
 An interactive picker could be a convenience on top of `chats`, not a requirement for noninteractive scripting. Always retain an explicit-ID route so ambiguity between chats with the same title does not select the wrong conversation.
 
@@ -101,10 +101,10 @@ This supersedes the earlier proposal to omit `--to` because all exports would ha
 
 **Proposed:** resolve every invocation to one immutable window of UTC millisecond instants:
 
-~~~text
+```text
 fromInclusive
 toExclusive
-~~~
+```
 
 Retain the original user input, timezone interpretation, and resolved UTC instants in export metadata. This makes the meaning of an export auditable.
 
@@ -195,11 +195,11 @@ Also report media cache hits, successful downloads, and failures. Deduplicate re
 
 An illustrative summary is:
 
-~~~text
+```text
 HTTP attempts: 10 (history: 4, directory: 0, media: 6, other: 0)
 Retry attempts: 0 (included above)
 Images: 30 reused from cache, 6 downloaded, 0 failed
-~~~
+```
 
 These numbers are examples, not measurements or a quota. Report available counters on interrupted/failed exports too, with the actual completion status. Do not print credentials, authenticated URLs, or raw cursors to explain a count.
 
@@ -350,15 +350,15 @@ Durable text checkpoints are useful only if the associated messages have also be
 
 Keep responsibilities explicit without prebuilding a plugin framework:
 
-| Responsibility | Boundary |
-| --- | --- |
-| CLI | Parse input, select command, report results/status |
-| Login helper | Optional browser interaction and credential acquisition |
-| Credential access | Service-specific load/validation; no browser launch as an import side effect |
-| HTTP directory/history | Request construction, response validation, bounded pagination |
-| Message adaptation | Preserve raw fields, apply date policy, deduplicate, sort |
-| Media adapter/cache | Resolve references, reuse/download/validate files |
-| Output | Write selected format and completion metadata |
+| Responsibility         | Boundary                                                                     |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| CLI                    | Parse input, select command, report results/status                           |
+| Login helper           | Optional browser interaction and credential acquisition                      |
+| Credential access      | Service-specific load/validation; no browser launch as an import side effect |
+| HTTP directory/history | Request construction, response validation, bounded pagination                |
+| Message adaptation     | Preserve raw fields, apply date policy, deduplicate, sort                    |
+| Media adapter/cache    | Resolve references, reuse/download/validate files                            |
+| Output                 | Write selected format and completion metadata                                |
 
 These are conceptual boundaries, not a requirement for one file or class per row. Avoid new abstraction layers until actual call sites require them. Use direct imports rather than barrel exports, as required by the user's project instructions.
 

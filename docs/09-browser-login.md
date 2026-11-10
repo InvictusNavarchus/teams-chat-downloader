@@ -14,11 +14,11 @@ This is a tool-specific profile, separate from the existing MCP profile and ever
 
 ## Command and output contract
 
-~~~sh
+```sh
 bun run teams login
 bun run teams login --wait-for-media
 bun run teams login --browser /path/to/chromium --browser-profile /private/teams-browser --credentials /private/credentials.json --timeout 600
-~~~
+```
 
 All paths may be overridden explicitly. The credential destination defaults to the standard state file even if the older project-private fallback exists. Explicit `--credentials` changes the file destination, not the default browser-profile directory. Time budget: 600 seconds by default, configurable from 1 to 3600 seconds. Browser launch has at most 30 seconds; initial navigation at most 60 seconds, within the overall budget. Cancellation closes an opened context to interrupt navigation.
 

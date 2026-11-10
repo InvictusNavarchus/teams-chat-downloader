@@ -6,31 +6,31 @@ A Bun CLI, caret dependency ranges with a committed lockfile, and synthetic test
 
 ## 1. Completed investigation checks
 
-| Area | Completed evidence | Reference |
-| --- | --- | --- |
-| Interactive login | User signed in in visible Chromium; Teams Chat loaded | E01 |
-| Page-session reuse | Reload restored the open chat without another interactive sign-in | E01 |
-| Virtualized history | Mounted messages changed while older history loaded; cached history often needed no fresh request | E02 |
-| History schema | Fresh response had 200 messages and expected top-level metadata | E03, E07 |
-| Cookie-only negative control | Page-side history read without explicit service authentication returned `401` | E04 |
-| Plain HTTP history | Group and one-to-one each returned two 200-record pages with no overlap | E05–E06 |
-| HTTP directory | `x-skypetoken` alone returned 15 records; partial/more flags false for this account | E08 |
-| Direct-message labels | Eight one-to-one title fields were empty; users array empty | E08 |
-| Profile resolution | Eight counterpart names matched Teams UI; self MRI excluded reliably in the sample; both profile credentials required by tested controls | E18 |
-| CLI name cache | All eight one-to-one labels resolved; cold CLI used four attempts and warm repeat used one directory attempt, without retries | E19 |
-| Browser login command | Captured and verified all implemented service headers, saved privately, reopened persisted session, then listed/exported after the dedicated browser closed | E20 |
-| HTTP image | Media cookie authorized a valid 69,257-byte JPEG | E09 |
-| Conditional media validation | `If-Modified-Since` returned `304` | E10 |
-| Array ordering | Latest history array was not monotonic by arrival time | E11 |
-| No-cursor historical seeking | Group August window returned the target period directly | E12 |
-| Pagination defect | Unchanged historical backward link jumped to current messages | E13 |
-| Pagination correction | Preserving end bound fixed the next page, including through the observed same-origin route | E13 |
-| Larger bounded exhaustion | Six pages, 1,021 distinct group messages, no out-of-window arrivals, no final backward link | E14 |
-| Query consistency | Narrow 65-message result equaled the same subset of larger-window retrieval | E12, E14 |
-| One-to-one historical seeking | October window returned 186 messages directly | E15 |
-| Exact timestamp boundaries | Start and end both included the reference message at exact millisecond equality | E16 |
-| Short-term first-page repeat | Repeated group first-page query returned the same 200 IDs | E13 |
-| First standalone Bun CLI | Listed 15 chats and exported 5 messages from a seven-day window, one request each, no retries | E17 |
+| Area                          | Completed evidence                                                                                                                                          | Reference |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| Interactive login             | User signed in in visible Chromium; Teams Chat loaded                                                                                                       | E01       |
+| Page-session reuse            | Reload restored the open chat without another interactive sign-in                                                                                           | E01       |
+| Virtualized history           | Mounted messages changed while older history loaded; cached history often needed no fresh request                                                           | E02       |
+| History schema                | Fresh response had 200 messages and expected top-level metadata                                                                                             | E03, E07  |
+| Cookie-only negative control  | Page-side history read without explicit service authentication returned `401`                                                                               | E04       |
+| Plain HTTP history            | Group and one-to-one each returned two 200-record pages with no overlap                                                                                     | E05–E06   |
+| HTTP directory                | `x-skypetoken` alone returned 15 records; partial/more flags false for this account                                                                         | E08       |
+| Direct-message labels         | Eight one-to-one title fields were empty; users array empty                                                                                                 | E08       |
+| Profile resolution            | Eight counterpart names matched Teams UI; self MRI excluded reliably in the sample; both profile credentials required by tested controls                    | E18       |
+| CLI name cache                | All eight one-to-one labels resolved; cold CLI used four attempts and warm repeat used one directory attempt, without retries                               | E19       |
+| Browser login command         | Captured and verified all implemented service headers, saved privately, reopened persisted session, then listed/exported after the dedicated browser closed | E20       |
+| HTTP image                    | Media cookie authorized a valid 69,257-byte JPEG                                                                                                            | E09       |
+| Conditional media validation  | `If-Modified-Since` returned `304`                                                                                                                          | E10       |
+| Array ordering                | Latest history array was not monotonic by arrival time                                                                                                      | E11       |
+| No-cursor historical seeking  | Group August window returned the target period directly                                                                                                     | E12       |
+| Pagination defect             | Unchanged historical backward link jumped to current messages                                                                                               | E13       |
+| Pagination correction         | Preserving end bound fixed the next page, including through the observed same-origin route                                                                  | E13       |
+| Larger bounded exhaustion     | Six pages, 1,021 distinct group messages, no out-of-window arrivals, no final backward link                                                                 | E14       |
+| Query consistency             | Narrow 65-message result equaled the same subset of larger-window retrieval                                                                                 | E12, E14  |
+| One-to-one historical seeking | October window returned 186 messages directly                                                                                                               | E15       |
+| Exact timestamp boundaries    | Start and end both included the reference message at exact millisecond equality                                                                             | E16       |
+| Short-term first-page repeat  | Repeated group first-page query returned the same 200 IDs                                                                                                   | E13       |
+| First standalone Bun CLI      | Listed 15 chats and exported 5 messages from a seven-day window, one request each, no retries                                                               | E17       |
 
 See the complete [evidence ledger](01-findings-and-evidence.md) for timestamps, counts, controls, and limitations.
 
@@ -101,17 +101,17 @@ See [proposed CLI design](04-cli-design.md#12-decisions-still-to-make-before-fin
 
 ## 4. Authentication and session questions
 
-| Question | Current state | Useful next check |
-| --- | --- | --- |
-| How long is the history header accepted? | Unknown | Observe actual expiry or a documented expiry field without exposing the token |
-| How long is directory authentication accepted? | Unknown | Test independently of history and distinguish service failure |
-| How long is the media cookie accepted? | Unknown | Retest after expiry/renewal without assuming synchronized lifetimes |
-| Does Teams renew from an existing profile without prompting? | Unknown | Reopen the selected profile after relevant expiry and observe normal app renewal |
-| Can renewal be done through HTTP alone? | Unknown | Inspect the actual renewal flow before choosing a dependency |
-| Does the profile survive a full restart usefully? | Persistent path observed; full acceptance test not done | Close/restart and verify service credentials, not just a page title |
-| Does closing the browser invalidate an already captured access credential? | Not directly tested | Standalone cold-start check |
-| What should logout revoke/remove? | Not designed | Define local credential deletion versus browser-profile deletion versus remote revocation |
-| Can official CLI attach to this MCP session? | Not tested | Only investigate if choosing that login interface; not needed for HTTP export |
+| Question                                                                   | Current state                                           | Useful next check                                                                         |
+| -------------------------------------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| How long is the history header accepted?                                   | Unknown                                                 | Observe actual expiry or a documented expiry field without exposing the token             |
+| How long is directory authentication accepted?                             | Unknown                                                 | Test independently of history and distinguish service failure                             |
+| How long is the media cookie accepted?                                     | Unknown                                                 | Retest after expiry/renewal without assuming synchronized lifetimes                       |
+| Does Teams renew from an existing profile without prompting?               | Unknown                                                 | Reopen the selected profile after relevant expiry and observe normal app renewal          |
+| Can renewal be done through HTTP alone?                                    | Unknown                                                 | Inspect the actual renewal flow before choosing a dependency                              |
+| Does the profile survive a full restart usefully?                          | Persistent path observed; full acceptance test not done | Close/restart and verify service credentials, not just a page title                       |
+| Does closing the browser invalidate an already captured access credential? | Not directly tested                                     | Standalone cold-start check                                                               |
+| What should logout revoke/remove?                                          | Not designed                                            | Define local credential deletion versus browser-profile deletion versus remote revocation |
+| Can official CLI attach to this MCP session?                               | Not tested                                              | Only investigate if choosing that login interface; not needed for HTTP export             |
 
 Do not make the user wait for every service's natural expiry before implementing a basic explicit-login workflow. Handle an authentication failure honestly and add renewal once its behavior is understood.
 
@@ -156,18 +156,18 @@ Retain source timestamps and use local filtering as a correctness guard. Do not 
 
 ## 7. Message semantics questions
 
-| Feature | What was observed | What remains to validate |
-| --- | --- | --- |
-| Plain text | `Text` messages | Escaping, whitespace, empty content |
-| Rich text | `RichText/Html` and actual HTML | Safe rendering, links, code blocks, tables, nested formatting |
-| Edits | Version/edit-related fields | Latest revision rules, historical revision availability |
-| Deletions | Not characterized | Tombstones, removed content, repeat-export policy |
-| Reactions | `emotions` and `deltaEmotions` keys | Value schemas and aggregation semantics |
-| Mentions | `mentions` key | Identity mapping and display text preservation |
-| Quotes/replies | `qtdMsgs` and related content possibilities | Parent references, unavailable quoted messages, image references inside quotes |
-| Membership events | AddMember and DeleteMember message types | A complete type model and readable rendering |
-| Cards and files | Keys observed | Payload structure and export policy |
-| Pinned content | Metadata/links observed | Whether additional reads are needed or in scope |
+| Feature           | What was observed                           | What remains to validate                                                       |
+| ----------------- | ------------------------------------------- | ------------------------------------------------------------------------------ |
+| Plain text        | `Text` messages                             | Escaping, whitespace, empty content                                            |
+| Rich text         | `RichText/Html` and actual HTML             | Safe rendering, links, code blocks, tables, nested formatting                  |
+| Edits             | Version/edit-related fields                 | Latest revision rules, historical revision availability                        |
+| Deletions         | Not characterized                           | Tombstones, removed content, repeat-export policy                              |
+| Reactions         | `emotions` and `deltaEmotions` keys         | Value schemas and aggregation semantics                                        |
+| Mentions          | `mentions` key                              | Identity mapping and display text preservation                                 |
+| Quotes/replies    | `qtdMsgs` and related content possibilities | Parent references, unavailable quoted messages, image references inside quotes |
+| Membership events | AddMember and DeleteMember message types    | A complete type model and readable rendering                                   |
+| Cards and files   | Keys observed                               | Payload structure and export policy                                            |
+| Pinned content    | Metadata/links observed                     | Whether additional reads are needed or in scope                                |
 
 Do not flatten everything into text and later assume lost metadata can be reconstructed. Preserve raw useful fields while the supported renderer handles a deliberately small set of semantics.
 
@@ -191,43 +191,43 @@ These are behavior checks for the implementation. The existing synthetic suite c
 
 ### 9.1 Request construction and dates
 
-| Check | Failure it should catch |
-| --- | --- |
-| Historical first request has both resolved bounds and no cursor | Accidentally requiring a latest-history traversal |
+| Check                                                                              | Failure it should catch                              |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Historical first request has both resolved bounds and no cursor                    | Accidentally requiring a latest-history traversal    |
 | Continuation link lacks `endTime`, but actual next request retains original bounds | The observed jump-back-to-current-history regression |
-| Original end time does not change on retry or later pages | Moving export scope |
-| IDs with reserved path characters are encoded exactly once | Incorrect path or different chat selection |
-| Exact start/end timestamps obey chosen CLI semantics | Inclusive/exclusive off-by-one errors |
-| Two adjacent half-open windows assign a boundary message once | Duplicate boundary output |
-| A page is deliberately out of order | Incorrect early stopping or output ordering |
-| A future/empty valid window is a successful empty result | Treating no messages as a transport error |
-| A `401`, HTML error page, or malformed JSON is not an empty result | Silent incomplete export |
+| Original end time does not change on retry or later pages                          | Moving export scope                                  |
+| IDs with reserved path characters are encoded exactly once                         | Incorrect path or different chat selection           |
+| Exact start/end timestamps obey chosen CLI semantics                               | Inclusive/exclusive off-by-one errors                |
+| Two adjacent half-open windows assign a boundary message once                      | Duplicate boundary output                            |
+| A page is deliberately out of order                                                | Incorrect early stopping or output ordering          |
+| A future/empty valid window is a successful empty result                           | Treating no messages as a transport error            |
+| A `401`, HTML error page, or malformed JSON is not an empty result                 | Silent incomplete export                             |
 
 ### 9.2 Pagination and persistence
 
-| Check | Failure it should catch |
-| --- | --- |
-| Several pages, including a short final page, combine correctly | Truncated exports |
-| A short page with a continuation is handled deliberately | Assuming count is the terminal condition |
-| A repeated cursor or non-progress response is detected | Infinite loops |
-| A repeated ID is handled with a defined version policy | Duplicate or stale output |
+| Check                                                                | Failure it should catch                                       |
+| -------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Several pages, including a short final page, combine correctly       | Truncated exports                                             |
+| A short page with a continuation is handled deliberately             | Assuming count is the terminal condition                      |
+| A repeated cursor or non-progress response is detected               | Infinite loops                                                |
+| A repeated ID is handled with a defined version policy               | Duplicate or stale output                                     |
 | Wrong-host/chat continuation is rejected before credentials are sent | Unintended credential forwarding or mixed conversation output |
-| A failed later page retains a truthful interrupted status | Reporting partial data as complete |
-| A checkpoint cannot advance past unsaved page content | Message loss after a crash |
+| A failed later page retains a truthful interrupted status            | Reporting partial data as complete                            |
+| A checkpoint cannot advance past unsaved page content                | Message loss after a crash                                    |
 
 ### 9.3 Media cache
 
-| Check | Failure it should catch |
-| --- | --- |
-| Repeat/overlapping export reuses a complete image without fetching it | Re-downloading every image |
-| Same object with different view/version does not alias incorrectly | Thumbnail/full-image or stale-content confusion |
-| Missing or partial cached body is not a hit | Broken image output |
-| Interrupted download never becomes complete | Poisoned cache |
-| `304` reuses valid local bytes | Unnecessary body transfer |
-| `304` without a local body triggers correct recovery | False cache success |
-| `200` refresh validates before replacing cached bytes | Replacing a valid image with an error body |
-| Media authentication failure is distinct from history failure | Misleading login status |
-| Export references resolve with network disabled | An archive that depends on expiring remote links |
+| Check                                                                 | Failure it should catch                          |
+| --------------------------------------------------------------------- | ------------------------------------------------ |
+| Repeat/overlapping export reuses a complete image without fetching it | Re-downloading every image                       |
+| Same object with different view/version does not alias incorrectly    | Thumbnail/full-image or stale-content confusion  |
+| Missing or partial cached body is not a hit                           | Broken image output                              |
+| Interrupted download never becomes complete                           | Poisoned cache                                   |
+| `304` reuses valid local bytes                                        | Unnecessary body transfer                        |
+| `304` without a local body triggers correct recovery                  | False cache success                              |
+| `200` refresh validates before replacing cached bytes                 | Replacing a valid image with an error body       |
+| Media authentication failure is distinct from history failure         | Misleading login status                          |
+| Export references resolve with network disabled                       | An archive that depends on expiring remote links |
 
 ### 9.4 Labels and rendering
 
@@ -243,22 +243,22 @@ These checks should verify behavior and observed failure modes, not merely dupli
 
 These checks implement the user-approved requirements in [CLI design sections 6.1–6.3](04-cli-design.md#61-agreed-request-saving-behavior). Use synthetic/sanitized responses and a controlled clock where necessary. Do not generate live traffic to find Teams' rate limits or automation thresholds.
 
-| Check | Failure it should catch |
-| --- | --- |
-| A supplied chat ID reaches history without an incidental directory lookup | Spending a directory request merely to resolve an already supplied ID |
-| The first request seeks the chosen window and uses the tested page size of 200 | Fetching intervening history or unnecessarily shrinking pages |
-| Continuation requests are sequential and retain fixed bounds | Parallel cursor misuse or scope changes during retrieval |
-| A repeated/overlapping export re-fetches requested text but makes zero requests for complete cached images | Confusing image caching with message-range caching or silently revalidating every image |
-| Repeated references to one uncached logical media key cause one download | Duplicate media requests within one export |
-| Concurrent image downloads never exceed the chosen small bound | Unbounded media request bursts |
-| Explicit refresh counts a conditional media request even when it returns `304` | Reporting a body-free response as zero API calls |
-| Counters include failed attempts and retries once, with retry count identified as a subset | Under-counting failures or double-counting retries in the total |
-| Cache hits count distinct reused media keys and issue no HTTP request | Inflated cache-hit counts or hidden validation requests |
-| Interrupted exports report partial counts and truthful completion status | Losing useful diagnostics or reporting incomplete work as success |
-| A synthetic `429` with delay-seconds or HTTP-date `Retry-After` delays the next attempt accordingly | Ignoring server retry guidance or parsing only one valid header form |
-| Missing retry guidance uses bounded backoff and a finite attempt limit; cancellation prevents further attempts | Retry storms, endless waits, or ignored cancellation |
-| An unchanged authentication rejection or interaction requirement does not trigger repeated transient retries | Repeated requests that cannot recover without new credentials or user action |
-| Request summaries exclude secrets and distinguish HTTP-client counts from browser login traffic | Credential exposure or a misleading claim to count all account traffic |
+| Check                                                                                                          | Failure it should catch                                                                 |
+| -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| A supplied chat ID reaches history without an incidental directory lookup                                      | Spending a directory request merely to resolve an already supplied ID                   |
+| The first request seeks the chosen window and uses the tested page size of 200                                 | Fetching intervening history or unnecessarily shrinking pages                           |
+| Continuation requests are sequential and retain fixed bounds                                                   | Parallel cursor misuse or scope changes during retrieval                                |
+| A repeated/overlapping export re-fetches requested text but makes zero requests for complete cached images     | Confusing image caching with message-range caching or silently revalidating every image |
+| Repeated references to one uncached logical media key cause one download                                       | Duplicate media requests within one export                                              |
+| Concurrent image downloads never exceed the chosen small bound                                                 | Unbounded media request bursts                                                          |
+| Explicit refresh counts a conditional media request even when it returns `304`                                 | Reporting a body-free response as zero API calls                                        |
+| Counters include failed attempts and retries once, with retry count identified as a subset                     | Under-counting failures or double-counting retries in the total                         |
+| Cache hits count distinct reused media keys and issue no HTTP request                                          | Inflated cache-hit counts or hidden validation requests                                 |
+| Interrupted exports report partial counts and truthful completion status                                       | Losing useful diagnostics or reporting incomplete work as success                       |
+| A synthetic `429` with delay-seconds or HTTP-date `Retry-After` delays the next attempt accordingly            | Ignoring server retry guidance or parsing only one valid header form                    |
+| Missing retry guidance uses bounded backoff and a finite attempt limit; cancellation prevents further attempts | Retry storms, endless waits, or ignored cancellation                                    |
+| An unchanged authentication rejection or interaction requirement does not trigger repeated transient retries   | Repeated requests that cannot recover without new credentials or user action            |
+| Request summaries exclude secrets and distinguish HTTP-client counts from browser login traffic                | Credential exposure or a misleading claim to count all account traffic                  |
 
 No specific retry count, concurrency value, or requests-per-second threshold has been verified for Teams. Choose explicit client limits during implementation and test that they are enforced; do not describe those settings as a known safe service quota.
 

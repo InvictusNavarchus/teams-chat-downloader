@@ -8,11 +8,11 @@ The directory returned 15 chats, eight of them one-to-one with two members each 
 
 All profile paths below are relative to `https://teams.live.com/api/mt/beta/users/`:
 
-| Operation | Method and path | Observed query |
-| --- | --- | --- |
-| Current user | `GET me/` | `skypeTeamsInfo=true&forceRefresh=true&ephemeralMeProfile=false&ggEnabled=true` |
+| Operation                 | Method and path          | Observed query                                                                                                                                            |
+| ------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current user              | `GET me/`                | `skypeTeamsInfo=true&forceRefresh=true&ephemeralMeProfile=false&ggEnabled=true`                                                                           |
 | Personal-account profiles | `POST fetchShortProfile` | `isMailAddress=false&enableGuest=true&skypeTeamsInfo=true&canBeSmtpAddress=false&includeIBBarredUsers=false&includeDisabledAccounts=false&ggEnabled=true` |
-| Work/school profiles | `POST fetchFederated` | `edEnabled=false&includeDisabledAccounts=false` |
+| Work/school profiles      | `POST fetchFederated`    | `edEnabled=false&includeDisabledAccounts=false`                                                                                                           |
 
 Both POST bodies are JSON arrays of opaque MRI strings, for example `["8:live:example", "8:live:another"]` or `["8:orgid:example"]`. Separate requests by identity family. These POSTs read profiles; they do not modify contacts or messages. Batch size limits were not established. The client uses sequential batches of at most 50 as a conservative implementation default.
 

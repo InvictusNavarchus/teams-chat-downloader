@@ -16,18 +16,18 @@ The evidence is from live, read-only HTTP experiments against one signed-in pers
 
 ## Read these documents
 
-| Document | Purpose |
-| --- | --- |
-| [Findings and evidence](01-findings-and-evidence.md) | Scope, evidence vocabulary, exact test results, and corrections to earlier assumptions |
-| [HTTP protocol reference](02-http-protocol.md) | Endpoints, authentication headers, response fields, date parameters, pagination, listing, and images |
-| [Authentication and browser setup](03-authentication-and-browser.md) | Credential acquisition, browser/session roles, the working Fedora Wayland configuration, and startup troubleshooting |
-| [Proposed CLI design](04-cli-design.md) | User workflow, implementation boundaries, date semantics, media caching, outputs, and failure handling |
-| [Validation and open questions](05-validation-and-open-questions.md) | Untested behavior, implementation acceptance checks, and a practical order for resolving gaps |
-| [Sources](06-sources.md) | Primary documentation and upstream source references; distinction between public documentation and private endpoint observations |
-| [Architecture plan](07-architecture.md) | Agreed stack, module responsibilities, validation, Ky request policy, storage boundaries, and implementation milestones |
-| [Participant profiles](08-participant-profiles.md) | Verified self/participant lookup, profile authentication, name resolution, and cache behavior |
-| [Browser login](09-browser-login.md) | Implemented login/refresh command, profile ownership, capture, verification, persistence, and limits |
-| [Image export](10-image-export.md) | Implemented image adapter, service cookies, persistent cache, refresh, portable files, and offline links |
+| Document                                                             | Purpose                                                                                                                          |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| [Findings and evidence](01-findings-and-evidence.md)                 | Scope, evidence vocabulary, exact test results, and corrections to earlier assumptions                                           |
+| [HTTP protocol reference](02-http-protocol.md)                       | Endpoints, authentication headers, response fields, date parameters, pagination, listing, and images                             |
+| [Authentication and browser setup](03-authentication-and-browser.md) | Credential acquisition, browser/session roles, the working Fedora Wayland configuration, and startup troubleshooting             |
+| [Proposed CLI design](04-cli-design.md)                              | User workflow, implementation boundaries, date semantics, media caching, outputs, and failure handling                           |
+| [Validation and open questions](05-validation-and-open-questions.md) | Untested behavior, implementation acceptance checks, and a practical order for resolving gaps                                    |
+| [Sources](06-sources.md)                                             | Primary documentation and upstream source references; distinction between public documentation and private endpoint observations |
+| [Architecture plan](07-architecture.md)                              | Agreed stack, module responsibilities, validation, Ky request policy, storage boundaries, and implementation milestones          |
+| [Participant profiles](08-participant-profiles.md)                   | Verified self/participant lookup, profile authentication, name resolution, and cache behavior                                    |
+| [Browser login](09-browser-login.md)                                 | Implemented login/refresh command, profile ownership, capture, verification, persistence, and limits                             |
+| [Image export](10-image-export.md)                                   | Implemented image adapter, service cookies, persistent cache, refresh, portable files, and offline links                         |
 
 ## Evidence rules
 
@@ -59,12 +59,12 @@ The user primarily wants to select one chat and export a period such as the last
 
 A proposed interface is:
 
-~~~text
+```text
 teams login
 teams chats
 teams export --chat <chat-id> --last 7d --images
 teams export --chat <chat-id> --from <timestamp> --to <timestamp> --images
-~~~
+```
 
 The command name, exact flags, output formats, credential persistence backend, and date-only input rules are not final. See the design document before implementing them.
 

@@ -32,12 +32,12 @@ This proves that the tested HTTP operations do not need browser page execution. 
 
 ### Evidence status
 
-| Label | Meaning |
-| --- | --- |
-| Verified | Observed in a live test or direct local inspection |
+| Label      | Meaning                                                      |
+| ---------- | ------------------------------------------------------------ |
+| Verified   | Observed in a live test or direct local inspection           |
 | Documented | Supported by linked primary upstream documentation or source |
-| Proposed | A recommendation for the future tool |
-| Unknown | Not verified; must not be implemented as an assumed contract |
+| Proposed   | A recommendation for the future tool                         |
+| Unknown    | Not verified; must not be implemented as an assumed contract |
 
 ## 2. Discovery ledger
 
@@ -49,9 +49,9 @@ The identifiers below are local references for these documents, not Microsoft re
 
 `chrome://version/` reported the profile directory:
 
-~~~text
+```text
 ~/.cache/ms-playwright-mcp/mcp-chromium-0371635/Default
-~~~
+```
 
 A full browser/host shutdown and restart was not used as a persistence acceptance test. The profile is persistent by configuration and location; that is different from proving indefinite session validity.
 
@@ -67,9 +67,9 @@ Much of this history came from existing local state before another history reque
 
 **Verified:** both chat types used:
 
-~~~text
+```text
 GET https://teams.live.com/api/chatsvc/consumer/v1/users/ME/conversations/{encoded-chat-id}/messages
-~~~
+```
 
 Observed query parameters included `view`, `pageSize`, `startTime`, and, on continued history requests, `syncState`.
 
@@ -92,9 +92,9 @@ The useful history credential was then reduced to the captured `authentication` 
 **Verified:** server-side `fetch()` with only `authentication` returned:
 
 | Chat | First page | Next page | Combined unique IDs | Overlap |
-| --- | ---: | ---: | ---: | ---: |
-| G1 | 200 | 200 | 400 | 0 |
-| D1 | 200 | 200 | 400 | 0 |
+| ---- | ---------: | --------: | ------------------: | ------: |
+| G1   |        200 |       200 |                 400 |       0 |
+| D1   |        200 |       200 |                 400 |       0 |
 
 All four requests returned HTTP `200`. No cookies or browser-specific headers were explicitly supplied.
 
@@ -104,12 +104,12 @@ The G1 next page used the server-provided link at `msgapi.teams.live.com` withou
 
 **Verified:** one 200-message G1 batch contained:
 
-| `messagetype` | Count |
-| --- | ---: |
-| `RichText/Html` | 190 |
-| `Text` | 8 |
-| `ThreadActivity/AddMember` | 1 |
-| `ThreadActivity/DeleteMember` | 1 |
+| `messagetype`                 | Count |
+| ----------------------------- | ----: |
+| `RichText/Html`               |   190 |
+| `Text`                        |     8 |
+| `ThreadActivity/AddMember`    |     1 |
+| `ThreadActivity/DeleteMember` |     1 |
 
 In that same batch:
 
@@ -125,9 +125,9 @@ The count of media references is not a count of successfully downloaded attachme
 
 **Verified:** a browser-observed directory request led to a successful server-side read of:
 
-~~~text
+```text
 GET https://teams.live.com/api/csa/api/v3/teams/users/me
-~~~
+```
 
 The first replay used captured cookie/token-related headers. A second test reduced that to **`x-skypetoken` alone**, without cookies or the observed sync-token header.
 
@@ -150,14 +150,14 @@ Unauthenticated server-side attempts returned `401`. Request-header inspection f
 
 The matching browser-context cookies were then obtained in memory for the exact image URL. The relevant cookie name was **`skypetoken_asm`**. A server-side request with that cookie returned:
 
-| Property | Result |
-| --- | --- |
-| HTTP status | `200` |
-| Content type | `image/jpeg` |
-| Downloaded size | 69,257 bytes |
+| Property                   | Result             |
+| -------------------------- | ------------------ |
+| HTTP status                | `200`              |
+| Content type               | `image/jpeg`       |
+| Downloaded size            | 69,257 bytes       |
 | First 8 bytes, hexadecimal | `ffd8ffe000104a46` |
-| `ETag` present | No |
-| `Last-Modified` present | Yes |
+| `ETag` present             | No                 |
+| `Last-Modified` present    | Yes                |
 
 These bytes support the conclusion that an actual JPEG resource was downloaded, rather than a screenshot, HTML login page, or placeholder. The file was read in memory. Original-upload resolution, exact byte identity with the upload, and other media variants were not verified.
 
@@ -184,12 +184,12 @@ The reason for the order was not investigated. Do not infer that array order is 
 
 All initial requests below had **no `syncState` parameter**. Date boundaries were supplied as Unix milliseconds.
 
-| Request | Count | Earliest arrival | Latest arrival | Additional finding |
-| --- | ---: | --- | --- | --- |
-| `startTime=2026-08-01`, no end | 200 | Oct 28, 10:54:53.532Z | Nov 4, 07:05:56.754Z | Same 200 IDs as latest baseline |
-| `startTime=2026-08-01`, `endTime=2026-08-08` | 65 | Aug 3, 02:40:22.109Z | Aug 7, 07:51:53.246Z | No backward link; no out-of-window arrivals |
-| `startTime=1`, `endTime=2026-08-08` | 200 | Jul 29, 07:43:45.688Z | Aug 7, 07:51:53.246Z | Backward link present |
-| Start set one day after test time | 0 | — | — | No backward link |
+| Request                                      | Count | Earliest arrival      | Latest arrival       | Additional finding                          |
+| -------------------------------------------- | ----: | --------------------- | -------------------- | ------------------------------------------- |
+| `startTime=2026-08-01`, no end               |   200 | Oct 28, 10:54:53.532Z | Nov 4, 07:05:56.754Z | Same 200 IDs as latest baseline             |
+| `startTime=2026-08-01`, `endTime=2026-08-08` |    65 | Aug 3, 02:40:22.109Z  | Aug 7, 07:51:53.246Z | No backward link; no out-of-window arrivals |
+| `startTime=1`, `endTime=2026-08-08`          |   200 | Jul 29, 07:43:45.688Z | Aug 7, 07:51:53.246Z | Backward link present                       |
+| Start set one day after test time            |     0 | —                     | —                    | No backward link                            |
 
 Date-only values in this table mean `00:00:00.000Z` on that date. The future control used the execution clock plus 86,400,000 milliseconds; it was not a request for a different fixed fixture date.
 
@@ -211,14 +211,14 @@ Repeating the original first-page date request returned the same 200 message IDs
 
 With both original date bounds explicitly retained, the July–August G1 window was followed until no backward link remained:
 
-| Page | Count | Earliest arrival | Latest arrival |
-| --- | ---: | --- | --- |
-| 1 | 200 | `2026-08-06T10:46:03.562Z` | `2026-08-26T08:01:24.570Z` |
-| 2 | 200 | `2026-07-29T07:31:24.842Z` | `2026-08-06T10:45:59.851Z` |
-| 3 | 200 | `2026-07-16T10:47:55.403Z` | `2026-07-29T07:31:17.331Z` |
-| 4 | 200 | `2026-07-07T10:55:19.023Z` | `2026-07-16T10:47:24.424Z` |
-| 5 | 200 | `2026-07-01T04:15:45.565Z` | `2026-07-07T10:55:05.483Z` |
-| 6 | 21 | `2026-07-01T01:53:51.129Z` | `2026-07-01T04:14:51.997Z` |
+| Page | Count | Earliest arrival           | Latest arrival             |
+| ---- | ----: | -------------------------- | -------------------------- |
+| 1    |   200 | `2026-08-06T10:46:03.562Z` | `2026-08-26T08:01:24.570Z` |
+| 2    |   200 | `2026-07-29T07:31:24.842Z` | `2026-08-06T10:45:59.851Z` |
+| 3    |   200 | `2026-07-16T10:47:55.403Z` | `2026-07-29T07:31:17.331Z` |
+| 4    |   200 | `2026-07-07T10:55:19.023Z` | `2026-07-16T10:47:24.424Z` |
+| 5    |   200 | `2026-07-01T04:15:45.565Z` | `2026-07-07T10:55:05.483Z` |
+| 6    |    21 | `2026-07-01T01:53:51.129Z` | `2026-07-01T04:14:51.997Z` |
 
 **Verified totals:** 1,021 records, 1,021 unique IDs, zero inter-page overlap, zero arrivals outside the requested window, and no final backward link.
 
@@ -246,10 +246,10 @@ This demonstrated a populated historical jump in a one-to-one chat as well as in
 
 A known G1 message at timestamp `t` was used for two single-millisecond windows:
 
-| API bounds | Reference message included? | Returned count |
-| --- | --- | ---: |
-| Start `t`, end `t + 1 ms` | Yes | 1 |
-| Start `t - 1 ms`, end `t` | Yes | 1 |
+| API bounds                | Reference message included? | Returned count |
+| ------------------------- | --------------------------- | -------------: |
+| Start `t`, end `t + 1 ms` | Yes                         |              1 |
+| Start `t - 1 ms`, end `t` | Yes                         |              1 |
 
 **Conclusion:** both boundaries tested as inclusive for this sample. A CLI using half-open windows must explicitly adapt the request and locally enforce its chosen semantics.
 
@@ -257,10 +257,10 @@ A known G1 message at timestamp `t` was used for two single-millisecond windows:
 
 On **2026-11-04**, the implemented CLI ran as separate Bun **1.3.14** processes using Ky **2.2.0** and an explicitly supplied private credential JSON file. Browser request observation supplied credentials; the CLI itself used ordinary HTTP, without Playwright calls or a browser connection.
 
-| Operation | Outcome | CLI HTTP attempts | Retries |
-| --- | --- | ---: | ---: |
-| `chats` with the recorded directory query | Exit `0`, 15 chat records | 1 directory | 0 |
-| `export` for the active selected chat and `--last 7d` | Exit `0`, 5 messages, 1 exhausted history page, JSON written | 1 history, 0 directory | 0 |
+| Operation                                             | Outcome                                                      |      CLI HTTP attempts | Retries |
+| ----------------------------------------------------- | ------------------------------------------------------------ | ---------------------: | ------: |
+| `chats` with the recorded directory query             | Exit `0`, 15 chat records                                    |            1 directory |       0 |
+| `export` for the active selected chat and `--last 7d` | Exit `0`, 5 messages, 1 exhausted history page, JSON written | 1 history, 0 directory |       0 |
 
 The export used a fixed half-open window, source-field-preserving validation, and local credential loading. Private credential state and the resulting message file were kept under ignored `.private/`; no raw identifiers, token values, or message bodies are included here. Temporary browser capture state was removed afterward.
 
@@ -278,10 +278,10 @@ Limits: one account; no live self-chat, unavailable/masked-profile, credential r
 
 On **2026-11-05**, two ordinary `bun run teams chats` invocations used the automatically located credential file, now containing the captured profile Authorization/Skype pair. Both exited 0, returned 15 chats, and resolved all eight one-to-one labels.
 
-| Run | Directory attempts | Profile attempts | Total attempts | Retries |
-| --- | ---: | ---: | ---: | ---: |
-| First run with a new cache | 1 | 3 (self and two batches) | 4 | 0 |
-| Immediate repeat | 1 | 0 | 1 | 0 |
+| Run                        | Directory attempts |         Profile attempts | Total attempts | Retries |
+| -------------------------- | -----------------: | -----------------------: | -------------: | ------: |
+| First run with a new cache |                  1 | 3 (self and two batches) |              4 |       0 |
+| Immediate repeat           |                  1 |                        0 |              1 |       0 |
 
 Only counts and safe diagnostics were recorded here; credentials and names remain private. The browser stayed open, but the CLI used ordinary HTTP without a Playwright connection. This verifies persistent reuse across CLI processes; TTL expiry, refresh, account isolation, invalid cache data, and failure paths have synthetic coverage rather than live waiting/probing.
 
@@ -293,26 +293,26 @@ Both the initial invocation and an immediate second invocation captured history 
 
 After the login browser closed, separate CLI processes using automatic credential lookup:
 
-| Operation | Outcome | Counted HTTP attempts | Retries |
-| --- | --- | ---: | ---: |
-| `chats` | 15 chats, all eight one-to-one labels resolved | 4 (directory, self, two name batches) | 0 |
-| `export --last 7d` for a supplied chat ID | Complete JSON, five messages, one history page | 1 history | 0 |
+| Operation                                 | Outcome                                        |                 Counted HTTP attempts | Retries |
+| ----------------------------------------- | ---------------------------------------------- | ------------------------------------: | ------: |
+| `chats`                                   | 15 chats, all eight one-to-one labels resolved | 4 (directory, self, two name batches) |       0 |
+| `export --last 7d` for a supplied chat ID | Complete JSON, five messages, one history page |                             1 history |       0 |
 
 The new credential scope made the name cache cold as designed. A separate properties-route probe returned HTTP 200 with a JSON object using the freshly saved history header, supporting the empty-directory verifier's route without establishing actual empty-account behavior. Private credential and export artifacts were excluded from Git. The independent research MCP browser remained open: this proves the login browser can close before CLI reuse, not that every Microsoft/browser process on the machine was shut down. No CLI command attached to MCP or Playwright for these reads. Empty-account fallback, cancellation, unsafe permissions, and failure preservation have synthetic coverage; no live empty account, unattended refresh, MFA recovery, or media-cookie acquisition was tested.
 
 ## 3. Corrections that must survive into implementation
 
-| Earlier assumption or suggestion | Current conclusion |
-| --- | --- |
-| Browser automation might be required throughout export | Plain HTTP history, listing, and sample media reads succeeded with captured credentials |
-| A cookie-only `401` means the browser must download history | The missing explicit history header explained that failure |
-| All older exports must walk backward from current history | Date-bounded first requests can seek directly into older history |
-| `--from` and `--to` would only filter output locally | They can bound server-side history requests efficiently |
-| The returned next-page URL can always be followed unchanged | Its omitted `endTime` broke bounded pagination; preserve bounds explicitly |
-| Message array order is sufficient for chronological stopping | The sampled latest array was not monotonic by arrival time |
-| Every one-to-one chat has a usable title | Eight listed one-to-one chats had empty titles; names need lookup |
-| Message credentials alone establish image support | A separate media cookie was needed in the successful image test |
-| Every startup warning should be suppressed | Keep intentional automation defaults unless a demonstrated problem justifies changing them; enable the browser security sandbox separately |
+| Earlier assumption or suggestion                             | Current conclusion                                                                                                                         |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Browser automation might be required throughout export       | Plain HTTP history, listing, and sample media reads succeeded with captured credentials                                                    |
+| A cookie-only `401` means the browser must download history  | The missing explicit history header explained that failure                                                                                 |
+| All older exports must walk backward from current history    | Date-bounded first requests can seek directly into older history                                                                           |
+| `--from` and `--to` would only filter output locally         | They can bound server-side history requests efficiently                                                                                    |
+| The returned next-page URL can always be followed unchanged  | Its omitted `endTime` broke bounded pagination; preserve bounds explicitly                                                                 |
+| Message array order is sufficient for chronological stopping | The sampled latest array was not monotonic by arrival time                                                                                 |
+| Every one-to-one chat has a usable title                     | Eight listed one-to-one chats had empty titles; names need lookup                                                                          |
+| Message credentials alone establish image support            | A separate media cookie was needed in the successful image test                                                                            |
+| Every startup warning should be suppressed                   | Keep intentional automation defaults unless a demonstrated problem justifies changing them; enable the browser security sandbox separately |
 
 ## 4. What has not been established
 

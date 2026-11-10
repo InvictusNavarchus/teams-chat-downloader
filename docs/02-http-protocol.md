@@ -6,14 +6,14 @@ Evidence references such as E13 point to [findings and evidence](01-findings-and
 
 ## 1. Endpoint and credential map
 
-| Operation | Endpoint or host | Smallest credential set verified |
-| --- | --- | --- |
-| List chats | `GET https://teams.live.com/api/csa/api/v3/teams/users/me` | `x-skypetoken: <captured value>` |
+| Operation                  | Endpoint or host                                                                                                                        | Smallest credential set verified                                                                                             |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| List chats                 | `GET https://teams.live.com/api/csa/api/v3/teams/users/me`                                                                              | `x-skypetoken: <captured value>`                                                                                             |
 | Self and participant names | `GET /api/mt/beta/users/me/`, `POST /api/mt/beta/users/fetchShortProfile`, `POST /api/mt/beta/users/fetchFederated` on `teams.live.com` | Captured `Authorization` Bearer header **and** `x-skypetoken`; see [query templates and schemas](08-participant-profiles.md) |
-| Read history | `GET https://teams.live.com/api/chatsvc/consumer/v1/users/ME/conversations/{encoded-chat-id}/messages` | `Authentication: <captured complete header value>` |
-| Continue history | Server-provided URL, observed at `https://msgapi.teams.live.com/v1/users/ME/conversations/{encoded-chat-id}/messages` | Same captured `Authentication` value in the tests |
-| Read a chat image | Observed `https://experimental-api.asm.skype.com/v1/{namespace}/objects/{object-id}/views/imgo` | `Cookie: skypetoken_asm=<captured value>` |
-| Authentication probe only | `GET https://teams.live.com/api/chatsvc/consumer/v1/threads/{thread-id}/consumptionhorizons` | Successful captured read was used to obtain the history header |
+| Read history               | `GET https://teams.live.com/api/chatsvc/consumer/v1/users/ME/conversations/{encoded-chat-id}/messages`                                  | `Authentication: <captured complete header value>`                                                                           |
+| Continue history           | Server-provided URL, observed at `https://msgapi.teams.live.com/v1/users/ME/conversations/{encoded-chat-id}/messages`                   | Same captured `Authentication` value in the tests                                                                            |
+| Read a chat image          | Observed `https://experimental-api.asm.skype.com/v1/{namespace}/objects/{object-id}/views/imgo`                                         | `Cookie: skypetoken_asm=<captured value>`                                                                                    |
+| Authentication probe only  | `GET https://teams.live.com/api/chatsvc/consumer/v1/threads/{thread-id}/consumptionhorizons`                                            | Successful captured read was used to obtain the history header                                                               |
 
 Header names are case-insensitive, but `Authentication` and `Authorization` are **different names**. The complete history header value was replayed unchanged. Its internal format, prefix requirements, and any equivalence between listing and history token values were not investigated.
 
@@ -29,36 +29,36 @@ Encode the entire chat ID as **one URL path segment**. Do not encode the entire 
 
 An illustrative HTTP request is:
 
-~~~http
+```http
 GET /api/chatsvc/consumer/v1/users/ME/conversations/{encoded-chat-id}/messages?view=msnp24Equivalent%7CsupportsMessageProperties%7CsupportsExtendedHistory&pageSize=200&startTime={unix-ms}&endTime={unix-ms} HTTP/1.1
 Host: teams.live.com
 Authentication: <complete-captured-header-value>
-~~~
+```
 
 No request body was used for these reads.
 
 ### 2.2 Query parameters
 
-| Parameter | Observed or tested behavior | Limits of knowledge |
-| --- | --- | --- |
-| `view` | Tests used `msnp24Equivalent\|supportsMessageProperties\|supportsExtendedHistory` as one value | Necessity and effects of individual capabilities not isolated |
-| `pageSize` | `200` worked for ordinary and bounded history | Not established as the maximum; smaller sizes and server caps not characterized |
-| `startTime` | Lower date bound in Unix milliseconds; `1` used for effectively unbounded test history | Earliest accepted value, zero/negative values, and all filtering semantics not characterized |
-| `endTime` | Upper date bound in Unix milliseconds; enabled a no-cursor historical jump | Default behavior without it returned current history; both boundaries tested inclusive for one exact-timestamp sample |
-| `syncState` | Opaque server continuation state from response metadata/links | Not needed for initial date seeking; expiry, internal encoding, and durability untested |
+| Parameter   | Observed or tested behavior                                                                    | Limits of knowledge                                                                                                   |
+| ----------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `view`      | Tests used `msnp24Equivalent\|supportsMessageProperties\|supportsExtendedHistory` as one value | Necessity and effects of individual capabilities not isolated                                                         |
+| `pageSize`  | `200` worked for ordinary and bounded history                                                  | Not established as the maximum; smaller sizes and server caps not characterized                                       |
+| `startTime` | Lower date bound in Unix milliseconds; `1` used for effectively unbounded test history         | Earliest accepted value, zero/negative values, and all filtering semantics not characterized                          |
+| `endTime`   | Upper date bound in Unix milliseconds; enabled a no-cursor historical jump                     | Default behavior without it returned current history; both boundaries tested inclusive for one exact-timestamp sample |
+| `syncState` | Opaque server continuation state from response metadata/links                                  | Not needed for initial date seeking; expiry, internal encoding, and durability untested                               |
 
 Use a URL/query builder so separators in `view` and special characters in IDs are encoded correctly. The observed requests sometimes displayed literal pipe characters, while the replay tests used encoded query values successfully.
 
 ### 2.3 Tested timestamp fixtures
 
-| UTC instant | Unix milliseconds |
-| --- | ---: |
-| `2026-07-01T00:00:00.000Z` | `1782864000000` |
-| `2026-08-01T00:00:00.000Z` | `1785542400000` |
-| `2026-08-08T00:00:00.000Z` | `1786147200000` |
-| `2026-09-01T00:00:00.000Z` | `1788220800000` |
-| `2026-10-22T00:00:00.000Z` | `1792627200000` |
-| `2026-10-24T00:00:00.000Z` | `1792800000000` |
+| UTC instant                | Unix milliseconds |
+| -------------------------- | ----------------: |
+| `2026-07-01T00:00:00.000Z` |   `1782864000000` |
+| `2026-08-01T00:00:00.000Z` |   `1785542400000` |
+| `2026-08-08T00:00:00.000Z` |   `1786147200000` |
+| `2026-09-01T00:00:00.000Z` |   `1788220800000` |
+| `2026-10-22T00:00:00.000Z` |   `1792627200000` |
+| `2026-10-24T00:00:00.000Z` |   `1792800000000` |
 
 These numbers were independently recalculated during the documentation pass. They are safe fixture values; no authentication information is encoded in them.
 
@@ -76,17 +76,17 @@ This supports `--from` and `--to` as efficient server-side request bounds, not m
 
 Observed top-level keys:
 
-~~~text
+```text
 messages
 tenantId
 _metadata
-~~~
+```
 
 `messages` was an array. A successful bounded window could contain fewer than 200 records or zero records. Zero is not itself an error when HTTP and response shape are valid.
 
 An illustrative shape, with all values replaced, is:
 
-~~~json
+```json
 {
   "messages": [],
   "tenantId": "<opaque-tenant-value>",
@@ -97,7 +97,7 @@ An illustrative shape, with all values replaced, is:
     "syncState": "<opaque-server-state>"
   }
 }
-~~~
+```
 
 This is a field illustration, not a valid nonempty response fixture or a complete type definition. The segment fields and sync-state value types and meanings were not fully validated. In exhausted/empty responses, `backwardLink` was absent.
 
@@ -105,28 +105,28 @@ This is a field illustration, not a valid nonempty response fixture or a complet
 
 The following field inventory came from a fresh group-history response. Optionality and all types are not established; do not turn this inventory into a rigid schema that discards unknown fields.
 
-| Field | What can currently be said |
-| --- | --- |
-| `id` | Used successfully for per-chat message identity and overlap/deduplication checks; retain as an opaque value |
-| `clientmessageid` | Separate client-side identifier; do not assume it is interchangeable with `id` |
-| `conversationid` | Conversation reference; exact casing is significant to the JSON field |
-| `conversationLink` | Conversation link; avoid persisting credentials if any future link contains them |
-| `sequenceId` | Present; ordering and numeric representation not characterized |
-| `version` | Present; revision comparison and history semantics not characterized |
-| `messagetype` | Distinguishes text, HTML, and observed thread activity events |
-| `contenttype` | Observed casing/presence varied; not a reliable sole HTML detector |
-| `type` | Present; complete meaning and values uncharacterized |
-| `content` | Observed message content strings, often HTML; preserve source and separately render/normalize |
-| `from` | Sender reference; not a promise of a friendly display name |
-| `fromTenantId` | Sender tenant context; not a participant-name lookup |
-| `imdisplayname` | Observed sender-name-related field; completeness and precedence uncharacterized |
-| `fromDisplayNameInToken` | Sender-name-related field; may be historical or absent |
-| `fromGivenNameInToken` | Sender-name-related field |
-| `fromFamilyNameInToken` | Sender-name-related field |
-| `composetime` | Timestamp field; exact semantic differences from arrival and edit timestamps remain open |
-| `originalarrivaltime` | Successfully parsed for date-window checks and result summaries |
-| `properties` | Object with additional metadata; detailed value schemas not characterized |
-| `amsreferences` | Observed as an array in some messages and absent in others; exact item structure not yet documented |
+| Field                    | What can currently be said                                                                                  |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `id`                     | Used successfully for per-chat message identity and overlap/deduplication checks; retain as an opaque value |
+| `clientmessageid`        | Separate client-side identifier; do not assume it is interchangeable with `id`                              |
+| `conversationid`         | Conversation reference; exact casing is significant to the JSON field                                       |
+| `conversationLink`       | Conversation link; avoid persisting credentials if any future link contains them                            |
+| `sequenceId`             | Present; ordering and numeric representation not characterized                                              |
+| `version`                | Present; revision comparison and history semantics not characterized                                        |
+| `messagetype`            | Distinguishes text, HTML, and observed thread activity events                                               |
+| `contenttype`            | Observed casing/presence varied; not a reliable sole HTML detector                                          |
+| `type`                   | Present; complete meaning and values uncharacterized                                                        |
+| `content`                | Observed message content strings, often HTML; preserve source and separately render/normalize               |
+| `from`                   | Sender reference; not a promise of a friendly display name                                                  |
+| `fromTenantId`           | Sender tenant context; not a participant-name lookup                                                        |
+| `imdisplayname`          | Observed sender-name-related field; completeness and precedence uncharacterized                             |
+| `fromDisplayNameInToken` | Sender-name-related field; may be historical or absent                                                      |
+| `fromGivenNameInToken`   | Sender-name-related field                                                                                   |
+| `fromFamilyNameInToken`  | Sender-name-related field                                                                                   |
+| `composetime`            | Timestamp field; exact semantic differences from arrival and edit timestamps remain open                    |
+| `originalarrivaltime`    | Successfully parsed for date-window checks and result summaries                                             |
+| `properties`             | Object with additional metadata; detailed value schemas not characterized                                   |
+| `amsreferences`          | Observed as an array in some messages and absent in others; exact item structure not yet documented         |
 
 The source may expose new or additional fields. Preserve the original non-credential message fields in the raw export layer rather than limiting output to a minimal text model.
 
@@ -136,7 +136,7 @@ The sample contained `RichText/Html`, `Text`, `ThreadActivity/AddMember`, and `T
 
 Observed `properties` keys:
 
-~~~text
+```text
 mentions
 cards
 links
@@ -152,7 +152,7 @@ skipfanouttobots
 pinned
 emotions
 deltaEmotions
-~~~
+```
 
 These are presence observations only. In particular:
 
@@ -179,18 +179,18 @@ The latest 200-message G1 array was neither monotonic ascending nor monotonic de
 
 `_metadata` included `backwardLink` and `syncState`. Tested backward links targeted:
 
-~~~text
+```text
 https://msgapi.teams.live.com/v1/users/ME/conversations/{encoded-chat-id}/messages
-~~~
+```
 
 Their query keys included:
 
-~~~text
+```text
 startTime
 syncState
 pageSize
 view
-~~~
+```
 
 Treat the state as opaque. Do not synthesize it by decoding timestamps, modifying bytes, or guessing a page index. No such manipulation was necessary for date seeking.
 
@@ -248,11 +248,11 @@ A practical proposal is to define internal CLI windows as **`[from, to)`**: incl
 
 For millisecond-precision bounds, one possible request mapping is:
 
-~~~text
+```text
 API startTime = CLI from
 API endTime   = CLI to - 1 millisecond
 Local filter  = arrival >= from AND arrival < to
-~~~
+```
 
 This mapping is a proposal, not a tested CLI implementation. Validate it with fixtures and reject empty/reversed windows. Preserve the resolved original API bounds on every continued request.
 
@@ -264,20 +264,20 @@ Date-only inputs, timezone defaults, `--to` day inclusion, and whether user-faci
 
 ### 6.1 Request
 
-~~~http
+```http
 GET /api/csa/api/v3/teams/users/me?isPrefetch=false&enableMembershipSummary=true&supportsAdditionalSystemGeneratedFolders=true&enableEngageCommunities=false HTTP/1.1
 Host: teams.live.com
 x-skypetoken: <captured-token-value>
-~~~
+```
 
 These exact query values were recovered from the existing numbered browser request log during documentation. Both the initial directory route and the observed `/updates` reads used them and returned `200`:
 
-| Query key | Observed value |
-| --- | --- |
-| `isPrefetch` | `false` |
-| `enableMembershipSummary` | `true` |
-| `supportsAdditionalSystemGeneratedFolders` | `true` |
-| `enableEngageCommunities` | `false` |
+| Query key                                  | Observed value |
+| ------------------------------------------ | -------------- |
+| `isPrefetch`                               | `false`        |
+| `enableMembershipSummary`                  | `true`         |
+| `supportsAdditionalSystemGeneratedFolders` | `true`         |
+| `enableEngageCommunities`                  | `false`        |
 
 This is a reproducible observed request shape, not proof that every flag is required. **The minimal required query set has not been isolated.** No new authenticated directory replay was performed just to recover these values.
 
@@ -289,26 +289,26 @@ The initial full directory read, the updates endpoint, and their sync tokens hav
 
 The successful initial listing response had:
 
-~~~text
+```text
 conversationFolders
 teams
 chats
 users
 privateFeeds
 metadata
-~~~
+```
 
 An observed updates response additionally included `channels`. Do not require identical key sets from both routes.
 
 Observed initial `metadata` keys:
 
-~~~text
+```text
 syncToken
 forwardSyncToken
 isPartialData
 hasMoreChats
 coldBootTime
-~~~
+```
 
 For this account, `hasMoreChats` and `isPartialData` were both false. Handling a true value, directory continuation, and token persistence are unresolved.
 
@@ -316,7 +316,7 @@ For this account, `hasMoreChats` and `isPartialData` were both false. Handling a
 
 Observed keys on a representative chat record:
 
-~~~text
+```text
 id
 consumptionHorizon
 userConsumptionHorizon
@@ -364,7 +364,7 @@ identityMaskEnabled
 isLiveChatEnabled
 fileReferences
 hasImpersonation
-~~~
+```
 
 These fields are an inventory, not permission to infer all member visibility or membership semantics. `isOneOnOne`, type fields, and flags should inform display and eligibility only after their behavior is checked.
 
@@ -388,9 +388,9 @@ Do not derive a one-to-one label solely from the most recent message's sender na
 
 Messages exposed `amsreferences` and HTML content, while the browser requested media resources at:
 
-~~~text
+```text
 https://experimental-api.asm.skype.com/v1/{namespace}/objects/{object-id}/views/imgo
-~~~
+```
 
 The corresponding browser-to-HTTP reference mapping has not been fully documented. In particular, the tested sample URL was captured from browser network activity; a complete routine that extracts every downloadable image URL from raw messages has not been validated. The subsequent [image export implementation](10-image-export.md) handles a limited inline `<img src>` adapter, including `us-api.asm.skype.com` URLs found in saved source exports; universal discovery remains unresolved.
 
@@ -402,9 +402,9 @@ Other media-related hosts observed during initialization included `us-api.asm.sk
 
 The successful sample request supplied:
 
-~~~http
+```http
 Cookie: skypetoken_asm=<captured-media-cookie-value>
-~~~
+```
 
 The cookie was obtained for the exact resource URL from the browser context. Replay with no credentials returned `401`. The captured image request headers alone did not expose this cookie in the inspection output; use this as a known diagnostic limitation, not evidence that the resource is public.
 
@@ -428,10 +428,10 @@ Do not infer original resolution, all-image coverage, GIF animation preservation
 
 The sample returned `Last-Modified`, no `ETag`, and accepted:
 
-~~~http
+```http
 If-Modified-Since: <previous-Last-Modified-value>
 Cookie: skypetoken_asm=<captured-media-cookie-value>
-~~~
+```
 
 The response was `304 Not Modified`. Use the cached body only if a complete local body actually exists. A `304` is not a replacement for missing bytes.
 
@@ -439,15 +439,15 @@ Using `ETag`/`If-None-Match` would be standard HTTP behavior if a different reso
 
 ## 8. Error and completeness boundaries
 
-| Condition | Established behavior or proposed handling |
-| --- | --- |
-| History without explicit authentication | Observed `401` |
-| Media without its credential | Observed `401` |
-| Valid empty date window | Observed `200`, empty messages, and no backward link in the future-start control |
-| Missing/expired credential during traversal | Expiry not tested; do not report an empty or complete export |
-| Malformed/non-JSON response | Not tested; fail with useful context rather than treating it as no data |
-| HTTP `429` or transient server failure | Not triggered live; the CLI now implements bounded Ky retries, deadlines, and accounting, checked with synthetic failures |
-| Repeated cursor or wrong chat/host | Not triggered by valid corrected traversal; detect explicitly before claiming progress |
-| Deleted, expired, inaccessible, or retention-limited history | Coverage not established; an exhausted API response is not proof of recovery of unavailable data |
+| Condition                                                    | Established behavior or proposed handling                                                                                 |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| History without explicit authentication                      | Observed `401`                                                                                                            |
+| Media without its credential                                 | Observed `401`                                                                                                            |
+| Valid empty date window                                      | Observed `200`, empty messages, and no backward link in the future-start control                                          |
+| Missing/expired credential during traversal                  | Expiry not tested; do not report an empty or complete export                                                              |
+| Malformed/non-JSON response                                  | Not tested; fail with useful context rather than treating it as no data                                                   |
+| HTTP `429` or transient server failure                       | Not triggered live; the CLI now implements bounded Ky retries, deadlines, and accounting, checked with synthetic failures |
+| Repeated cursor or wrong chat/host                           | Not triggered by valid corrected traversal; detect explicitly before claiming progress                                    |
+| Deleted, expired, inaccessible, or retention-limited history | Coverage not established; an exhausted API response is not proof of recovery of unavailable data                          |
 
 There is no tested support for writes. This tool's intended protocol surface is reading directory/history/media and acquiring credentials through normal user login.
