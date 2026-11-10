@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cac } from "cac";
 import { isHtmlMessage, type Message } from "./archive.ts";
+import { selectChatByLabel } from "./chat-selection.ts";
 import {
   type LiveSmokeOptions,
   resolveLiveSmokeOptions,
@@ -118,44 +119,62 @@ export async function runLiveSmoke(
       chats = await readChatDirectory(http, credentials);
       return `${chats.length} chats; complete directory response.`;
     });
+    let resolvedChats: Awaited<ReturnType<typeof resolveChatNames>> | undefined;
     await check("profiles", async () => {
       if (!chats) throw new Unverified("Directory lookup did not succeed.");
-      if (!credentials.profileAuthorization)
-        throw new AppError("Profile credentials missing; run teams login.");
       const target = chats.find(
         (chat) => chat.isOneOnOne && !chat.title && chat.members.length >= 2,
       );
-      if (!target)
-        throw new Unverified(
-          "No untitled one-to-one chat available for a participant lookup.",
-        );
-      const resolved = await resolveChatNames(http, credentials, [target], {
+      // Label selection needs every resolvable label to detect collisions, even
+      // between titled groups and untitled one-to-one chats.
+      const profileChats =
+        options.chatLabel !== undefined ? chats : target ? [target] : [];
+      resolvedChats = await resolveChatNames(http, credentials, profileChats, {
         refresh: true,
         cachePath: join(temporary, "profiles.json"),
         signal: dependencies.signal,
       });
+      if (!credentials.profileAuthorization)
+        throw new AppError("Profile credentials missing; run teams login.");
+      if (!target)
+        throw new Unverified(
+          "No untitled one-to-one chat available for a participant lookup.",
+        );
       if (
-        resolved[0]?.label === "Unresolved one-to-one chat" ||
+        resolvedChats.find((chat) => chat.id === target.id)?.label ===
+          "Unresolved one-to-one chat" ||
         !participantRequested
       )
         throw new Unverified(
           "Self profile checked, but no participant name resolved live.",
         );
-      return "Self profile and one participant name resolved with a fresh cache.";
+      return options.chatLabel !== undefined
+        ? "Directory labels resolved with a fresh cache; self profile and participant name checked live."
+        : "Self profile and one participant name resolved with a fresh cache.";
     });
 
     const progress = historyProgress();
     const messages: Message[] = [];
     let secondPageAdded = 0;
     const historyRead = await check("history", async () => {
-      if (chats && !chats.some((chat) => chat.id === options.chat))
+      let chat = options.chat;
+      if (options.chatLabel !== undefined) {
+        if (!resolvedChats)
+          throw new Unverified("Directory label resolution did not succeed.");
+        chat = selectChatByLabel(resolvedChats, options.chatLabel).id;
+      }
+      if (chat === undefined)
+        throw new AppError(
+          "Choose exactly one of --chat <id> or --chat-label <label>.",
+        );
+      if (chats && !chats.some((item) => item.id === chat))
         throw new AppError(
           "Selected chat is absent from the current directory.",
         );
       for await (const page of readHistoryPages(
         http,
         credentials,
-        options.chat,
+        chat,
         options.window,
         progress,
         undefined,
@@ -266,6 +285,10 @@ export async function runLiveSmokeCli(argv = process.argv): Promise<number> {
       "Probe saved credentials, two history pages and one image against live Teams",
     )
     .option("--chat <id>", "Raw chat ID with enough history for two pages")
+    .option(
+      "--chat-label <label>",
+      "Exact resolved chat label (choose this or --chat)",
+    )
     .option(
       "--from <timestamp>",
       "Inclusive historical start (timestamp with timezone)",

@@ -2,6 +2,10 @@ import { mkdir, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { Archive } from "./archive.ts";
 import { downloadArchiveMedia } from "./archive-media.ts";
+import {
+  assertSelectableChatLabel,
+  selectChatByLabel,
+} from "./chat-selection.ts";
 import { convertArchive } from "./convert.ts";
 import type { Credentials } from "./credentials.ts";
 import { AppError } from "./errors.ts";
@@ -41,30 +45,12 @@ export async function exportChat(
   let chat = options.chat;
   let label: string | undefined;
   if (options.chatLabel !== undefined) {
-    const requested = options.chatLabel.toLowerCase();
-    if (
-      requested === "untitled chat" ||
-      requested === "unresolved one-to-one chat"
-    )
-      throw new AppError(
-        "Generic fallback labels cannot select a chat; use --chat <id> from teams chats.",
-      );
+    assertSelectableChatLabel(options.chatLabel);
     const chats = await listChats(http, credentials, {
       warn: (message) => console.warn(message),
       signal,
     });
-    const matches = chats.filter(
-      (item) => item.label.trim().toLowerCase() === requested,
-    );
-    if (matches.length === 0)
-      throw new AppError(
-        "No chat matches --chat-label. Run teams chats to see current labels; use --refresh-names if a participant was renamed.",
-      );
-    if (matches.length > 1)
-      throw new AppError(
-        `Multiple chats match --chat-label; select one with --chat <id>:\n${matches.map((item) => `${JSON.stringify(item.label)}: ${JSON.stringify(item.id)}`).join("\n")}`,
-      );
-    const selected = matches[0]!;
+    const selected = selectChatByLabel(chats, options.chatLabel);
     chat = selected.id;
     label = selected.label;
   }

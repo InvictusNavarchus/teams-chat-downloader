@@ -34,6 +34,13 @@ function fixture(
     historyStatus?: number;
     participant?: boolean;
     outOfWindow?: boolean;
+    title?: string;
+    extraChats?: {
+      id: string;
+      title?: string;
+      isOneOnOne?: boolean;
+      members?: { mri: string }[];
+    }[];
   } = {},
 ) {
   const calls: Request[] = [];
@@ -123,9 +130,11 @@ function fixture(
       chats: [
         {
           id: options.chat,
+          title: settings.title,
           isOneOnOne: settings.participant !== false,
           members: [{ mri: "8:live:self" }, { mri: "8:live:other" }],
         },
+        ...(settings.extraChats ?? []),
       ],
       metadata: { hasMoreChats: false, isPartialData: false },
     });
@@ -178,6 +187,95 @@ test("a short window does not count as a verified pagination check", async () =>
   );
   expect(report.checks.find((c) => c.name === "media cookie")?.status).toBe(
     "pass",
+  );
+});
+
+test.each([
+  { label: "  oThEr  ", title: undefined },
+  { label: "  PROJECT ALPHA  ", title: "Project Alpha" },
+])(
+  "label selection matches exact resolved labels and reuses the directory: $label",
+  async ({ label, title }) => {
+    const f = fixture({ title });
+    const selected = resolveLiveSmokeOptions({
+      chatLabel: label,
+      from: options.from,
+      to: options.to,
+    });
+    const report = await runLiveSmoke(selected, credentials, f.dependencies);
+    expect(report.requests.directory).toBe(1);
+    expect(report.requests.history).toBe(2);
+    expect(report.checks.find((c) => c.name === "history")?.status).toBe(
+      "pass",
+    );
+    expect(
+      f.calls
+        .filter((call) => new URL(call.url).pathname.includes("/messages"))
+        .every((call) =>
+          new URL(call.url).pathname.includes("/synthetic-chat/messages"),
+        ),
+    ).toBe(true);
+    if (!title) expect(report.ok).toBe(true);
+  },
+);
+
+test("ambiguous labels report raw IDs before any history retrieval", async () => {
+  // The group title collides with the freshly resolved one-to-one name.
+  const f = fixture({ extraChats: [{ id: "duplicate-chat", title: "Other" }] });
+  const selected = resolveLiveSmokeOptions({
+    chatLabel: "other",
+    from: options.from,
+    to: options.to,
+  });
+  const report = await runLiveSmoke(selected, credentials, f.dependencies);
+  expect(report.ok).toBe(false);
+  expect(report.requests.directory).toBe(1);
+  expect(report.requests.history).toBe(0);
+  expect(report.requests.media).toBe(0);
+  expect(report.checks.find((c) => c.name === "history")?.status).toBe("fail");
+  expect(report.checks.find((c) => c.name === "history")?.detail).toContain(
+    "Multiple chats match --chat-label",
+  );
+  expect(report.checks.find((c) => c.name === "history")?.detail).toContain(
+    "synthetic-chat",
+  );
+  expect(report.checks.find((c) => c.name === "history")?.detail).toContain(
+    "duplicate-chat",
+  );
+});
+
+test("partial label matches never fetch history", async () => {
+  const f = fixture();
+  const selected = resolveLiveSmokeOptions({
+    chatLabel: "oth",
+    from: options.from,
+    to: options.to,
+  });
+  const report = await runLiveSmoke(selected, credentials, f.dependencies);
+  expect(report.ok).toBe(false);
+  expect(report.requests.history).toBe(0);
+  expect(report.checks.find((c) => c.name === "history")).toMatchObject({
+    status: "fail",
+    detail: expect.stringContaining("No chat matches --chat-label"),
+  });
+});
+
+test("failed profile-based label resolution prevents history while retaining the profile status", async () => {
+  const f = fixture({ profileStatus: 409 });
+  const selected = resolveLiveSmokeOptions({
+    chatLabel: "Other",
+    from: options.from,
+    to: options.to,
+  });
+  const report = await runLiveSmoke(selected, credentials, f.dependencies);
+  expect(report.requests.directory).toBe(1);
+  expect(report.requests.history).toBe(0);
+  expect(report.checks.find((c) => c.name === "profiles")).toMatchObject({
+    status: "fail",
+    detail: expect.stringContaining("HTTP 409"),
+  });
+  expect(report.checks.find((c) => c.name === "history")?.status).toBe(
+    "unverified",
   );
 });
 
@@ -307,6 +405,20 @@ test("cancellation prevents further requests and leaves checks unverified", asyn
 test("live CLI requires explicit targets and timezone-qualified historical bounds", async () => {
   for (const input of [
     {},
+    { from: options.from, to: options.to },
+    {
+      chat: options.chat,
+      chatLabel: "Other",
+      from: options.from,
+      to: options.to,
+    },
+    { chatLabel: "   ", from: options.from, to: options.to },
+    { chatLabel: "  Untitled Chat ", from: options.from, to: options.to },
+    {
+      chatLabel: "Unresolved one-to-one chat",
+      from: options.from,
+      to: options.to,
+    },
     { chat: options.chat, from: "2026-08-01", to: options.to },
     { chat: options.chat, from: options.to, to: options.from },
     { chat: options.chat, from: options.from, to: "9999-01-01T00:00:00Z" },

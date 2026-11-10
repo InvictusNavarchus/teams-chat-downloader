@@ -1,6 +1,7 @@
 import { dirname, join, resolve } from "node:path";
 import dayjs from "dayjs";
 import { z } from "zod";
+import { assertSelectableChatLabel } from "./chat-selection.ts";
 import {
   commandDefaults,
   defaultExportRoot,
@@ -51,7 +52,8 @@ export type ExportOptions = z.infer<typeof exportOptionsSchema> & {
 };
 
 const liveSmokeOptionsSchema = z.strictObject({
-  chat: z.string().trim().min(1),
+  chat: z.string().trim().min(1).optional(),
+  chatLabel: z.string().trim().min(1).optional(),
   from: timestampSchema,
   to: timestampSchema,
   credentials: z.string().min(1).optional(),
@@ -69,6 +71,9 @@ export function resolveLiveSmokeOptions(
   if (!result.success)
     throw validationError("Live smoke options", result.error);
   const options = result.data;
+  assertChatSelection(options);
+  if (options.chatLabel !== undefined)
+    assertSelectableChatLabel(options.chatLabel);
   const window = { from: Date.parse(options.from), to: Date.parse(options.to) };
   assertWindow(window);
   if (window.to > now)
@@ -129,14 +134,7 @@ export function resolveExportOptions(
   const result = exportOptionsSchema.safeParse(input);
   if (!result.success) throw validationError("Export options", result.error);
   const options = result.data;
-  if (
-    Number(options.chat !== undefined) +
-      Number(options.chatLabel !== undefined) !==
-    1
-  )
-    throw new AppError(
-      "Choose exactly one of --chat <id> or --chat-label <label>.",
-    );
+  assertChatSelection(options);
   if (options.pageDelayMin > options.pageDelayMax)
     throw new AppError("--page-delay-min must not exceed --page-delay-max.");
   if (!options.media && options.refreshMedia)
@@ -165,6 +163,20 @@ export function resolveExportOptions(
       : Date.parse(options.since ?? options.from ?? "");
   assertWindow({ from, to });
   return { ...options, window: { from, to } };
+}
+
+function assertChatSelection(options: {
+  chat?: string;
+  chatLabel?: string;
+}): void {
+  if (
+    Number(options.chat !== undefined) +
+      Number(options.chatLabel !== undefined) !==
+    1
+  )
+    throw new AppError(
+      "Choose exactly one of --chat <id> or --chat-label <label>.",
+    );
 }
 
 const loginOptionsSchema = z.strictObject({
