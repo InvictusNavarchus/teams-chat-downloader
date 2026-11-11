@@ -297,6 +297,8 @@ A subsequent fixture-mode run on **2026-11-11** read a complete same-account arc
 
 ## 13. Login profile refresh contention
 
+Stable evidence reference: [E21 — Concurrent forced self-profile refreshes can return HTTP 409](01-findings-and-evidence.md#e21--concurrent-forced-self-profile-refreshes-can-return-http-409).
+
 Investigated **2026-11-11** on Teams Free with a personal Microsoft account. Browser and direct self-profile requests used the same URL and authentication pair. A direct request reproduced HTTP 409 with `errorCode: Conflict`, identifying the backend operation as `GetMsaUserRequest`; an identical request shortly afterward returned HTTP 200. Successful minimal requests needed neither browser cookies nor additional browser headers. Initial comparisons used curl pinned to Chromium's observed server address, preserving HTTPS certificate verification, after Bun encountered a separate DNS failure.
 
 Subsequent controls used the normal Bun HTTP client, saved credentials, and no browser. All five sequential `forceRefresh=true` checks succeeded. Across four pairs of concurrent forced refreshes, every pair produced one HTTP 200 and one HTTP 409 with the same backend conflict. Three concurrent pairs with `forceRefresh=false` returned six HTTP 200 responses. A mixed forced/non-forced pair also succeeded. Successful responses contained the verified account identity; response headers reported `no-cache, no-store` and `CONFIG_NOCACHE`.

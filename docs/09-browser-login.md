@@ -49,7 +49,7 @@ Only after all checks succeed does the writer validate the credential schema, cr
 
 ## Verification and remaining limits
 
-Synthetic tests cover valid capture, capture filtering, pair integrity, service validation failure, empty-account fallback, timeout, manual close, cancellation, safe errors, private permissions, atomic replacement, launch options, CLI help, and invalid options. Live results belong in E20 of the evidence ledger.
+Synthetic tests cover valid capture, capture filtering, pair integrity, service validation failure, forced-refresh contention, empty-account fallback, timeout, manual close, cancellation, safe errors, private permissions, atomic replacement, launch options, CLI help, and invalid options. See [E20](01-findings-and-evidence.md#e20--standalone-browser-login-and-saved-credential-reuse) for the initial live login checks and [E21](01-findings-and-evidence.md#e21--concurrent-forced-self-profile-refreshes-can-return-http-409) for the HTTP 409 investigation and verified non-forced login check.
 
 Known limits: one active login per profile; manual sign-in/MFA when Microsoft requires it; no browser-profile import; no logout command; `--wait-for-media` may require manually opening an image-containing chat; no silent renewal; no endpoint-stability promise. Media cookie capture has synthetic coverage but has not yet been live-validated. Session expiry, revoked credentials, and other account/region behavior remain service-specific. On authentication failure, rerun `teams login` and then retry the original command.
 

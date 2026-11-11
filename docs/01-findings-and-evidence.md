@@ -300,6 +300,27 @@ After the login browser closed, separate CLI processes using automatic credentia
 
 The new credential scope made the name cache cold as designed. A separate properties-route probe returned HTTP 200 with a JSON object using the freshly saved history header, supporting the empty-directory verifier's route without establishing actual empty-account behavior. Private credential and export artifacts were excluded from Git. The independent research MCP browser remained open: this proves the login browser can close before CLI reuse, not that every Microsoft/browser process on the machine was shut down. No CLI command attached to MCP or Playwright for these reads. Empty-account fallback, cancellation, unsafe permissions, and failure preservation have synthetic coverage; no live empty account, unattended refresh, MFA recovery, or media-cookie acquisition was tested.
 
+### E21 — Concurrent forced self-profile refreshes can return HTTP 409
+
+Investigated **2026-11-11** against Teams Free with a personal Microsoft account. Login captured headers from successful browser requests, but its separate HTTP self-profile verification could fail with HTTP 409. The response identified `errorCode: Conflict` and backend operation `GetMsaUserRequest`.
+
+**Verified controls:** with the browser closed, the normal Bun HTTP client used the same saved credential pair for `GET /api/mt/beta/users/me/`, varying request overlap and the `forceRefresh` query parameter:
+
+| Request pattern | Observed result |
+| --- | --- |
+| Five sequential requests with `forceRefresh=true` | All HTTP 200 |
+| Four pairs of overlapping requests with `forceRefresh=true` | Each pair returned one HTTP 200 and one HTTP 409 |
+| Three pairs of overlapping requests with `forceRefresh=false` | All six requests returned HTTP 200 |
+| One overlapping forced/non-forced pair | Both HTTP 200 |
+
+Successful responses identified the expected account. Minimal authenticated requests succeeded without browser cookies or additional browser headers. Response headers reported `no-cache, no-store` and `CONFIG_NOCACHE`.
+
+**Verified startup overlap:** a browser timing trace showed Teams start a second forced self-profile refresh 24 milliseconds before the CLI-equivalent forced verification. The browser received HTTP 409 while verification received HTTP 200. Either request can lose the race; another deliberately overlapping browser/direct pair both succeeded. These observations support forced-refresh contention as a reproducible trigger, not a guarantee that every overlap fails or an explanation for every HTTP 409.
+
+**Implementation consequence:** login verification replaces `forceRefresh=true` with `forceRefresh=false` in its existing request. It still checks credentials and requires the self MRI before saving; no additional request or general HTTP 409 retry was introduced. Ordinary profile lookups retain their existing behavior. The updated live login saved credentials after three successful validation requests, with zero retries. A regression test reproduces the competing-refresh failure and verifies successful non-forced validation.
+
+**Limits:** one account and endpoint family; Microsoft's internal contention mechanism and long-term endpoint guarantees remain unknown. This finding does not establish credential lifetime, automatic renewal, or general recovery from HTTP failures. See [the detailed investigation](05-validation-and-open-questions.md#13-login-profile-refresh-contention) and [login verification contract](09-browser-login.md#capture-and-validation).
+
 ## 3. Corrections that must survive into implementation
 
 | Earlier assumption or suggestion                             | Current conclusion                                                                                                                         |
@@ -313,6 +334,7 @@ The new credential scope made the name cache cold as designed. A separate proper
 | Every one-to-one chat has a usable title                     | Eight listed one-to-one chats had empty titles; names need lookup                                                                          |
 | Message credentials alone establish image support            | A separate media cookie was needed in the successful image test                                                                            |
 | Every startup warning should be suppressed                   | Keep intentional automation defaults unless a demonstrated problem justifies changing them; enable the browser security sandbox separately |
+| Successful browser capture makes another forced profile refresh harmless | Concurrent forced self-profile refreshes can conflict; login verifies identity with `forceRefresh=false` (E21) |
 
 ## 4. What has not been established
 

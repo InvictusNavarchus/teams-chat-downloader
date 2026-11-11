@@ -52,6 +52,7 @@ If a conclusion conflicts with an earlier conversational suggestion, the measure
 8. Distinguish an exhausted history window from authentication, HTTP, or parsing failures.
 9. Media cache identity must include the media object and representation, rather than a temporary URL or chat title.
 10. Participant-name lookup is verified for the sampled personal and organization counterparts (E18). Full message semantics, automatic renewal, and universal media support remain incomplete.
+11. Concurrent forced self-profile refreshes can return HTTP 409. Login verification uses `forceRefresh=false` to avoid competing with the browser's refresh; see [E21](01-findings-and-evidence.md#e21--concurrent-forced-self-profile-refreshes-can-return-http-409) for the controlled evidence and limits.
 
 ## Intended workflow
 

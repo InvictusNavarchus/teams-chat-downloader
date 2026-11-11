@@ -18,6 +18,8 @@ Both POST bodies are JSON arrays of opaque MRI strings, for example `["8:live:ex
 
 The successful minimal replay sent **both** `Authorization: <complete captured Bearer header>` and `x-skypetoken: <captured value>`, plus JSON content type for POSTs. Server-side Fetch supplied no cookies and used no browser request context. Using the Skype token alone failed with 401 for personal profiles and self-profile. Using Bearer authorization alone failed with 401 for both batch routes and self-profile. The successful pair is the required implementation input; do not confuse this `Authorization` header with the history service's `Authentication` header.
 
+**Login verification exception (2026-11-11):** its existing self-profile request uses `forceRefresh=false`, rather than the forced-refresh template above. Controlled tests reproduced HTTP 409 when forced self-profile refreshes overlapped, including during browser startup. Non-forced reads succeeded with the same credentials and verified account identity. Ordinary profile lookups keep the template above. See [E21](01-findings-and-evidence.md#e21--concurrent-forced-self-profile-refreshes-can-return-http-409) for controls, implementation consequences, and evidence limits.
+
 Response envelopes have `type` and `value`. Observed `type` strings:
 
 - Self: `Microsoft.Teams.MiddleTier.Tfl.People.Contracts.Models.ConsumerMeProfile`; `value` is an object with `mri` and `displayName`.
