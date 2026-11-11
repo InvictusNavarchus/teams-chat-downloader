@@ -5,6 +5,7 @@ import {
   resolveExportOptions,
   resolveMediaOptions,
 } from "../src/command-validation.ts";
+import { defaultPageDelay } from "../src/config.ts";
 
 const base = {
   chat: "synthetic-chat",
@@ -43,10 +44,10 @@ describe("chat selection", () => {
 });
 
 describe("history page delay options", () => {
-  test("defaults to 2–5 seconds and accepts numeric CLI strings", () => {
+  test("uses configured defaults and accepts numeric CLI strings", () => {
     expect(resolveExportOptions({ ...base, last: "1d" }, now)).toMatchObject({
-      pageDelayMin: 2,
-      pageDelayMax: 5,
+      pageDelayMin: defaultPageDelay.min,
+      pageDelayMax: defaultPageDelay.max,
     });
     expect(
       resolveExportOptions({
