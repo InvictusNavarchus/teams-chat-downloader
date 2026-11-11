@@ -7,7 +7,7 @@
 ### Core Design Principles
 
 1. **Direct HTTP Over Browser Automation**: Browser automation (via `playwright-core`) is strictly isolated to the interactive `login` command for credential capture. Listing chats, fetching history, and downloading media run entirely through direct HTTP calls using `ky`.
-2. **JSON as the Canonical Archive**: The primary export output is a Version 1 JSON archive (`chat.json`). It retains rich text, original arrival timestamps, message edit states, and unknown Teams API properties without loss.
+2. **Lossless Collection and Portable JSON Archives**: Resumable collection uses account-scoped SQLite with full original message JSON and explicit completed intervals. The portable export remains a Version 1 JSON archive (`chat.json`), retaining rich text, original arrival timestamps, message edit states, and unknown Teams API properties without loss. Analytics projections must remain derivable from the saved payloads.
 3. **Sibling Markdown Representation**: A readable Markdown transcript (`chat.md`) is rendered alongside the JSON archive by default. Markdown is derived from the JSON and can be regenerated completely offline.
 4. **Two-Tier Persistent Caching**:
    - **Profiles Cache**: `$XDG_CACHE_HOME/teams-chat-download/profiles/` caches participant display names for 24 hours to resolve one-to-one chat labels.
@@ -28,24 +28,28 @@ teams-chat-download/
 │   ├── 07-architecture.md           # Stack choices, data flow, responsibilities
 │   ├── 08-participant-profiles.md   # Profile lookup and name caching rules
 │   ├── 09-browser-login.md          # Playwright login lifecycle and capture mechanics
-│   └── 10-image-export.md           # Media extraction, caching, and revalidation
+│   ├── 10-image-export.md           # Media extraction, caching, and revalidation
+│   └── 11-sqlite-collection.md      # SQLite schema, coverage, recovery, and offline export
 ├── exports/              # Default export output directory (git-ignored)
 ├── src/                  # Application source code
 │   ├── archive.ts        # Version 1 JSON archive schema, serialization, and validation
 │   ├── archive-media.ts  # Media download coordination for archives (inline and post-export)
 │   ├── chat-selection.ts # Shared exact label matching, fallback rejection, and duplicate diagnostics
 │   ├── cli.ts            # CAC argument parsing, command dispatch, terminal progress, and exit handling
+│   ├── collect.ts        # Backward collection, checkpoint pacing, and exclusive reservation
 │   ├── command-validation.ts # Command schemas, inferred types, defaults application, and resolution
 │   ├── config.ts         # Shared application defaults and command limits
 │   ├── convert.ts        # Offline single-archive JSON-to-Markdown conversion
 │   ├── convert-all.ts    # Batch offline JSON-to-Markdown conversion
 │   ├── credentials.ts    # XDG state loading, credential validation, and file permission checks
 │   ├── date-window.ts    # Shared history date-window contract and validation
+│   ├── database-export.ts # Offline SQLite-to-JSON/Markdown bundle publication
 │   ├── errors.ts         # Domain error classes, validation errors, and sanitized formatters
 │   ├── export.ts         # Label selection and chat export orchestration (history + text + media)
 │   ├── export-path.ts    # Chat/period layout, stable daily dates, and kebab-case label sanitization
 │   ├── export-discovery.ts # Bounded legacy and grouped archive candidate discovery
 │   ├── http.ts           # Ky HTTP client wrapper, retry policy, backoff, and request accounting
+│   ├── history-store.ts  # Account-scoped SQLite payload storage, transactional coverage, and range reads
 │   ├── login.ts          # Playwright helper for interactive browser sign-in and token capture
 │   ├── live-smoke.ts     # Opt-in live HTTP probe, bounded sampling, temporary caches, and CLI
 │   ├── markdown.ts       # Turndown-based HTML-to-Markdown conversion and transcript rendering
@@ -69,6 +73,7 @@ teams-chat-download/
 │   ├── markdown.test.ts
 │   ├── media.test.ts
 │   ├── command-validation.test.ts
+│   ├── collection.test.ts # SQLite recovery, rollback, account scope, CLI, and offline export
 │   ├── profiles.test.ts
 │   ├── smoke-targets.test.ts # Discovery ordering, account isolation, filesystem scope, and cancellation
 │   └── teams.test.ts
@@ -130,6 +135,15 @@ When modifying or extending this codebase, agents **must** respect these domain 
    - `src/export-discovery.ts` provides the bounded candidate layouts shared by default batch conversion and smoke discovery; callers lstat candidates and ignore symlinks. Arbitrary deeper conversion still requires `--recursive`.
 
 ---
+
+## SQLite collection invariants
+
+- `collect --db <file>` requires one chat selector and one date mode (`--all`, `--last`, `--since`, or paired `--from`/`--to`). `--all` uses `[1, invocation-time)`; explicit future ends fail. Resolve through `src/command-validation.ts`. `src/config.ts` owns `collectionWindowMs`.
+- `src/collect.ts` processes uncovered intervals newest first using `readHistory`. Start at seven elapsed days; double the span only after an exhausted empty interval and reset on data. Never infer exhaustion from a single empty week or from the oldest saved timestamp. Apply the page-delay range between windows too.
+- `src/history-store.ts` uses built-in `bun:sqlite` without an ORM or new dependency. One `collection_meta` row binds schema version 1 and exact credential account ID; reject other accounts before HTTP. `chats`, `messages`, and `completed_windows` store labels, complete JSON payloads with indexed IDs/times, and coverage/provenance. Do not normalize away unknown fields or persist request credentials/cursors.
+- Commit messages and coverage in one synchronous SQLite transaction only after full window exhaustion. A failed/cancelled window is retried in full, with no partial coverage. Empty completed windows still count. Deduplicate identical IDs per chat; conflicting payloads fail and roll back instead of replacing content or selecting opaque revisions. Completed coverage is not an edit/deletion synchronization guarantee.
+- Database files must be private regular files without symlinks. Hold an adjacent `.collection.lock` directory throughout collection, released on handled completion/failure. Hard-crash stale locks need operator inspection. Use full SQLite synchronization; default rollback journaling keeps backups simple when collectors are stopped.
+- `export-db --db <file> --chat <id> --out <new-directory>` is read-only and offline, without credentials. Optional date bounds must be paired; otherwise use the stored coverage span. Reject gaps before publishing. Read payloads in arrival/ID order and emit the existing version 1 archive with media not downloaded, separate collection provenance, and zero HTTP counters. Preserve JSON after Markdown failure. Media remains the saved-archive workflow. Database export currently loads its selected range into memory.
 
 ## 4. Documentation Synchronization Protocol
 

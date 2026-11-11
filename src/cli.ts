@@ -3,6 +3,8 @@ import { downloadArchiveMedia } from "./archive-media.ts";
 import {
   resolveBatchConvertOptions,
   resolveChatsOptions,
+  resolveCollectOptions,
+  resolveDatabaseExportOptions,
   resolveConvertOptions,
   resolveExportOptions,
   resolveLoginOptions,
@@ -18,6 +20,8 @@ import {
 } from "./config.ts";
 import { convertAllArchives } from "./convert-all.ts";
 import { convertArchive } from "./convert.ts";
+import { collectHistory } from "./collect.ts";
+import { exportDatabase } from "./database-export.ts";
 import { loadCredentials } from "./credentials.ts";
 import { AppError, errorMessage } from "./errors.ts";
 import { exportChat, type ExportProgressEvent } from "./export.ts";
@@ -243,6 +247,90 @@ export async function runCli(argv = process.argv): Promise<number> {
         console.log(`Saved chat list to ${path}.`);
       }
       console.log(JSON.stringify(chats, null, 2));
+    });
+  cli
+    .command(
+      "collect",
+      "Collect resumable chat history into SQLite (text and source image references)",
+    )
+    .option("--db <file>", "SQLite collection file; one account per database")
+    .option("--chat <id>", "Raw chat ID; skips directory/profile lookup")
+    .option(
+      "--chat-label <label>",
+      "Exact resolved chat label (case-insensitive)",
+    )
+    .option("--credentials <file>", "Override automatic credential file lookup")
+    .option(
+      "--all",
+      "Collect all accessible history from Unix millisecond 1 through now",
+    )
+    .option("--last <Nd>", "Last N calendar days including today")
+    .option(
+      "--since <timestamp>",
+      "Inclusive start timestamp through invocation time",
+    )
+    .option("--from <timestamp>", "Inclusive start timestamp with Z or offset")
+    .option("--to <timestamp>", "Exclusive end timestamp with Z or offset")
+    .option(
+      "--page-delay-min <seconds>",
+      `Minimum pause between pages and collection windows (default: ${defaultPageDelay.min})`,
+    )
+    .option(
+      "--page-delay-max <seconds>",
+      `Maximum pause between pages and collection windows (default: ${defaultPageDelay.max})`,
+    )
+    .action(async (raw: Record<string, unknown>) => {
+      const { "--": _trailing, ...input } = raw;
+      const options = resolveCollectOptions(input);
+      const credentials = await loadCredentials(options.credentials);
+      const result = await collectHistory(
+        options,
+        credentials,
+        http,
+        stats,
+        progress,
+        controller.signal,
+        (event) => {
+          if (event.type === "window")
+            console.log(
+              `[collect] ${event.from} to ${event.toExclusive} (exclusive)`,
+            );
+          else if (event.type === "history")
+            reportProgress({ type: "history", ...event.progress });
+          else
+            console.log(
+              `[collect] Checkpoint saved: ${event.messages} messages (${event.added} new).`,
+            );
+        },
+      );
+      console.log(JSON.stringify(result));
+    });
+  cli
+    .command(
+      "export-db",
+      "Export a fully collected SQLite range to JSON and Markdown, offline",
+    )
+    .option("--db <file>", "Existing SQLite collection file")
+    .option("--chat <id>", "Raw chat ID stored in the collection")
+    .option("--out <directory>", "New directory for chat.json and chat.md")
+    .option(
+      "--from <timestamp>",
+      "Inclusive start; requires --to (default: full collected range)",
+    )
+    .option("--to <timestamp>", "Exclusive end; requires --from")
+    .option("--no-markdown", "Skip rendering Markdown", {
+      default: commandDefaults.markdown,
+    })
+    .action(async (raw: Record<string, unknown>) => {
+      const { "--": _trailing, ...input } = raw;
+      console.log(
+        JSON.stringify(
+          await exportDatabase(
+            resolveDatabaseExportOptions(input),
+            controller.signal,
+          ),
+        ),
+      );
     });
   cli.help();
   cli.version("0.1.0");

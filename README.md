@@ -2,7 +2,7 @@
 
 A Bun CLI for exporting chat history from **Microsoft Teams Free with a personal Microsoft account** (`teams.live.com`).
 
-The intended workflow is to select a chat, export a chosen date range, and download its images with a persistent cache so overlapping exports can reuse media.
+Select a chat, collect long history into resumable SQLite storage or export a chosen date range directly, then download images with a persistent cache so overlapping exports can reuse media.
 
 ## Project status
 
@@ -129,6 +129,50 @@ bun run teams export --chat '<raw-chat-id>' --last 7d --page-delay-min 3 --page-
 Pacing lowers the history request rate without changing the page size or total data requested. These are client settings, not verified Teams quotas or evidence of human-like traffic. SIGINT/SIGTERM interrupts the wait and prevents the next request. HTTP retry backoff and server `Retry-After` handling remain separate; the pause happens outside each HTTP operation's timeout budget.
 
 Every history export saves `chat.json` containing source messages and a versioned manifest with window, completion, pagination, and request counts. Snapshots and explicit `--out` exports refuse existing directories; default daily exports refresh their verified existing folder. After history retrieval finishes, JSON and the default Markdown transcript are saved **before any images are downloaded**. The initial media status is `not-downloaded`, and Markdown uses image placeholders. Failed history retrieval leaves no new complete-looking export. Retrieval currently holds the chosen window in memory and has no durable checkpoint during history pagination.
+
+### Resumable SQLite collection
+
+Use `collect` for long downloads. It saves original message JSON in a SQLite database, indexed by chat, message ID, and arrival time. No additional package is needed: collection uses Bun's built-in SQLite driver. Each database belongs to exactly one credential `accountId`; a different account is rejected before history requests.
+
+```sh
+# Collect everything the endpoint exposes, working backward from now:
+bun run teams collect --db exports/history.sqlite --chat-label 'Project Alpha' --all
+
+# Or collect a bounded period (use your preferred timezone offset):
+bun run teams collect --db exports/history.sqlite --chat '<raw-chat-id>' \
+  --from '2024-11-01T00:00:00+07:00' --to '2026-11-01T00:00:00+07:00'
+```
+
+Choose exactly one of `--all`, `--last Nd`, `--since <timestamp>`, or `--from <timestamp> --to <timestamp>`, plus exactly one of `--chat` and `--chat-label`. Date bounds use the export command's inclusive-start/exclusive-end semantics; collection rejects future ends. `--all` starts at Unix millisecond 1 and ends at one captured invocation time. Completion means server-reported exhaustion of that range, not proof that deleted or otherwise unavailable history has been recovered. Raw-ID collection skips directory/profile lookup. Labels use the existing live exact-match selection. `--credentials`, `--page-delay-min`, and `--page-delay-max` work as in exports; the configured pause also applies between collection windows.
+
+Collection starts with seven-day elapsed-time windows, newest first. An exhausted empty window doubles the next window's span; any nonempty window resets it to seven days. This avoids thousands of empty weekly requests before a chat existed, without stopping at the first empty period. Each window must reach the end of pagination before its messages and completion record are committed in one SQLite transaction. Empty windows have explicit coverage records. Partial windows remain in memory and are retried in full; completed checkpoints survive later HTTP/authentication errors and cancellation. Rerun the command after refreshing credentials or resolving the error: verified coverage is skipped, including when the new requested range overlaps previous collections. Commands ending at "now" also collect the newly uncovered tail on rerun.
+
+The collector stores full nested message payloads and preserves unknown fields. Identical IDs are deduplicated within each chat. A different payload for an existing ID fails and rolls back that window; it does not overwrite saved content or guess which revision is newer. Completed windows are not automatically refreshed for later edits or deletions. Message ordering across pages and durable cursors are not assumed. No credentials or pagination links are stored in the database.
+
+The database is a private regular file (Unix mode 600); symlink database files are rejected. An adjacent `.collection.lock` directory reserves it for one collector. After a hard crash, remove a stale reservation only after verifying no collector is running. Back up the database while the collector is stopped. SQLite uses its default rollback journal with full synchronization for collector writes.
+
+Export a collected chat to the existing portable archive formats entirely offline:
+
+```sh
+bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' --out exports/full-history
+# Optional subrange; both bounds are required together:
+bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' \
+  --from '2026-09-01T00:00:00+07:00' --to '2026-10-01T00:00:00+07:00' --out exports/september
+# Fetch images later from the saved archive, without fetching history again:
+bun run teams media --input exports/full-history/chat.json
+```
+
+`export-db` requires no credentials or network access, refuses an existing output directory, and creates `chat.json` plus `chat.md` unless `--no-markdown` is supplied. Without bounds it exports the full stored coverage span; a range with any uncollected gap is rejected, even if messages exist on either side. Messages are sorted by arrival time and ID. The version 1 archive marks media as not downloaded and records collection provenance separately from its zero HTTP export counters. A Markdown failure retains the published JSON. Collection stores text and image source references; image bytes are downloaded only through the normal saved-archive media workflow. SQLite exports currently load the selected messages into memory when generating JSON/Markdown.
+
+Analytics can be derived later from the preserved JSON. For example, run this query in a SQLite client (replace the chat ID):
+
+```sql
+SELECT date(arrival_ms / 1000, 'unixepoch') AS utc_day, count(*) AS messages
+FROM messages WHERE chat_id = '<raw-chat-id>'
+GROUP BY utc_day ORDER BY utc_day;
+```
+
+The database also exposes `payload_json` for SQLite JSON functions. Its schema is versioned, not a stable third-party API. See the [SQLite collection reference](docs/11-sqlite-collection.md) for schema and recovery details.
 
 ### Images
 

@@ -6,6 +6,7 @@ export const loginTimeout = { default: 600, min: 1, max: 3600 } as const;
 export const defaultExportRoot = "exports";
 export const defaultOutputFormat = "markdown";
 export const defaultLiveSmokeDays = 2;
+export const collectionWindowMs = 7 * 24 * 60 * 60 * 1000;
 export const commandDefaults = {
   markdown: true,
   media: true,

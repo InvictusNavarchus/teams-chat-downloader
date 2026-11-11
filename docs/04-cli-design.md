@@ -166,7 +166,7 @@ Do not fetch many pages concurrently: each next cursor depends on the preceding 
 
 Do not use the first timestamp in an array as a stopping condition. The sampled order was not monotonic. Sort after retrieval, with deterministic tie-breaking chosen and tested by the implementation.
 
-Avoid a text-sync database initially. The user is comfortable re-fetching text for the requested period, but a small text payload still costs API calls. Apply the agreed request-saving behavior below before deciding whether message-range caching is worth its added complexity.
+The initial direct-export path deliberately avoided a text-sync database. Long-history collection now has a separate [SQLite checkpoint workflow](11-sqlite-collection.md), preserving completed coverage while retaining direct exports for snapshots.
 
 ### 6.1 Agreed request-saving behavior
 
@@ -340,11 +340,7 @@ Do not include credentials or raw authenticated pagination URLs in a shareable e
 
 ### 10.2 Checkpoints
 
-Checkpointing was discussed but not implemented. A checkpoint would need the chat/account scope, fixed bounds, current continuation, and already-persisted progress. A raw cursor can reveal private state and should not be part of a public/shareable manifest.
-
-Cursor lifetime is unknown. The design must not promise that a saved cursor remains valid indefinitely. If resuming state fails, a bounded re-fetch of text with deduplication and image-cache reuse is a simpler recovery path than inventing a cursor.
-
-Durable text checkpoints are useful only if the associated messages have also been safely persisted. Advancing a cursor before saving its page could skip messages after a crash.
+Implemented in `collect --db <file>`: commit full message JSON and exhausted interval coverage in one SQLite transaction. Process gaps backward in initially seven-day windows, expanding spans after empty exhausted intervals. Retry an unfinished window from its date bounds; no cursor lifetime or cross-page chronological ordering is assumed. Direct `export` still has no durable history checkpoint. See [SQLite collection](11-sqlite-collection.md) for flags, schema, conflict policy, and offline `export-db` generation.
 
 ## 11. Simple module boundaries, when implementation is authorized
 

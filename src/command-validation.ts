@@ -181,6 +181,74 @@ export function resolveExportOptions(
   return { ...options, window: { from, to } };
 }
 
+const collectOptionsSchema = exportOptionsSchema
+  .omit({ out: true, markdown: true, media: true, refreshMedia: true })
+  .extend({ db: z.string().min(1), all: z.boolean().default(false) });
+
+export type CollectOptions = z.infer<typeof collectOptionsSchema> & {
+  window: Window;
+};
+
+export function resolveCollectOptions(
+  input: unknown,
+  now = Date.now(),
+): CollectOptions {
+  const result = collectOptionsSchema.safeParse(input);
+  if (!result.success)
+    throw validationError("Collection options", result.error);
+  const { db, all, ...options } = result.data;
+  if (
+    all &&
+    [options.last, options.since, options.from, options.to].some(
+      (v) => v !== undefined,
+    )
+  )
+    throw new AppError("--all cannot be combined with date options.");
+  const resolved = resolveExportOptions(
+    all ? { ...options, since: new Date(1).toISOString() } : options,
+    now,
+  );
+  if (resolved.window.to > now)
+    throw new AppError("Collection end cannot be in the future.");
+  return { ...result.data, window: resolved.window, db: resolve(db) };
+}
+
+const databaseExportOptionsSchema = z.strictObject({
+  db: z.string().min(1),
+  chat: z.string().min(1),
+  out: z.string().min(1),
+  from: timestampSchema.optional(),
+  to: timestampSchema.optional(),
+  markdown: z.boolean().default(commandDefaults.markdown),
+});
+export type DatabaseExportOptions = z.infer<
+  typeof databaseExportOptionsSchema
+> & { window?: Window };
+
+export function resolveDatabaseExportOptions(
+  input: unknown,
+): DatabaseExportOptions {
+  const result = databaseExportOptionsSchema.safeParse(input);
+  if (!result.success)
+    throw validationError("Database export options", result.error);
+  const options = result.data;
+  if ((options.from === undefined) !== (options.to === undefined))
+    throw new AppError(
+      "Supply both --from and --to, or omit both to export the collected range.",
+    );
+  const window =
+    options.from === undefined
+      ? undefined
+      : { from: Date.parse(options.from), to: Date.parse(options.to!) };
+  if (window) assertWindow(window);
+  return {
+    ...options,
+    db: resolve(options.db),
+    out: resolve(options.out),
+    window,
+  };
+}
+
 function calendarDayStart(to: number, days: number): number {
   return dayjs(to)
     .subtract(days - 1, "day")
