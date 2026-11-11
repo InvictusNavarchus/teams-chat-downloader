@@ -1,5 +1,7 @@
 # Image export and cache
 
+SQLite collections can download supported images independently through `media-db --db <file>`, using the same extractor, URL checks, cookies, cache, and downloader described here. Durable image files and per-image checkpoints live beside the database; `export-db` copies verified files into portable bundles offline. See [SQLite image collection](11-sqlite-collection.md#independent-image-collection). The existing JSON `media --input` workflow remains supported.
+
 Implemented **2026-11-05**, with synthetic HTTP and filesystem coverage. The historical [media experiment](02-http-protocol.md#7-images-and-other-media) established a separate media cookie and one JPEG response; it did not establish universal media discovery. Inspection of saved source exports also found inline `https://us-api.asm.skype.com/v1/objects/{id}/views/imgo` URLs alongside opaque `amsreferences` strings. At initial implementation, no new live authenticated image export or login-cookie capture had been performed.
 
 Updated **2026-11-06** to save text before images and support a separate media pass over saved archives. Failure, cancellation, retry, refresh preservation, and concurrent-update behavior have synthetic coverage; this change adds no new live Teams API evidence.

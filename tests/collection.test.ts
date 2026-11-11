@@ -373,7 +373,8 @@ test("offline exports require complete coverage, preserve payloads, sort ties, a
   const archive = await readArchive(result.output);
   expect(archive.messages).toEqual([msgs[1]!, msgs[0]!]);
   expect(archive.accountId).toBe("account");
-  expect(archive.media.status).toBe("not-downloaded");
+  // No image references means media coverage is already complete.
+  expect(archive.media.status).toBe("complete");
   expect(await readFile(result.markdown!, "utf8")).toContain("preserved");
   await expect(exportDatabase(options)).rejects.toThrow("already exists");
   await expect(

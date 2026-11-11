@@ -1,9 +1,10 @@
-import { mkdir, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import type { DatabaseExportOptions } from "./command-validation.ts";
 import { convertArchive } from "./convert.ts";
 import { AppError } from "./errors.ts";
-import { HistoryStore } from "./history-store.ts";
+import { HistoryStore, collectionMediaDirectory } from "./history-store.ts";
+import { readStoredImage } from "./media.ts";
 import { checkOutput, writeExport } from "./output.ts";
 
 export async function exportDatabase(
@@ -30,6 +31,32 @@ export async function exportDatabase(
   }
   let published = false;
   try {
+    if (!options.media) archive.media = { status: "not-downloaded" };
+    if (archive.media.status !== "not-downloaded") {
+      const copied = new Set<string>();
+      for (const image of archive.media.images) {
+        signal?.throwIfAborted();
+        if (copied.has(image.path)) continue;
+        const bytes = await readStoredImage(
+          collectionMediaDirectory(options.db),
+          image,
+        );
+        if (!bytes)
+          throw new AppError(
+            "A collected image file is missing or corrupt; run media-db to repair it, or export-db --no-media for text only.",
+          );
+        await mkdir(join(options.out, "media"), {
+          mode: 0o700,
+          recursive: true,
+        });
+        await writeFile(
+          join(options.out, "media", basename(image.path)),
+          bytes,
+          { mode: 0o600, flag: "wx", signal },
+        );
+        copied.add(image.path);
+      }
+    }
     const output = await writeExport(
       join(options.out, "chat.json"),
       archive,

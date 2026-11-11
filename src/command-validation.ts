@@ -220,6 +220,7 @@ const databaseExportOptionsSchema = z.strictObject({
   from: timestampSchema.optional(),
   to: timestampSchema.optional(),
   markdown: z.boolean().default(commandDefaults.markdown),
+  media: z.boolean().default(commandDefaults.media),
 });
 export type DatabaseExportOptions = z.infer<
   typeof databaseExportOptionsSchema
@@ -247,6 +248,22 @@ export function resolveDatabaseExportOptions(
     out: resolve(options.out),
     window,
   };
+}
+
+const databaseMediaOptionsSchema = z.strictObject({
+  db: z.string().min(1),
+  chat: z.string().min(1).optional(),
+  credentials: z.string().min(1).optional(),
+  refreshMedia: z.boolean().default(commandDefaults.refreshMedia),
+});
+export type DatabaseMediaOptions = z.infer<typeof databaseMediaOptionsSchema>;
+export function resolveDatabaseMediaOptions(
+  input: unknown,
+): DatabaseMediaOptions {
+  const result = databaseMediaOptionsSchema.safeParse(input);
+  if (!result.success)
+    throw validationError("Database media options", result.error);
+  return { ...result.data, db: resolve(result.data.db) };
 }
 
 function calendarDayStart(to: number, days: number): number {

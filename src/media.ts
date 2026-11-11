@@ -12,6 +12,8 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import {
   isHtmlMessage,
+  downloadedMediaSchema,
+  type ArchiveImage,
   type DownloadedMedia,
   type Message,
 } from "./archive.ts";
@@ -182,6 +184,78 @@ export type MediaProgress =
       outcome: MediaOutcome;
     };
 
+// Shared by archive downloads and SQLite indexing; never persist a translated
+// destination in place of the source identity used by Markdown and cache keys.
+export function messageImageReferences(message: Message): {
+  images: { key: string; sourceUrl: string }[];
+  unsupported: number;
+} {
+  const images = new Map<string, string>();
+  let inline = 0;
+  let unsupported = 0;
+  if (isHtmlMessage(message) && typeof message.content === "string") {
+    new HTMLRewriter()
+      .on("img", {
+        element(element) {
+          inline++;
+          const source = imageSourceUrl(element.getAttribute("src") ?? "");
+          if (source) images.set(digest(source.href), source.href);
+          else unsupported++;
+        },
+      })
+      .transform(message.content);
+  }
+  if (inline === 0 && Array.isArray(message.amsreferences))
+    unsupported += message.amsreferences.length;
+  return {
+    images: [...images].map(([key, sourceUrl]) => ({ key, sourceUrl })),
+    unsupported,
+  };
+}
+
+// Collection bytes are durable independently of the disposable shared cache.
+// Validate both metadata and disk contents before skipping a download or export.
+export async function readStoredImage(
+  directory: string,
+  image: ArchiveImage,
+): Promise<Uint8Array | undefined> {
+  const parsed = downloadedMediaSchema.safeParse({
+    status: "complete",
+    cacheHits: 0,
+    downloaded: 0,
+    unsupported: 0,
+    images: [image],
+  });
+  if (!parsed.success) throw new AppError("Stored image metadata is invalid.");
+  try {
+    if (!(await lstat(directory)).isDirectory())
+      throw new AppError(
+        "Saved image directory must be a directory without symlinks.",
+      );
+    const file = join(directory, basename(image.path));
+    const info = await lstat(file);
+    if (!info.isFile())
+      throw new AppError(
+        "Saved image must be a regular file without symlinks.",
+      );
+    if (info.size !== image.bytes || info.size > 50 * 1024 * 1024) return;
+    const bytes = await readFile(file);
+    if (digest(bytes) !== image.sha256) return;
+    let type;
+    try {
+      type = identify(bytes, image.mediaType);
+    } catch {
+      return;
+    }
+    if (image.path !== `media/${image.sha256}.${type.extension}`) return;
+    return bytes;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    if (error instanceof AppError) throw error;
+    throw new AppError("Could not read saved image bytes.");
+  }
+}
+
 export async function downloadImages(
   messages: Message[],
   output: string,
@@ -192,6 +266,11 @@ export async function downloadImages(
     cacheRoot?: string;
     signal?: AbortSignal;
     onProgress?: (progress: MediaProgress) => void;
+    // Database callers save bytes beside SQLite; descriptors retain portable paths.
+    directory?: string;
+    onImage?: (image: ArchiveImage) => void;
+    // References already classified by the SQLite index, outside this work list.
+    unsupported?: number;
   } = {},
 ): Promise<DownloadedMedia> {
   const media: DownloadedMedia = {
@@ -199,41 +278,25 @@ export async function downloadImages(
     images: [],
     cacheHits: 0,
     downloaded: 0,
-    unsupported: 0,
+    unsupported: options.unsupported ?? 0,
   };
   const resources = new Map<string, { url: URL; messages: Set<string> }>();
   for (const message of messages) {
-    let inlineImages = 0;
-    if (isHtmlMessage(message) && typeof message.content === "string") {
-      // Use the runtime HTML parser so quotes, entities, comments, and case are handled correctly.
-      await new HTMLRewriter()
-        .on("img", {
-          element(element) {
-            inlineImages++;
-            const source = imageSourceUrl(element.getAttribute("src") ?? "");
-            if (!source) {
-              media.unsupported++;
-              return;
-            }
-            const key = digest(source.href);
-            let resource = resources.get(key);
-            if (!resource) {
-              // Teams Free displays these same objects through the Skype ASM adapter.
-              const url =
-                source.origin === regionalImageOrigin
-                  ? new URL(source.pathname, mediaOrigins[0])
-                  : source;
-              resource = { url, messages: new Set() };
-              resources.set(key, resource);
-            }
-            resource.messages.add(message.id);
-          },
-        })
-        .transform(new Response(message.content))
-        .text();
+    const references = messageImageReferences(message);
+    media.unsupported += references.unsupported;
+    for (const { key, sourceUrl } of references.images) {
+      const source = new URL(sourceUrl);
+      let resource = resources.get(key);
+      if (!resource) {
+        const url =
+          source.origin === regionalImageOrigin
+            ? new URL(source.pathname, mediaOrigins[0])
+            : source;
+        resource = { url, messages: new Set() };
+        resources.set(key, resource);
+      }
+      resource.messages.add(message.id);
     }
-    if (inlineImages === 0 && Array.isArray(message.amsreferences))
-      media.unsupported += message.amsreferences.length;
     options.signal?.throwIfAborted();
   }
   if (media.unsupported) media.status = "partial";
@@ -331,7 +394,7 @@ export async function downloadImages(
           outcome = "downloaded";
         }
       }
-      const directory = mediaDirectory(output);
+      const directory = options.directory ?? mediaDirectory(output);
       await mkdir(directory, { recursive: true, mode: 0o700 });
       if (!(await lstat(directory)).isDirectory())
         throw new AppError(
@@ -344,12 +407,13 @@ export async function downloadImages(
         media.images.push({
           messageId,
           key,
-          path: `${basename(directory)}/${name}`,
+          path: `media/${name}`,
           bytes: image.entry.bytes,
           sha256: image.entry.sha256,
           mediaType: image.entry.mediaType,
         });
       }
+      options.onImage?.(media.images.at(-1)!);
       completed++;
       options.onProgress?.({
         phase: "progress",

@@ -149,7 +149,20 @@ Collection starts with seven-day elapsed-time windows, newest first. An exhauste
 
 The collector stores full nested message payloads and preserves unknown fields. Identical IDs are deduplicated within each chat. A different payload for an existing ID fails and rolls back that window; it does not overwrite saved content or guess which revision is newer. Completed windows are not automatically refreshed for later edits or deletions. Message ordering across pages and durable cursors are not assumed. No credentials or pagination links are stored in the database.
 
-The database is a private regular file (Unix mode 600); symlink database files are rejected. An adjacent `.collection.lock` directory reserves it for one collector. After a hard crash, remove a stale reservation only after verifying no collector is running. Back up the database while the collector is stopped. SQLite uses its default rollback journal with full synchronization for collector writes.
+The database is a private regular file (Unix mode 600); symlink database files are rejected. An adjacent `.collection.lock` directory reserves it for one collector or database media updater. After a hard crash, remove a stale reservation only after verifying no updater is running. Back up the database and its adjacent `.media` directory together while updaters are stopped. SQLite uses its default rollback journal with full synchronization for writes.
+
+Download images directly from the database, before any JSON export:
+
+```sh
+bun run teams media-db --db exports/history.sqlite
+# Optional: limit to one collected chat, or revalidate shared cache entries:
+bun run teams media-db --db exports/history.sqlite --chat '<raw-chat-id>'
+bun run teams media-db --db exports/history.sqlite --refresh-media
+```
+
+Collection records supported image sources and message-to-image links in the same transaction as messages and coverage. `media-db` uses those tables directly, with the existing URL restrictions, regional-source translation, origin-specific cookies, image validation, and shared cache. It requires credentials for the database's account (`--credentials` overrides normal lookup). Downloaded bytes are also saved durably under `exports/history.sqlite.media/<content-hash>.<extension>`; they remain usable after the disposable shared cache is cleared. Each successful image is recorded immediately. On failure, rerun `media-db`: verified completed files are skipped without HTTP, and pending/failed resources are retried. Missing/corrupt files are repaired from the cache when possible. Unsupported references remain in the source messages and are counted separately; they are not sent to arbitrary hosts.
+
+Existing version 1 databases are upgraded transactionally to schema version 2 on the next `collect` or `media-db` call with matching credentials. Migration backfills image references from saved messages without history requests. Read-only `export-db` still accepts version 1 databases without changing them. Media tracking does not change the portable JSON archive version.
 
 Export a collected chat to the existing portable archive formats entirely offline:
 
@@ -158,11 +171,11 @@ bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' --out
 # Optional subrange; both bounds are required together:
 bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' \
   --from '2026-09-01T00:00:00+07:00' --to '2026-10-01T00:00:00+07:00' --out exports/september
-# Fetch images later from the saved archive, without fetching history again:
-bun run teams media --input exports/full-history/chat.json
+# Optional text-only export (even if collected image files are unavailable):
+bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' --out exports/text-only --no-media
 ```
 
-`export-db` requires no credentials or network access, refuses an existing output directory, and creates `chat.json` plus `chat.md` unless `--no-markdown` is supplied. Without bounds it exports the full stored coverage span; a range with any uncollected gap is rejected, even if messages exist on either side. Messages are sorted by arrival time and ID. The version 1 archive marks media as not downloaded and records collection provenance separately from its zero HTTP export counters. A Markdown failure retains the published JSON. Collection stores text and image source references; image bytes are downloaded only through the normal saved-archive media workflow. SQLite exports currently load the selected messages into memory when generating JSON/Markdown.
+`export-db` requires no credentials or network access, refuses an existing output directory, and creates `chat.json` plus `chat.md` unless `--no-markdown` is supplied. Without bounds it exports the full stored coverage span; a range with any uncollected gap is rejected, even if messages exist on either side. Messages are sorted by arrival time and ID. Verified downloaded images are copied into the bundle's `media/` directory and included in its manifest and Markdown links. Pending images retain placeholders; a mix of downloaded/pending images or unsupported references marks the media as partial. No image references means media is complete. A recorded complete image whose file is missing/corrupt fails export before JSON publication: repair with `media-db`, or use `--no-media` for placeholders. The archive records collection provenance separately from its zero HTTP export counters. A Markdown failure retains the published JSON. SQLite exports currently load the selected messages into memory when generating JSON/Markdown. The existing `teams media --input <chat.json>` command remains supported for exported bundles.
 
 Analytics can be derived later from the preserved JSON. For example, run this query in a SQLite client (replace the chat ID):
 

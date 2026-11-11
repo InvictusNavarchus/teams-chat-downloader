@@ -28,7 +28,7 @@ The evidence is from live, read-only HTTP experiments against one signed-in pers
 | [Participant profiles](08-participant-profiles.md)                   | Verified self/participant lookup, profile authentication, name resolution, and cache behavior                                    |
 | [Browser login](09-browser-login.md)                                 | Implemented login/refresh command, profile ownership, capture, verification, persistence, and limits                             |
 | [Image export](10-image-export.md)                                   | Implemented image adapter, service cookies, persistent cache, refresh, portable files, and offline links                         |
-| [SQLite collection](11-sqlite-collection.md)                         | Resumable history, atomic coverage checkpoints, full JSON payloads, offline exports, and later analytics projections               |
+| [SQLite collection](11-sqlite-collection.md)                         | Resumable history, independent image downloads, transactional migration, offline portable exports, and later analytics projections |
 
 ## Evidence rules
 

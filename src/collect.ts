@@ -1,12 +1,10 @@
-import { mkdir, rmdir } from "node:fs/promises";
-import { dirname } from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 import { selectChatByLabel } from "./chat-selection.ts";
 import type { CollectOptions } from "./command-validation.ts";
 import { collectionWindowMs } from "./config.ts";
 import type { Credentials } from "./credentials.ts";
 import { AppError, errorMessage } from "./errors.ts";
-import { HistoryStore } from "./history-store.ts";
+import { HistoryStore, reserveCollection } from "./history-store.ts";
 import type { Http, RequestStats } from "./http.ts";
 import {
   historyProgress,
@@ -31,17 +29,7 @@ export async function collectHistory(
   onProgress?: (event: CollectionEvent) => void,
 ) {
   signal?.throwIfAborted();
-  await mkdir(dirname(options.db), { recursive: true, mode: 0o700 });
-  const lock = `${options.db}.collection.lock`;
-  try {
-    await mkdir(lock, { mode: 0o700 });
-  } catch (error) {
-    throw new AppError(
-      (error as NodeJS.ErrnoException).code === "EEXIST"
-        ? "A collection is already running. After a crash, verify no collector is running before removing the adjacent .collection.lock directory."
-        : "Could not reserve the collection database.",
-    );
-  }
+  const release = await reserveCollection(options.db);
   let store: HistoryStore | undefined;
   try {
     store = await HistoryStore.open(options.db, credentials.accountId);
@@ -150,6 +138,6 @@ export async function collectHistory(
     );
   } finally {
     store?.close();
-    await rmdir(lock);
+    await release();
   }
 }

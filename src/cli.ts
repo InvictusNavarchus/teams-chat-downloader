@@ -5,6 +5,7 @@ import {
   resolveChatsOptions,
   resolveCollectOptions,
   resolveDatabaseExportOptions,
+  resolveDatabaseMediaOptions,
   resolveConvertOptions,
   resolveExportOptions,
   resolveLoginOptions,
@@ -22,6 +23,7 @@ import { convertAllArchives } from "./convert-all.ts";
 import { convertArchive } from "./convert.ts";
 import { collectHistory } from "./collect.ts";
 import { exportDatabase } from "./database-export.ts";
+import { downloadDatabaseMedia } from "./database-media.ts";
 import { loadCredentials } from "./credentials.ts";
 import { AppError, errorMessage } from "./errors.ts";
 import { exportChat, type ExportProgressEvent } from "./export.ts";
@@ -321,6 +323,9 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option("--no-markdown", "Skip rendering Markdown", {
       default: commandDefaults.markdown,
     })
+    .option("--no-media", "Skip copying collected images; use placeholders", {
+      default: commandDefaults.media,
+    })
     .action(async (raw: Record<string, unknown>) => {
       const { "--": _trailing, ...input } = raw;
       console.log(
@@ -328,6 +333,47 @@ export async function runCli(argv = process.argv): Promise<number> {
           await exportDatabase(
             resolveDatabaseExportOptions(input),
             controller.signal,
+          ),
+        ),
+      );
+    });
+  cli
+    .command(
+      "media-db",
+      "Download pending SQLite image references without a JSON export",
+    )
+    .option("--db <file>", "Existing SQLite collection file")
+    .option(
+      "--chat <id>",
+      "Limit to one raw chat ID (default: all collected chats)",
+    )
+    .option("--credentials <file>", "Override automatic credential file lookup")
+    .option(
+      "--refresh-media",
+      "Revalidate downloaded images using the shared cache",
+    )
+    .action(async (raw: Record<string, unknown>) => {
+      const { "--": _trailing, ...input } = raw;
+      const options = resolveDatabaseMediaOptions(input);
+      const credentials = await loadCredentials(options.credentials);
+      console.log(
+        JSON.stringify(
+          await downloadDatabaseMedia(
+            options,
+            credentials,
+            http,
+            controller.signal,
+            (event) => {
+              if (event.phase === "start")
+                reportProgress({ type: "media-start", total: event.total });
+              else
+                reportProgress({
+                  type: "media-progress",
+                  current: event.current,
+                  total: event.total,
+                  outcome: event.outcome,
+                });
+            },
           ),
         ),
       );
