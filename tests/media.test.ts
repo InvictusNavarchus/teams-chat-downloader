@@ -20,6 +20,7 @@ import { createHttp, requestStats, type Fetch } from "../src/http.ts";
 import {
   defaultMediaCache,
   downloadImages,
+  imageSourceUrl,
   imageUrl,
   mediaDirectory,
 } from "../src/media.ts";
@@ -32,6 +33,8 @@ const png = Buffer.from(
 );
 const origin = "https://us-api.asm.skype.com";
 const url = `${origin}/v1/objects/synthetic-object/views/imgo`;
+const regionalUrl =
+  "https://id-prod.asyncgw.teams.microsoft.com/v1/objects/synthetic-object/views/imgo";
 const cookie = "media-secret";
 const credentials: Credentials = {
   version: 1,
@@ -173,6 +176,77 @@ test("accounts do not share image cache entries", async () => {
   expect(f.stats.total).toBe(1);
 });
 
+test("regional source images use only the Skype destination cookie and retain source keys across cache reuse and refresh", async () => {
+  const destination =
+    "https://experimental-api.asm.skype.com/v1/objects/synthetic-object/views/imgo";
+  const f = await fixture(async (request) => {
+    expect(request.url).toBe(destination);
+    expect(request.headers.get("cookie")).toBe(
+      "skypetoken_asm=experimental-secret",
+    );
+    for (const name of ["Authentication", "Authorization", "x-skypetoken"])
+      expect(request.headers.has(name)).toBe(false);
+    expect(request.redirect).toBe("manual");
+    if (f.stats.media === 2) {
+      expect(request.headers.get("if-none-match")).toBe('"regional"');
+      return new Response(null, { status: 304 });
+    }
+    return new Response(png, {
+      headers: { "content-type": "image/png", etag: '"regional"' },
+    });
+  });
+  const messages = [
+    message(`<img src="${regionalUrl}"><img src="${regionalUrl}">`),
+  ];
+  const before = JSON.stringify(messages);
+  const scoped = {
+    ...credentials,
+    mediaCookies: {
+      ...credentials.mediaCookies,
+      "https://experimental-api.asm.skype.com": "experimental-secret",
+    },
+  };
+  expect(imageSourceUrl(regionalUrl)?.href).toBe(regionalUrl);
+  expect(imageUrl(regionalUrl)).toBeUndefined();
+  await expect(
+    downloadImages(messages, f.out, credentials, f.http, f.options),
+  ).rejects.toThrow("Image credentials are missing");
+  expect(f.stats.media).toBe(0);
+  const downloaded = await downloadImages(
+    messages,
+    f.out,
+    scoped,
+    f.http,
+    f.options,
+  );
+  expect(downloaded).toMatchObject({
+    status: "complete",
+    downloaded: 1,
+    unsupported: 0,
+  });
+  expect(downloaded.images).toHaveLength(1);
+  expect(downloaded.images[0]!.key).toBe(
+    createHash("sha256").update(regionalUrl).digest("hex"),
+  );
+  expect(JSON.stringify(messages)).toBe(before);
+  const reused = await downloadImages(
+    messages,
+    f.out,
+    { ...scoped, mediaCookies: undefined },
+    f.http,
+    f.options,
+  );
+  expect(reused).toMatchObject({ cacheHits: 1, downloaded: 0 });
+  expect(f.stats.media).toBe(1);
+  const refreshed = await downloadImages(messages, f.out, scoped, f.http, {
+    ...f.options,
+    refresh: true,
+  });
+  expect(refreshed).toMatchObject({ cacheHits: 1, downloaded: 0 });
+  expect(refreshed.images).toEqual(downloaded.images);
+  expect(f.stats.media).toBe(2);
+});
+
 test.each([
   "https://attacker.invalid/v1/objects/id/views/imgo",
   "http://us-api.asm.skype.com/v1/objects/id/views/imgo",
@@ -181,9 +255,22 @@ test.each([
   `${url}?token=secret`,
   `${url}#fragment`,
   url.replace("imgo", "video"),
+  regionalUrl.replace("https:", "http:"),
+  regionalUrl.replace(
+    "id-prod.asyncgw.teams.microsoft.com",
+    "id-prod.asyncgw.teams.microsoft.com.attacker.invalid",
+  ),
+  regionalUrl.replace("id-prod", "us-prod"),
+  regionalUrl.replace(".com/", ".com:444/"),
+  regionalUrl.replace("https://", "https://user:password@"),
+  regionalUrl.replace("/v1/objects/", "/v1/namespace/objects/"),
+  regionalUrl.replace("/imgo", "/imgpsh_fullsize"),
+  `${regionalUrl}?token=secret`,
+  `${regionalUrl}#fragment`,
 ])(
   "refuses unsupported image destination without network: %s",
   async (source) => {
+    expect(imageSourceUrl(source)).toBeUndefined();
     expect(imageUrl(source)).toBeUndefined();
     const f = await fixture(async () => {
       throw new Error("must not fetch");

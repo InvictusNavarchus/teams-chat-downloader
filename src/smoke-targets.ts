@@ -7,7 +7,7 @@ import {
   type Message,
   readArchive,
 } from "./archive.ts";
-import { imageUrl } from "./media.ts";
+import { imageSourceUrl } from "./media.ts";
 
 function participantMri(source: unknown): string | undefined {
   if (typeof source !== "string") return;
@@ -65,7 +65,7 @@ export async function sampleSmokeImage(
     await new HTMLRewriter()
       .on("img", {
         element(element) {
-          selected ??= imageUrl(element.getAttribute("src") ?? "");
+          selected ??= imageSourceUrl(element.getAttribute("src") ?? "");
         },
       })
       .transform(new Response(message.content))

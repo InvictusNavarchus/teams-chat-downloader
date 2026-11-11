@@ -48,7 +48,7 @@ teams-chat-download/
 │   ├── login.ts          # Playwright helper for interactive browser sign-in and token capture
 │   ├── live-smoke.ts     # Opt-in live HTTP probe, bounded sampling, temporary caches, and CLI
 │   ├── markdown.ts       # Turndown-based HTML-to-Markdown conversion and transcript rendering
-│   ├── media.ts          # Media URI parsing, AMS/Skype ASM cookie handling, and cache lookup
+│   ├── media.ts          # Source/destination URI validation, regional image translation, ASM cookies, and cache lookup
 │   ├── output.ts         # Atomic filesystem writes and directory permission enforcement
 │   ├── profiles.ts       # Direct self/batch reads, shared name labeling, and 24-hour disk caching
 │   ├── smoke-targets.ts  # Same-account archive discovery and safe smoke-test input extraction
@@ -88,6 +88,7 @@ When modifying or extending this codebase, agents **must** respect these domain 
    - Chat Directory: Uses `x-skypetoken`.
    - Profiles: Uses `Authorization: Bearer ...` paired with `x-skypetoken`.
    - Media (Images): Uses the `skypetoken_asm` cookie sent only to matching media origins.
+   - Inline HTTPS `id-prod.asyncgw.teams.microsoft.com/v1/objects/{id}/views/imgo` sources are translated to the same path on `experimental-api.asm.skype.com`, using only that destination's media cookie. Never send credentials to the regional source host, infer other regions, or translate signed/query-bearing or namespaced regional URLs. `imageSourceUrl` recognizes source references for downloads and smoke sampling; `imageUrl` validates actual cookie destinations for login and HTTP. Preserve original source URLs and their digests in messages, cache keys, and Markdown mappings.
    - _Never merge these into a generic global credential bundle._
 2. **Preserve Date Bounds on History Pagination**:
    - The `backwardLink` returned by Teams pagination drops the `endTime` parameter. If sent without correction, Teams reverts to returning present-day messages. The client (`teams.ts`) **must** preserve the initial requested `endTime` on every pagination request.

@@ -80,39 +80,105 @@ async function fixture(messages = [image("one")], fetch?: Fetch) {
   return { dir, input, markdown: converted.output, stats, http, options };
 }
 
-test("JSON and readable Markdown exist before the first media request", async () => {
-  const f = await fixture();
-  const out = join(f.dir, "export", "chat.json");
-  const markdown = join(dirname(out), "chat.md");
-  const http = createHttp({
-    stats: f.stats,
-    fetch: async (request) => {
-      if (new URL(request.url).origin !== origin)
-        return Response.json({ messages: [image("one")], _metadata: {} });
-      const saved = await readArchive(out);
-      expect(saved.media.status).toBe("not-downloaded");
-      expect(saved.messages[0]!.unknownField).toEqual({ retained: true });
-      const text = await readFile(markdown, "utf8");
-      expect(text).toContain("Saved text one");
-      expect(text).toContain("Image not downloaded");
-      return new Response(png, { headers: { "content-type": "image/png" } });
-    },
+test.each([origin, "https://id-prod.asyncgw.teams.microsoft.com"])(
+  "JSON and readable Markdown exist before automatic media download from %s",
+  async (sourceOrigin) => {
+    const f = await fixture();
+    const source = image("one");
+    source.content = source.content!.toString().replace(origin, sourceOrigin);
+    const destinationOrigin =
+      sourceOrigin === origin
+        ? origin
+        : "https://experimental-api.asm.skype.com";
+    const out = join(f.dir, "export", "chat.json");
+    const markdown = join(dirname(out), "chat.md");
+    const http = createHttp({
+      stats: f.stats,
+      fetch: async (request) => {
+        if (new URL(request.url).origin !== destinationOrigin)
+          return Response.json({ messages: [source], _metadata: {} });
+        expect(request.url).toBe(
+          `${destinationOrigin}/v1/objects/one/views/imgo`,
+        );
+        expect(request.headers.get("cookie")).toBe(
+          "skypetoken_asm=fixture-media",
+        );
+        for (const name of ["Authentication", "Authorization", "x-skypetoken"])
+          expect(request.headers.has(name)).toBe(false);
+        const saved = await readArchive(out);
+        expect(saved.media.status).toBe("not-downloaded");
+        expect(saved.messages[0]!.unknownField).toEqual({ retained: true });
+        const text = await readFile(markdown, "utf8");
+        expect(text).toContain("Saved text one");
+        expect(text).toContain("Image not downloaded");
+        return new Response(png, { headers: { "content-type": "image/png" } });
+      },
+    });
+    await exportChat(
+      resolveExportOptions({
+        chat: "fixture",
+        out: dirname(out),
+        from: "2026-11-01T00:00:00Z",
+        to: "2026-11-02T00:00:00Z",
+      }),
+      {
+        ...credentials,
+        mediaCookies: { [destinationOrigin]: "fixture-media" },
+      },
+      http,
+      f.stats,
+      historyProgress(),
+    );
+    expect((await readArchive(out)).media.status).toBe("complete");
+    expect((await readArchive(out)).messages).toEqual([source]);
+    expect(await readFile(markdown, "utf8")).toContain("](media/");
+    expect(await readFile(markdown, "utf8")).not.toContain(
+      "Image not downloaded",
+    );
+    expect(f.stats).toMatchObject({ history: 1, media: 1 });
+  },
+);
+
+test("a saved archive with regional images can download media without fetching history", async () => {
+  const source = image("one");
+  source.content = source
+    .content!.toString()
+    .replace(origin, "https://id-prod.asyncgw.teams.microsoft.com");
+  const f = await fixture([source], async (request) => {
+    expect(request.url).toBe(
+      "https://experimental-api.asm.skype.com/v1/objects/one/views/imgo",
+    );
+    expect(request.headers.get("cookie")).toBe("skypetoken_asm=fixture-media");
+    return new Response(png, { headers: { "content-type": "image/png" } });
   });
-  await exportChat(
-    resolveExportOptions({
-      chat: "fixture",
-      out: dirname(out),
-      from: "2026-11-01T00:00:00Z",
-      to: "2026-11-02T00:00:00Z",
-    }),
-    credentials,
-    http,
+  await downloadArchiveMedia(
+    f.options,
+    {
+      ...credentials,
+      mediaCookies: {
+        "https://experimental-api.asm.skype.com": "fixture-media",
+      },
+    },
+    f.http,
     f.stats,
-    historyProgress(),
   );
-  expect((await readArchive(out)).media.status).toBe("complete");
-  expect(await readFile(markdown, "utf8")).toContain("](media/");
-  expect(f.stats).toMatchObject({ history: 1, media: 1 });
+  const saved = await readArchive(f.input);
+  expect(saved.messages).toEqual([source]);
+  expect(saved.media).toMatchObject({
+    status: "complete",
+    downloaded: 1,
+    unsupported: 0,
+  });
+  expect(await readFile(f.markdown, "utf8")).toContain("](media/");
+  expect(await readFile(f.markdown, "utf8")).not.toContain(
+    "Image not downloaded",
+  );
+  expect(f.stats).toMatchObject({
+    history: 0,
+    directory: 0,
+    profiles: 0,
+    media: 1,
+  });
 });
 
 test("media authentication failure preserves text, and saved history can be retried", async () => {

@@ -394,7 +394,9 @@ https://experimental-api.asm.skype.com/v1/{namespace}/objects/{object-id}/views/
 
 The corresponding browser-to-HTTP reference mapping has not been fully documented. In particular, the tested sample URL was captured from browser network activity; a complete routine that extracts every downloadable image URL from raw messages has not been validated. The subsequent [image export implementation](10-image-export.md) handles a limited inline `<img src>` adapter, including `us-api.asm.skype.com` URLs found in saved source exports; universal discovery remains unresolved.
 
-Keep the observed namespace, object ID, and representation. Do not build a downloader that substitutes a guessed host, object namespace, or view.
+The **2026-11-11** investigation additionally matched two archived `https://id-prod.asyncgw.teams.microsoft.com/v1/objects/{object-id}/views/imgo` sources to loaded browser images on the experimental host with an account namespace. A direct HTTP request for one of those objects on `https://experimental-api.asm.skype.com/v1/objects/{object-id}/views/imgo`, without the namespace and using only the application's saved cookie for that destination, returned HTTP 200 and a complete 84,055-byte JPEG without a redirect. The [image adapter](10-image-export.md) therefore implements this exact source-to-destination mapping, preserving the original source URL and cache/Markdown key. No credential is sent to the regional source host.
+
+Otherwise keep the observed namespace, object ID, and representation. Do not generalize this verified mapping into guessed regional hosts, object namespaces, or views.
 
 Other media-related hosts observed during initialization included `us-api.asm.skype.com` and token-auth paths. Their behavior, necessity, and relationship to the tested image host remain incomplete.
 

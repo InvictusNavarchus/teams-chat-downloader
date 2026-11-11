@@ -11,7 +11,10 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { discoverSmokeFixture } from "../src/smoke-targets.ts";
+import {
+  discoverSmokeFixture,
+  sampleSmokeImage,
+} from "../src/smoke-targets.ts";
 
 const accountId = createHash("sha256").update("8:live:self").digest("hex");
 const roots: string[] = [];
@@ -81,6 +84,20 @@ test("discovery prefers usable same-account targets over newer sparse, unrelated
   expect(await readFile(chosen, "utf8")).toBe(before);
   expect(logs.some((line) => line.includes("skipped 1"))).toBe(true);
   expect(logs.join("\n")).not.toContain("private-content");
+});
+
+test("smoke sampling retains a regional source URL for the real media adapter", async () => {
+  const source =
+    "https://id-prod.asyncgw.teams.microsoft.com/v1/objects/known/views/imgo";
+  const sample = await sampleSmokeImage([
+    {
+      id: "regional",
+      originalarrivaltime: "2026-08-03T00:00:00Z",
+      messagetype: "RichText/Html",
+      content: `<img src="${source}"><img src="https://external.invalid/private">`,
+    },
+  ]);
+  expect(sample?.content).toBe(`<img src="${source}">`);
 });
 
 test("discovery uses modification time and deterministic path order among equally useful archives", async () => {

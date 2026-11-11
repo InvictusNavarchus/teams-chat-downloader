@@ -23,24 +23,36 @@ export const mediaOrigins = [
   "https://experimental-api.asm.skype.com",
   "https://us-api.asm.skype.com",
 ] as const;
+const regionalImageOrigin = "https://id-prod.asyncgw.teams.microsoft.com";
 
-// Only the observed image representation is supported. Never infer a host from an opaque ID.
-export function imageUrl(source: string): URL | undefined {
+// Keep the source identity separate from the authenticated download destination.
+export function imageSourceUrl(source: string): URL | undefined {
   try {
     const url = new URL(source);
+    const regional = url.origin === regionalImageOrigin;
     if (
-      !mediaOrigins.some((origin) => origin === url.origin) ||
+      (!regional && !mediaOrigins.some((origin) => origin === url.origin)) ||
       url.username ||
       url.password ||
       url.search ||
       url.hash ||
-      !/^\/v1\/(?:[\w-]+\/)?objects\/[\w-]+\/views\/imgo$/.test(url.pathname)
+      !(
+        regional
+          ? /^\/v1\/objects\/[\w-]+\/views\/imgo$/
+          : /^\/v1\/(?:[\w-]+\/)?objects\/[\w-]+\/views\/imgo$/
+      ).test(url.pathname)
     )
       return;
     return url;
   } catch {
     return;
   }
+}
+
+// Login capture and HTTP validation accept only actual media-cookie destinations.
+export function imageUrl(source: string): URL | undefined {
+  const url = imageSourceUrl(source);
+  if (url && mediaOrigins.some((origin) => origin === url.origin)) return url;
 }
 
 export function mediaDirectory(output: string): string {
@@ -198,14 +210,19 @@ export async function downloadImages(
         .on("img", {
           element(element) {
             inlineImages++;
-            const url = imageUrl(element.getAttribute("src") ?? "");
-            if (!url) {
+            const source = imageSourceUrl(element.getAttribute("src") ?? "");
+            if (!source) {
               media.unsupported++;
               return;
             }
-            const key = digest(url.href);
+            const key = digest(source.href);
             let resource = resources.get(key);
             if (!resource) {
+              // Teams Free displays these same objects through the Skype ASM adapter.
+              const url =
+                source.origin === regionalImageOrigin
+                  ? new URL(source.pathname, mediaOrigins[0])
+                  : source;
               resource = { url, messages: new Set() };
               resources.set(key, resource);
             }
