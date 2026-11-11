@@ -1,25 +1,29 @@
-import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cac } from "cac";
-import { isHtmlMessage, readArchive, type Message } from "./archive.ts";
+import { readArchive, type Message } from "./archive.ts";
 import { selectChatByLabel } from "./chat-selection.ts";
 import {
   type LiveSmokeOptions,
   resolveLiveSmokeOptions,
 } from "./command-validation.ts";
-import { defaultLiveSmokeDays } from "./config.ts";
+import { defaultExportRoot, defaultLiveSmokeDays } from "./config.ts";
 import { loadCredentials, type Credentials } from "./credentials.ts";
 import { AppError } from "./errors.ts";
 import { createHttp, requestStats, type Fetch, type Http } from "./http.ts";
-import { downloadImages, imageUrl } from "./media.ts";
+import { downloadImages } from "./media.ts";
 import {
   chatCounterpart,
   labelChats,
   readParticipantProfiles,
   readSelfProfile,
 } from "./profiles.ts";
+import {
+  discoverSmokeFixture,
+  knownSmokeParticipant,
+  sampleSmokeImage,
+} from "./smoke-targets.ts";
 import {
   historyProgress,
   readChatDirectory,
@@ -34,70 +38,6 @@ type Check = {
 
 class Unverified extends AppError {}
 
-function participantMri(source: unknown): string | undefined {
-  if (typeof source !== "string") return;
-  const supported = /^8:(?:live|orgid):[^\s/?#]+$/;
-  if (supported.test(source)) return source;
-  try {
-    // Source sender links are identifiers here, never request destinations.
-    const url = new URL(source);
-    const segment = /^\/v1\/users\/ME\/contacts\/([^/]+)$/.exec(
-      url.pathname,
-    )?.[1];
-    if (
-      url.protocol !== "https:" ||
-      url.search ||
-      url.hash ||
-      url.username ||
-      url.password ||
-      !segment
-    )
-      return;
-    const mri = decodeURIComponent(segment);
-    if (supported.test(mri)) return mri;
-  } catch {
-    // Unknown sender shapes are not guessed into profile identities.
-  }
-}
-
-function knownParticipant(
-  sources: unknown[],
-  selfMri: string | undefined,
-  accountId: string,
-): string | undefined {
-  // Login account IDs are SHA-256(self MRI). Legacy custom account labels need
-  // a successful self read to distinguish the account from other participants.
-  if (!selfMri && !/^[a-f0-9]{64}$/.test(accountId)) return;
-  for (const source of sources) {
-    const mri = participantMri(source);
-    if (
-      mri &&
-      mri !== selfMri &&
-      createHash("sha256").update(mri).digest("hex") !== accountId
-    )
-      return mri;
-  }
-}
-
-// Limit the real downloader to one supported reference, even if a message has many.
-async function sampleImage(messages: Message[]): Promise<Message | undefined> {
-  for (const message of messages) {
-    if (!isHtmlMessage(message) || typeof message.content !== "string")
-      continue;
-    let selected: URL | undefined;
-    await new HTMLRewriter()
-      .on("img", {
-        element(element) {
-          selected ??= imageUrl(element.getAttribute("src") ?? "");
-        },
-      })
-      .transform(new Response(message.content))
-      .text();
-    if (selected)
-      return { ...message, content: `<img src="${selected.href}">` };
-  }
-}
-
 export async function runLiveSmoke(
   options: LiveSmokeOptions,
   credentials: Credentials,
@@ -105,11 +45,21 @@ export async function runLiveSmoke(
     fetch?: Fetch;
     signal?: AbortSignal;
     log?: (message: string) => void;
+    exportsRoot?: string;
   } = {},
 ) {
+  const log = dependencies.log ?? console.log;
+  const discovered =
+    options.fixture === undefined && !dependencies.signal?.aborted
+      ? await discoverSmokeFixture(
+          dependencies.exportsRoot ?? defaultExportRoot,
+          credentials.accountId,
+          { signal: dependencies.signal, log },
+        )
+      : undefined;
   const fixture =
     options.fixture === undefined
-      ? undefined
+      ? discovered?.archive
       : await readArchive(options.fixture, dependencies.signal);
   if (fixture && fixture.accountId !== credentials.accountId)
     throw new AppError(
@@ -117,7 +67,6 @@ export async function runLiveSmoke(
     );
   const stats = requestStats();
   const checks: Check[] = [];
-  const log = dependencies.log ?? console.log;
   const temporary = await mkdtemp(join(tmpdir(), "teams-live-smoke-"));
   const base = createHttp({
     stats,
@@ -163,6 +112,11 @@ export async function runLiveSmoke(
   let pages: ReturnType<typeof readHistoryPages> | undefined;
   try {
     log(
+      fixture
+        ? `Fixture: ${options.fixture === undefined ? "auto-selected" : "explicit"} ${options.fixture ?? discovered!.path}.`
+        : "Fixture: no usable same-account archive found in exports/; using available live targets.",
+    );
+    log(
       `History window: ${new Date(options.window.from).toISOString()} (inclusive) to ${new Date(options.window.to).toISOString()} (exclusive).`,
     );
     let chats: Awaited<ReturnType<typeof readChatDirectory>> | undefined;
@@ -190,7 +144,7 @@ export async function runLiveSmoke(
           ),
         ];
       } else {
-        const mri = knownParticipant(
+        const mri = knownSmokeParticipant(
           [
             ...(fixture?.messages.map((message) => message.from) ?? []),
             ...(chats?.flatMap((chat) => chat.members) ?? []),
@@ -219,7 +173,7 @@ export async function runLiveSmoke(
     const progress = historyProgress();
     const messages: Message[] = [];
     const historyRead = await check("history", async () => {
-      let chat = fixture?.chatId ?? options.chat;
+      let chat = options.chat ?? fixture?.chatId;
       if (options.chatLabel !== undefined) {
         if (!chats)
           throw new Unverified(
@@ -235,8 +189,12 @@ export async function runLiveSmoke(
           options.chatLabel,
         ).id;
       }
+      if (chat === undefined && options.chatLabel === undefined)
+        chat = chats?.[0]?.id;
       if (chat === undefined)
-        throw new Unverified("No known history target available.");
+        throw new Unverified(
+          "No known history target available; create an export or supply --chat or --fixture.",
+        );
       pages = readHistoryPages(
         http,
         credentials,
@@ -270,8 +228,8 @@ export async function runLiveSmoke(
     const mediaOptions = { cacheRoot, signal: dependencies.signal };
     const downloaded = await check("media cookie", async () => {
       image =
-        (fixture && (await sampleImage(fixture.messages))) ||
-        (await sampleImage(messages));
+        (fixture && (await sampleSmokeImage(fixture.messages))) ||
+        (await sampleSmokeImage(messages));
       if (!image)
         throw new Unverified(
           "No known supported image reference; supply an image-containing fixture or history window.",
@@ -350,7 +308,7 @@ export async function runLiveSmokeCli(argv = process.argv): Promise<number> {
   cli
     .command(
       "",
-      `Probe live Teams (default: last ${defaultLiveSmokeDays} local calendar days, including today)`,
+      `Probe live Teams using automatic archive discovery (default: last ${defaultLiveSmokeDays} local calendar days, including today)`,
     )
     .option("--chat <id>", "Raw chat ID with enough history for two pages")
     .option(
@@ -359,7 +317,7 @@ export async function runLiveSmokeCli(argv = process.argv): Promise<number> {
     )
     .option(
       "--fixture <archive>",
-      "Use a same-account chat.json for independent targets (choose this, --chat, or --chat-label)",
+      "Override automatic discovery with a same-account chat.json (choose at most one selector)",
     )
     .option(
       "--from <timestamp>",

@@ -51,6 +51,7 @@ teams-chat-download/
 │   ├── media.ts          # Media URI parsing, AMS/Skype ASM cookie handling, and cache lookup
 │   ├── output.ts         # Atomic filesystem writes and directory permission enforcement
 │   ├── profiles.ts       # Direct self/batch reads, shared name labeling, and 24-hour disk caching
+│   ├── smoke-targets.ts  # Same-account archive discovery and safe smoke-test input extraction
 │   └── teams.ts          # Teams API client (raw directory, validated page iterator, full history, pacing)
 ├── tests/                # Bun test suites (unit, mock HTTP, and integration flows)
 │   ├── archive-media.test.ts
@@ -68,6 +69,7 @@ teams-chat-download/
 │   ├── media.test.ts
 │   ├── command-validation.test.ts
 │   ├── profiles.test.ts
+│   ├── smoke-targets.test.ts # Discovery ordering, account isolation, filesystem scope, and cancellation
 │   └── teams.test.ts
 ├── biome.json            # Biome formatter and linter configuration
 ├── package.json          # Dependencies, scripts, and runtime engines
@@ -104,10 +106,12 @@ When modifying or extending this codebase, agents **must** respect these domain 
    - Reuse the matched label for folder naming. Raw-ID exports with explicit `--out` skip directory/profile lookup; label selection requires lookup even with `--out`. Archives always store the resolved raw chat ID.
    - Saved chat lists remain explicit `chats --out <file>` snapshots; selection does not read or automatically maintain them.
 8. **Bounded Live Verification**:
-   - `bun run test:live` requires exactly one of `--fixture <chat.json>`, `--chat <id>`, or `--chat-label <label>`. It is explicitly opt-in and must never run as part of ordinary `bun test`. Both export and smoke selection use `src/chat-selection.ts` for exact label matching, generic fallback rejection, and duplicate diagnostics.
+   - `bun run test:live` defaults to automatic fixture discovery and requires no selector. Accept at most one explicit override: `--fixture <chat.json>`, `--chat <id>`, or `--chat-label <label>`. It is explicitly opt-in and must never run as part of ordinary `bun test`. Both export and smoke label selection use `src/chat-selection.ts` for exact matching, generic fallback rejection, and duplicate diagnostics.
    - With no date arguments, default to the last two local calendar days including today, matching `export --last 2d`: yesterday at local midnight to one captured invocation time. `src/config.ts` owns `defaultLiveSmokeDays`; command validation shares the calendar-day calculation with exports. Explicit overrides require both timezone-qualified `--from` and `--to`; reject single bounds and future ends. Print the resolved window before requests; never widen it automatically to satisfy pagination/media coverage.
    - Saved credentials use the normal lookup or explicit `--credentials`.
    - Validate a fixture with the shared archive reader and require an exact `accountId` match before HTTP. Read its raw chat ID, supported non-self sender, and supported inline image as known inputs. Never treat archived responses as live passes or change the default live date window to the archived window. Reject fixture/ID/label selector combinations rather than guessing a saved label mapping.
+   - `src/smoke-targets.ts` discovers complete same-account archives under the configured default export root in the current working directory: root JSON files plus direct export-folder `chat.json`, without symlinks or recursion. Prefer archives with useful sender/image inputs, then newer modification times and deterministic path ordering. Skip invalid/unreadable automatic candidates with a count, ignore other accounts, and print the selected path. Explicit fixtures bypass discovery and fail rather than falling back when invalid. Without any fixture or selector, use the first live directory chat if available.
+   - An explicit raw ID or label controls history and must never be silently replaced by a discovered fixture chat. Automatically discovered account-scoped targets may still support participant/media checks; label mappings must come from verified live directory/name results, never archive filenames.
    - Share `readHistoryPages` between the smoke runner and full `readHistory`; only the runner stops after two pages. Report the first page and continuation as separate checks, so a failed continuation does not erase a successful first-page probe. Sampling must never publish a complete archive or alter export exhaustion semantics.
    - Read the directory once and probe the self profile independently through `readSelfProfile`. Query a known participant through `readParticipantProfiles`, using fixture senders before directory members. Login-generated account IDs allow self-MRI exclusion even when the self probe fails; legacy custom account labels need a successful self response to identify a non-self participant. Source sender URLs are parsed only as identities and never used as request destinations.
    - Profile probes never reuse cached names. Label selection resolves all required one-to-one names and uses the shared `labelChats` mapping; it still depends on live directory/name discovery. Fixture/raw-ID history probes must run independently, without a directory-membership veto. Prefer a fixture image reference over live history discovery, so media can run after directory or history failure. Download at most one supported image using private temporary media storage; clean it on handled completion/failure/cancellation.
@@ -154,6 +158,8 @@ bun run teams --help
 bun test
 
 # Explicit live smoke check (requires suitable saved credentials and sample window)
+bun run test:live
+# Optional fixture or history-target override:
 bun run test:live --fixture exports/example/chat.json
 bun run test:live --chat '<raw-chat-id>'
 bun run test:live --chat-label 'Project Alpha'

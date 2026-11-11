@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Message } from "../src/archive.ts";
 import { resolveLiveSmokeOptions } from "../src/command-validation.ts";
@@ -223,7 +223,14 @@ function fixture(
   return {
     calls,
     logs,
-    dependencies: { fetch, log: (message: string) => logs.push(message) },
+    dependencies: {
+      fetch,
+      log: (message: string) => logs.push(message),
+      exportsRoot: join(
+        tmpdir(),
+        `teams-smoke-no-exports-${crypto.randomUUID()}`,
+      ),
+    },
   };
 }
 
@@ -306,6 +313,108 @@ test("fixture targets keep profiles and media live when directory and history bo
     "8:live:other",
   ])
     expect(JSON.stringify(report) + f.logs.join("\n")).not.toContain(secret);
+});
+
+test("automatic targets keep all service probes independent without a selector", async () => {
+  const saved = await savedArchive();
+  const f = fixture({
+    directoryStatus: 401,
+    profileStatus: 409,
+    historyStatus: 401,
+  });
+  const auto = resolveLiveSmokeOptions({ from: options.from, to: options.to });
+  const report = await runLiveSmoke(auto, credentials, {
+    ...f.dependencies,
+    exportsRoot: dirname(saved.path),
+  });
+  expect(report.requests).toEqual({
+    total: 6,
+    directory: 1,
+    profiles: 2,
+    history: 1,
+    media: 2,
+    retries: 0,
+  });
+  expect(
+    report.checks.find((c) => c.name === "participant profiles")?.status,
+  ).toBe("pass");
+  expect(report.checks.find((c) => c.name === "history")?.detail).toContain(
+    "HTTP 401",
+  );
+  expect(report.checks.find((c) => c.name === "media cookie")?.status).toBe(
+    "pass",
+  );
+  expect(
+    f.logs.some(
+      (line) => line.includes("auto-selected") && line.includes(saved.path),
+    ),
+  ).toBe(true);
+});
+
+test("automatic fixture data enriches explicit label probes without guessing a failed label mapping", async () => {
+  const saved = await savedArchive();
+  const f = fixture({ directoryStatus: 401, profileStatus: 409 });
+  const selected = resolveLiveSmokeOptions({
+    chatLabel: "Other",
+    from: options.from,
+    to: options.to,
+  });
+  const report = await runLiveSmoke(selected, credentials, {
+    ...f.dependencies,
+    exportsRoot: dirname(saved.path),
+  });
+  expect(report.requests.history).toBe(0);
+  expect(report.requests.profiles).toBe(2);
+  expect(report.requests.media).toBe(2);
+  expect(report.checks.find((c) => c.name === "history")?.status).toBe(
+    "unverified",
+  );
+  expect(
+    report.checks.find((c) => c.name === "participant profiles")?.status,
+  ).toBe("pass");
+});
+
+test("an explicit raw ID retains its meaning when the discovered fixture belongs to another chat", async () => {
+  const saved = await savedArchive({ chatId: "different-fixture-chat" });
+  const f = fixture({ continuation: false });
+  const report = await runLiveSmoke(options, credentials, {
+    ...f.dependencies,
+    exportsRoot: dirname(saved.path),
+  });
+  expect(report.checks.find((c) => c.name === "history")?.status).toBe("pass");
+  const calls = f.calls.filter((call) =>
+    new URL(call.url).pathname.endsWith("/messages"),
+  );
+  expect(calls).toHaveLength(1);
+  expect(new URL(calls[0]!.url).pathname).toContain("/synthetic-chat/messages");
+});
+
+test("an explicit fixture overrides automatic candidates", async () => {
+  const selected = await savedArchive();
+  const ignored = await savedArchive({ chatId: "ignored-automatic-candidate" });
+  const f = fixture({ continuation: false });
+  const report = await runLiveSmoke(selected.options, credentials, {
+    ...f.dependencies,
+    exportsRoot: dirname(ignored.path),
+  });
+  expect(report.checks.find((c) => c.name === "history")?.status).toBe("pass");
+  expect(
+    f.logs.some(
+      (line) => line.includes("explicit") && line.includes(selected.path),
+    ),
+  ).toBe(true);
+  expect(f.logs.some((line) => line.includes(ignored.path))).toBe(false);
+});
+
+test("automatic mode falls back to an available directory chat when no saved archive exists", async () => {
+  const f = fixture({ continuation: false });
+  const auto = resolveLiveSmokeOptions({ from: options.from, to: options.to });
+  const report = await runLiveSmoke(auto, credentials, f.dependencies);
+  expect(report.requests.history).toBe(1);
+  expect(report.checks.find((c) => c.name === "history")?.status).toBe("pass");
+  expect(
+    f.logs.some((line) => line.includes("no usable same-account archive")),
+  ).toBe(true);
 });
 
 test("fixture participant lookup does not depend on a successful self-profile request", async () => {
@@ -745,6 +854,7 @@ test.each([
         `import { resolveLiveSmokeOptions, resolveExportOptions } from ${JSON.stringify(modulePath)};
     const now = ${Date.parse(invocation)};
     console.log(JSON.stringify({
+      automatic: resolveLiveSmokeOptions({}, now).window,
       raw: resolveLiveSmokeOptions({ chat: "fixture" }, now).window,
       label: resolveLiveSmokeOptions({ chatLabel: "Project Alpha" }, now).window,
       fixture: resolveLiveSmokeOptions({ fixture: "chat.json" }, now).window,
@@ -762,6 +872,7 @@ test.each([
     expect(stderr).toBe("");
     const window = { from: Date.parse(start), to: Date.parse(invocation) };
     expect(JSON.parse(stdout)).toEqual({
+      automatic: window,
       raw: window,
       label: window,
       fixture: window,
@@ -779,10 +890,12 @@ test.each([{ from: "2026-08-01T00:00:00Z" }, { to: "2026-08-08T00:00:00Z" }])(
   },
 );
 
-test("live CLI requires an explicit target and validates optional timezone-qualified bounds", async () => {
+test("live CLI accepts automatic mode and validates explicit overrides and bounds", async () => {
+  expect(resolveLiveSmokeOptions({}).chat).toBeUndefined();
+  expect(
+    resolveLiveSmokeOptions({ from: options.from, to: options.to }).window,
+  ).toEqual(options.window);
   for (const input of [
-    {},
-    { from: options.from, to: options.to },
     { fixture: "" },
     { fixture: "chat.json", chat: "fixture" },
     { fixture: "chat.json", chatLabel: "Other" },
@@ -806,5 +919,12 @@ test("live CLI requires an explicit target and validates optional timezone-quali
   ])
     expect(() => resolveLiveSmokeOptions(input)).toThrow();
   expect(await runLiveSmokeCli(["bun", "live-smoke.ts", "--help"])).toBe(0);
-  expect(await runLiveSmokeCli(["bun", "live-smoke.ts"])).toBe(1);
+  expect(
+    await runLiveSmokeCli([
+      "bun",
+      "live-smoke.ts",
+      "--credentials",
+      join(tmpdir(), `teams-smoke-missing-${crypto.randomUUID()}.json`),
+    ]),
+  ).toBe(1);
 });

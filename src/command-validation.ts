@@ -76,11 +76,11 @@ export function resolveLiveSmokeOptions(
   if (
     Number(options.chat !== undefined) +
       Number(options.chatLabel !== undefined) +
-      Number(options.fixture !== undefined) !==
+      Number(options.fixture !== undefined) >
     1
   )
     throw new AppError(
-      "Choose exactly one of --chat <id>, --chat-label <label>, or --fixture <archive>.",
+      "Choose at most one of --chat <id>, --chat-label <label>, or --fixture <archive>; omit all for automatic discovery.",
     );
   if (options.chatLabel !== undefined)
     assertSelectableChatLabel(options.chatLabel);

@@ -219,35 +219,39 @@ Offline tests use synthetic responses for pagination, validation, retries, cance
 Run an explicit, bounded check against live Teams using saved credentials:
 
 ```sh
-# Use a saved archive to test services independently of live target discovery:
+# Automatically find a same-account archive under exports/:
+bun run test:live
+# Override automatic fixture discovery, including for a custom export location:
 bun run test:live --fixture exports/example/chat.json
-# Or discover targets from live Teams:
+# Or select a specific live history target:
 bun run test:live --chat '<raw-chat-id>'
 bun run test:live --chat-label 'Project Alpha'
 # Override the default window to probe a busier historical period:
 bun run test:live --chat-label 'Project Alpha' --from '2026-08-01T00:00:00Z' --to '2026-08-08T00:00:00Z'
 ```
 
-Choose exactly one of `--fixture <chat.json>`, `--chat <raw-id>`, or `--chat-label <label>`. Fixture mode reads a complete version 1 archive and requires its saved `accountId` to match the credentials before making any HTTP request. It uses the archive's raw chat ID, a supported non-self sender identity, and a supported inline image reference as known test inputs. The archive is read only; no local archived response counts as a live service check. Choose an archive containing another participant's message and an inline image to cover those probes.
+With no selector, the runner automatically looks for complete same-account version 1 archives under `exports/` in the current working directory. It checks regular root `.json` files and `chat.json` inside direct export folders, without following symlinks or descending further. It prefers archives with a known non-self sender and a supported inline image; among equally useful candidates, newer file modification times win, then path order breaks ties. Invalid/unreadable candidates are skipped with a count; other accounts are ignored. The selected local path is printed. Discovery reads files only and makes no network requests.
 
-`--chat` supplies an independent history target. `--chat-label` retains the same exact, case-insensitive label match as `export`, after trimming whitespace, including resolved participant names. Generic fallback labels cannot select chats; missing or duplicate matches prevent history retrieval, and duplicate errors list matching labels and raw IDs. Label selection still requires a successful directory response and any needed profile names; use fixture mode when those services are broken. The directory is fetched only once.
+An automatically selected archive supplies the raw chat ID and known participant/image targets. If no usable archive is available, the runner uses live directory members and its first listed chat where possible; unavailable inputs remain `UNVERIFIED`. No archive or fixture argument is required. Supply at most one of `--fixture <chat.json>`, `--chat <raw-id>`, or `--chat-label <label>` to override the default. An explicit fixture bypasses discovery, must be a complete version 1 archive with `accountId` matching the credentials, and fails before HTTP if invalid or mismatched. The archive is read only; no archived response counts as a live service check.
+
+`--chat` overrides the history target without requiring directory lookup to succeed. `--chat-label` retains the same exact, case-insensitive label match as `export`, after trimming whitespace, including resolved participant names. Generic fallback labels cannot select chats; missing or duplicate matches prevent history retrieval, and duplicate errors list matching labels and raw IDs. Explicit label selection still requires a successful directory response and any needed profile names; archive filenames are never guessed into label mappings. In either case, automatic archive discovery can supply participant/image targets independently, even from another chat in the same account. The directory is fetched only once. For independent history checks during directory failures, use the default no-selector invocation, `--fixture`, or a raw `--chat` ID.
 
 With no date arguments, the window defaults to the last two local calendar days including today, matching `export --last 2d`: yesterday at local midnight through one captured invocation time. This also applies in fixture mode; the fixture's archived window does not replace the requested live window. Set `TZ` to override the machine's timezone. Supply both `--from` and `--to` to override this window; a single bound is rejected. Explicit timestamps require a timezone; the start is inclusive and the end exclusive, and the end cannot be in the future. The resolved window is printed before requests begin.
 
 Each service probe runs when its own inputs are available, even if another service fails:
 
-| Check                | Required input or result                                            |
-| -------------------- | ------------------------------------------------------------------- |
-| Directory            | Directory credentials                                               |
-| Self profile         | Profile credentials, regardless of directory result                 |
-| Participant profiles | Known non-self sender from the fixture, or live directory members   |
-| History              | Fixture/raw chat ID, or successfully resolved live label            |
-| Pagination           | Successful first history page with a continuation                   |
-| Media cookie         | Supported image reference from the fixture, or sampled live history |
-| Media cache          | Valid bytes from this run's cold image download                     |
-| Media revalidation   | Cold image bytes and an ETag or Last-Modified validator             |
+| Check                | Required input or result                                                            |
+| -------------------- | ----------------------------------------------------------------------------------- |
+| Directory            | Directory credentials                                                               |
+| Self profile         | Profile credentials, regardless of directory result                                 |
+| Participant profiles | Known non-self sender from the fixture, or live directory members                   |
+| History              | Automatic/explicit fixture ID, raw ID, resolved label, or first live directory chat |
+| Pagination           | Successful first history page with a continuation                                   |
+| Media cookie         | Supported image reference from the fixture, or sampled live history                 |
+| Media cache          | Valid bytes from this run's cold image download                                     |
+| Media revalidation   | Cold image bytes and an ETag or Last-Modified validator                             |
 
-The runner never widens the window automatically. No continuation, missing targets, or missing validators leave the affected checks `UNVERIFIED`. A failed second history page fails pagination while the first page remains verified. Without a fixture, discovering a participant or image can still depend on the directory or history. `--credentials <file>` overrides the usual saved-credential lookup. `--help` describes the arguments. This runner is separate from `bun test` and never opens a browser or refreshes credentials automatically.
+The runner never widens the window automatically. No continuation, missing targets, or missing validators leave the affected checks `UNVERIFIED`. A failed second history page fails pagination while the first page remains verified. Without a discovered or explicit fixture, participant/image discovery can still depend on the directory or history. `--credentials <file>` overrides the usual saved-credential lookup. `--help` describes the arguments. This runner is separate from `bun test` and never opens a browser or refreshes credentials automatically.
 
 Profile probes use direct HTTP requests with no name-cache reuse. Fixture/raw-ID mode queries one known participant; label mode resolves all needed one-to-one names so duplicate labels are detected. History reads at most two pages at the existing page size of 200 and shares the exporter's URL, date-bound, duplicate, progress, payload, and pacing checks. Media uses at most one supported image reference, preferring the fixture's reference even if live history fails or is empty. A fresh temporary image cache forces a real HTTP 200 request to verify that image's origin-specific cookie. The runner then checks local reuse with zero requests and sends a conditional refresh if the image supplies ETag or Last-Modified. HTTP 304 verifies cached-byte reuse; HTTP 200 verifies the refresh fallback and explicitly leaves the 304 branch unverified.
 
