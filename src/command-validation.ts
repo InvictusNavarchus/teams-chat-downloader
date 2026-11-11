@@ -55,6 +55,7 @@ export type ExportOptions = z.infer<typeof exportOptionsSchema> & {
 const liveSmokeOptionsSchema = z.strictObject({
   chat: z.string().trim().min(1).optional(),
   chatLabel: z.string().trim().min(1).optional(),
+  fixture: z.string().min(1).optional(),
   from: timestampSchema.optional(),
   to: timestampSchema.optional(),
   credentials: z.string().min(1).optional(),
@@ -72,7 +73,15 @@ export function resolveLiveSmokeOptions(
   if (!result.success)
     throw validationError("Live smoke options", result.error);
   const options = result.data;
-  assertChatSelection(options);
+  if (
+    Number(options.chat !== undefined) +
+      Number(options.chatLabel !== undefined) +
+      Number(options.fixture !== undefined) !==
+    1
+  )
+    throw new AppError(
+      "Choose exactly one of --chat <id>, --chat-label <label>, or --fixture <archive>.",
+    );
   if (options.chatLabel !== undefined)
     assertSelectableChatLabel(options.chatLabel);
   if ((options.from === undefined) !== (options.to === undefined))

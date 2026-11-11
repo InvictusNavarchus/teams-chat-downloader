@@ -50,7 +50,7 @@ teams-chat-download/
 │   ├── markdown.ts       # Turndown-based HTML-to-Markdown conversion and transcript rendering
 │   ├── media.ts          # Media URI parsing, AMS/Skype ASM cookie handling, and cache lookup
 │   ├── output.ts         # Atomic filesystem writes and directory permission enforcement
-│   ├── profiles.ts       # Participant name resolution and 24-hour disk caching
+│   ├── profiles.ts       # Direct self/batch reads, shared name labeling, and 24-hour disk caching
 │   └── teams.ts          # Teams API client (raw directory, validated page iterator, full history, pacing)
 ├── tests/                # Bun test suites (unit, mock HTTP, and integration flows)
 │   ├── archive-media.test.ts
@@ -104,11 +104,13 @@ When modifying or extending this codebase, agents **must** respect these domain 
    - Reuse the matched label for folder naming. Raw-ID exports with explicit `--out` skip directory/profile lookup; label selection requires lookup even with `--out`. Archives always store the resolved raw chat ID.
    - Saved chat lists remain explicit `chats --out <file>` snapshots; selection does not read or automatically maintain them.
 8. **Bounded Live Verification**:
-   - `bun run test:live` requires exactly one of `--chat <id>` or `--chat-label <label>`. It is explicitly opt-in and must never run as part of ordinary `bun test`. Both export and smoke selection use `src/chat-selection.ts` for exact label matching, generic fallback rejection, and duplicate diagnostics.
+   - `bun run test:live` requires exactly one of `--fixture <chat.json>`, `--chat <id>`, or `--chat-label <label>`. It is explicitly opt-in and must never run as part of ordinary `bun test`. Both export and smoke selection use `src/chat-selection.ts` for exact label matching, generic fallback rejection, and duplicate diagnostics.
    - With no date arguments, default to the last two local calendar days including today, matching `export --last 2d`: yesterday at local midnight to one captured invocation time. `src/config.ts` owns `defaultLiveSmokeDays`; command validation shares the calendar-day calculation with exports. Explicit overrides require both timezone-qualified `--from` and `--to`; reject single bounds and future ends. Print the resolved window before requests; never widen it automatically to satisfy pagination/media coverage.
    - Saved credentials use the normal lookup or explicit `--credentials`.
-   - Share `readHistoryPages` between the smoke runner and full `readHistory`; only the runner stops after two pages. Sampling must never publish a complete archive or alter export exhaustion semantics.
-   - Read the directory once; raw-ID selection resolves one untitled one-to-one participant, while label selection resolves all directory labels with the same temporary profile cache to detect duplicates before history retrieval. Profile HTTP failures prevent label selection; raw-ID history checks remain independent. Download at most one supported image from the history sample. Use private temporary caches so cached state cannot mask expired credentials; clean them on handled completion/failure/cancellation.
+   - Validate a fixture with the shared archive reader and require an exact `accountId` match before HTTP. Read its raw chat ID, supported non-self sender, and supported inline image as known inputs. Never treat archived responses as live passes or change the default live date window to the archived window. Reject fixture/ID/label selector combinations rather than guessing a saved label mapping.
+   - Share `readHistoryPages` between the smoke runner and full `readHistory`; only the runner stops after two pages. Report the first page and continuation as separate checks, so a failed continuation does not erase a successful first-page probe. Sampling must never publish a complete archive or alter export exhaustion semantics.
+   - Read the directory once and probe the self profile independently through `readSelfProfile`. Query a known participant through `readParticipantProfiles`, using fixture senders before directory members. Login-generated account IDs allow self-MRI exclusion even when the self probe fails; legacy custom account labels need a successful self response to identify a non-self participant. Source sender URLs are parsed only as identities and never used as request destinations.
+   - Profile probes never reuse cached names. Label selection resolves all required one-to-one names and uses the shared `labelChats` mapping; it still depends on live directory/name discovery. Fixture/raw-ID history probes must run independently, without a directory-membership veto. Prefer a fixture image reference over live history discovery, so media can run after directory or history failure. Download at most one supported image using private temporary media storage; clean it on handled completion/failure/cancellation.
    - Validate cold download, zero-request local reuse, and conditional refresh when validators exist. Report missing coverage as `UNVERIFIED` and exit 1 if any required check fails or remains unverified. A conditional HTTP 200 passes refresh validation but must explicitly say that the HTTP 304 branch was not verified.
    - Keep normal caches, credentials, and exports unchanged. Never log credentials, source URLs, or message bodies. Live coverage is limited to the sampled participant family and media origin; it does not verify login capture or full history exhaustion.
 
@@ -152,6 +154,7 @@ bun run teams --help
 bun test
 
 # Explicit live smoke check (requires suitable saved credentials and sample window)
+bun run test:live --fixture exports/example/chat.json
 bun run test:live --chat '<raw-chat-id>'
 bun run test:live --chat-label 'Project Alpha'
 # Optional explicit window override (both bounds required):

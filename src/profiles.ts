@@ -43,6 +43,7 @@ type Chat = {
   isOneOnOne: boolean | null;
   members: (string | undefined)[];
 };
+type Profile = z.infer<typeof nameSchema>;
 export type ProfileOptions = {
   cachePath?: string;
   now?: number;
@@ -59,6 +60,121 @@ const queries = {
     "isMailAddress=false&enableGuest=true&skypeTeamsInfo=true&canBeSmtpAddress=false&includeIBBarredUsers=false&includeDisabledAccounts=false&ggEnabled=true",
   fetchFederated: "edEnabled=false&includeDisabledAccounts=false",
 };
+
+async function requestProfile(
+  http: Http,
+  credentials: Credentials,
+  path: keyof typeof queries,
+  members?: string[],
+) {
+  if (!credentials.profileAuthorization || !credentials.directoryToken)
+    throw new AppError("Profile credentials missing; run teams login.");
+  const url = new URL(base + path);
+  url.search = queries[path];
+  const validate = (destination: URL) => {
+    if (
+      destination.origin !== url.origin ||
+      destination.pathname !== url.pathname ||
+      destination.search !== url.search ||
+      destination.username ||
+      destination.password ||
+      destination.hash
+    )
+      throw new AppError("Refused an unexpected profile destination.");
+  };
+  return http.json(
+    url,
+    "profiles",
+    {
+      Authorization: credentials.profileAuthorization,
+      "x-skypetoken": credentials.directoryToken,
+    },
+    validate,
+    members,
+  );
+}
+
+export async function readSelfProfile(
+  http: Http,
+  credentials: Credentials,
+): Promise<Profile> {
+  const self = selfSchema.safeParse(
+    await requestProfile(http, credentials, "me/"),
+  );
+  if (!self.success) throw validationError("Self profile", self.error);
+  return { mri: self.data.value.mri, displayName: self.data.value.displayName };
+}
+
+export async function readParticipantProfiles(
+  http: Http,
+  credentials: Credentials,
+  ids: string[],
+): Promise<Profile[]> {
+  const names = new Map<string, string>();
+  for (const [prefix, path] of [
+    ["8:live:", "fetchShortProfile"],
+    ["8:orgid:", "fetchFederated"],
+  ] as const) {
+    const members = ids.filter((mri) => mri.startsWith(prefix));
+    for (let start = 0; start < members.length; start += 50) {
+      const batch = members.slice(start, start + 50);
+      const result = batchSchema.safeParse(
+        await requestProfile(http, credentials, path, batch),
+      );
+      if (!result.success)
+        throw validationError("Participant profiles", result.error);
+      for (const profile of result.data.value) {
+        if (!batch.includes(profile.mri))
+          throw new AppError(
+            "Profile response contained an unrequested identity.",
+          );
+        if (profile.status !== 200 || !profile.displayName?.trim()) continue;
+        const name = profile.displayName.trim();
+        if (names.has(profile.mri) && names.get(profile.mri) !== name)
+          throw new AppError(
+            "Profile response contained conflicting names for one identity.",
+          );
+        names.set(profile.mri, name);
+      }
+    }
+  }
+  return [...names].map(([mri, displayName]) => ({ mri, displayName }));
+}
+
+export function chatCounterpart(
+  chat: Chat,
+  selfMri: string,
+): string | undefined {
+  if (!chat.members.length || chat.members.some((member) => !member)) return;
+  const others = [
+    ...new Set(chat.members.filter((member) => member !== selfMri)),
+  ];
+  return others.length === 0
+    ? selfMri
+    : others.length === 1
+      ? others[0]
+      : undefined;
+}
+
+export function labelChats(
+  chats: Chat[],
+  self: Profile,
+  names: ReadonlyMap<string, string>,
+) {
+  const output = chats.map(({ members: _members, ...chat }) => chat);
+  for (const chat of chats.filter((chat) => chat.isOneOnOne && !chat.title)) {
+    const mri = chatCounterpart(chat, self.mri);
+    const name =
+      mri === self.mri
+        ? `${self.displayName} (You)`
+        : mri
+          ? names.get(mri)
+          : undefined;
+    const row = output.find((row) => row.id === chat.id);
+    if (row && name) row.label = name;
+  }
+  return output;
+}
 
 function scopeFor(credentials: Credentials): string {
   return createHash("sha256")
@@ -155,26 +271,6 @@ export async function resolveChatNames(
     );
     return output;
   }
-  const headers = {
-    Authorization: credentials.profileAuthorization,
-    "x-skypetoken": credentials.directoryToken,
-  };
-  async function request(path: keyof typeof queries, members?: string[]) {
-    const url = new URL(base + path);
-    url.search = queries[path];
-    const validate = (destination: URL) => {
-      if (
-        destination.origin !== url.origin ||
-        destination.pathname !== url.pathname ||
-        destination.search !== url.search ||
-        destination.username ||
-        destination.password ||
-        destination.hash
-      )
-        throw new AppError("Refused an unexpected profile destination.");
-    };
-    return http.json(url, "profiles", headers, validate, members);
-  }
   const now = options.now ?? Date.now();
   const scope = scopeFor(credentials);
   const cachePath = options.cachePath ?? defaultProfileCachePath(credentials);
@@ -183,16 +279,12 @@ export async function resolveChatNames(
     : await readCache(cachePath, scope, now, options.warn);
   let changed = false;
   if (!cache) {
-    const self = selfSchema.safeParse(await request("me/"));
-    if (!self.success) throw validationError("Self profile", self.error);
+    const self = await readSelfProfile(http, credentials);
     cache = {
       version: 1,
       scope,
       fetchedAt: now,
-      self: {
-        mri: self.data.value.mri,
-        displayName: self.data.value.displayName,
-      },
+      self,
       names: [],
     };
     changed = true;
@@ -201,68 +293,28 @@ export async function resolveChatNames(
   const names = new Map(
     cache.names.map((profile) => [profile.mri, profile.displayName]),
   );
-  function counterpart(chat: Chat): string | undefined {
-    // Missing or ambiguous member identity must never become a guessed label.
-    if (!chat.members.length || chat.members.some((member) => !member)) return;
-    const others = [
-      ...new Set(chat.members.filter((member) => member !== self.mri)),
-    ];
-    return others.length === 0
-      ? self.mri
-      : others.length === 1
-        ? others[0]
-        : undefined;
-  }
   const missing = [
     ...new Set(
       targets
-        .map(counterpart)
+        .map((chat) => chatCounterpart(chat, self.mri))
         .filter(
           (mri): mri is string => !!mri && mri !== self.mri && !names.has(mri),
         ),
     ),
   ];
-  for (const [prefix, path] of [
-    ["8:live:", "fetchShortProfile"],
-    ["8:orgid:", "fetchFederated"],
-  ] as const) {
-    const ids = missing.filter((mri) => mri.startsWith(prefix));
-    for (let start = 0; start < ids.length; start += 50) {
-      const batch = ids.slice(start, start + 50);
-      const result = batchSchema.safeParse(await request(path, batch));
-      if (!result.success)
-        throw validationError("Participant profiles", result.error);
-      for (const profile of result.data.value) {
-        if (!batch.includes(profile.mri))
-          throw new AppError(
-            "Profile response contained an unrequested identity.",
-          );
-        if (profile.status !== 200 || !profile.displayName?.trim()) continue;
-        const name = profile.displayName.trim();
-        if (names.has(profile.mri) && names.get(profile.mri) !== name)
-          throw new AppError(
-            "Profile response contained conflicting names for one identity.",
-          );
-        names.set(profile.mri, name);
-        changed = true;
-      }
-    }
+  for (const profile of await readParticipantProfiles(
+    http,
+    credentials,
+    missing,
+  )) {
+    names.set(profile.mri, profile.displayName);
+    changed = true;
   }
-  for (const chat of targets) {
-    const mri = counterpart(chat);
-    const name =
-      mri === self.mri
-        ? `${self.displayName} (You)`
-        : mri
-          ? names.get(mri)
-          : undefined;
-    const row = output.find((row) => row.id === chat.id);
-    if (row && name) row.label = name;
-  }
+  const resolved = labelChats(chats, self, names);
   if (
     targets.some(
       (chat) =>
-        output.find((row) => row.id === chat.id)?.label ===
+        resolved.find((row) => row.id === chat.id)?.label ===
         "Unresolved one-to-one chat",
     )
   )
@@ -279,5 +331,5 @@ export async function resolveChatNames(
       },
       options.signal,
     );
-  return output;
+  return resolved;
 }

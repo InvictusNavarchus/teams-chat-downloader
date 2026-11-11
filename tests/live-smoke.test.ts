@@ -1,5 +1,10 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Message } from "../src/archive.ts";
 import { resolveLiveSmokeOptions } from "../src/command-validation.ts";
 import type { Credentials } from "../src/credentials.ts";
 import type { Fetch } from "../src/http.ts";
@@ -12,7 +17,7 @@ const options = resolveLiveSmokeOptions({
 });
 const credentials: Credentials = {
   version: 1,
-  accountId: "synthetic-account",
+  accountId: createHash("sha256").update("8:live:self").digest("hex"),
   historyAuthentication: "history-secret",
   directoryToken: "directory-secret",
   profileAuthorization: "Bearer profile-secret",
@@ -24,6 +29,55 @@ const png = Buffer.from(
   "base64",
 );
 
+const directories: string[] = [];
+afterEach(async () => {
+  await Promise.all(
+    directories
+      .splice(0)
+      .map((path) => rm(path, { recursive: true, force: true })),
+  );
+});
+
+async function savedArchive(overrides: Record<string, unknown> = {}) {
+  const directory = await mkdtemp(join(tmpdir(), "teams-smoke-fixture-test-"));
+  directories.push(directory);
+  const path = join(directory, "chat.json");
+  const archive = {
+    version: 1,
+    status: "complete",
+    accountId: credentials.accountId,
+    chatId: "synthetic-chat",
+    window: {
+      from: options.from,
+      toExclusive: options.to,
+      timestampField: "originalarrivaltime",
+    },
+    media: { status: "not-downloaded" },
+    messages: [
+      {
+        id: "self",
+        originalarrivaltime: "2026-08-03T00:00:00Z",
+        from: "8:live:self",
+      },
+      {
+        id: "other",
+        originalarrivaltime: "2026-08-03T00:00:01Z",
+        from: "https://teams.live.com/v1/users/ME/contacts/8%3Alive%3Aother",
+        messagetype: "RichText/Html",
+        content: `<img src="${imageUrl}">`,
+      },
+    ],
+    ...overrides,
+  };
+  await writeFile(path, JSON.stringify(archive), { mode: 0o600 });
+  const resolved = resolveLiveSmokeOptions({
+    fixture: path,
+    from: options.from,
+    to: options.to,
+  });
+  return { path, archive, options: resolved };
+}
+
 function fixture(
   settings: {
     continuation?: boolean;
@@ -32,10 +86,16 @@ function fixture(
     validators?: boolean;
     refreshStatus?: number;
     profileStatus?: number;
+    participantStatus?: number;
+    directoryStatus?: number;
+    directoryId?: string;
     historyStatus?: number;
+    secondHistoryStatus?: number;
+    emptyHistory?: boolean;
     participant?: boolean;
     outOfWindow?: boolean;
     title?: string;
+    members?: { mri: string }[];
     extraChats?: {
       id: string;
       title?: string;
@@ -62,23 +122,28 @@ function fixture(
       expect(url.searchParams.get("endTime")).toBe(
         String(options.window.to - 1),
       );
-      if (settings.historyStatus)
-        return new Response("secret-body", { status: settings.historyStatus });
+      const status =
+        history === 2
+          ? (settings.secondHistoryStatus ?? settings.historyStatus)
+          : settings.historyStatus;
+      if (status) return new Response("secret-body", { status });
       return Response.json({
-        messages: [
-          {
-            id: String(history),
-            originalarrivaltime:
-              settings.outOfWindow && history === 2
-                ? "2026-11-01T00:00:00Z"
-                : "2026-08-03T00:00:00Z",
-            messagetype: "RichText/Html",
-            content:
-              settings.image === false
-                ? "Text only"
-                : `<img src="https://external.invalid/private"><img src="${imageUrl}"><img src="https://us-api.asm.skype.com/v1/objects/second/views/imgo">`,
-          },
-        ],
+        messages: settings.emptyHistory
+          ? []
+          : [
+              {
+                id: String(history),
+                originalarrivaltime:
+                  settings.outOfWindow && history === 2
+                    ? "2026-11-01T00:00:00Z"
+                    : "2026-08-03T00:00:00Z",
+                messagetype: "RichText/Html",
+                content:
+                  settings.image === false
+                    ? "Text only"
+                    : `<img src="https://external.invalid/private"><img src="${imageUrl}"><img src="https://us-api.asm.skype.com/v1/objects/second/views/imgo">`,
+              },
+            ],
         _metadata:
           settings.continuation === false
             ? {}
@@ -120,6 +185,16 @@ function fixture(
     }
     if (url.pathname.endsWith("fetchShortProfile")) {
       expect(await request.json()).toEqual(["8:live:other"]);
+      expect(request.headers.get("Authorization")).toBe(
+        "Bearer profile-secret",
+      );
+      expect(request.headers.get("x-skypetoken")).toBe("directory-secret");
+      expect(request.headers.has("Cookie")).toBe(false);
+      expect(request.headers.has("Authentication")).toBe(false);
+      if (settings.participantStatus)
+        return new Response("secret-body", {
+          status: settings.participantStatus,
+        });
       return Response.json({
         value: [{ mri: "8:live:other", displayName: "Other", status: 200 }],
       });
@@ -127,13 +202,18 @@ function fixture(
     expect(url.pathname).toBe("/api/csa/api/v3/teams/users/me");
     expect(request.headers.get("x-skypetoken")).toBe("directory-secret");
     expect(request.headers.has("Cookie")).toBe(false);
+    if (settings.directoryStatus)
+      return new Response("secret-body", { status: settings.directoryStatus });
     return Response.json({
       chats: [
         {
-          id: options.chat,
+          id: settings.directoryId ?? options.chat,
           title: settings.title,
           isOneOnOne: settings.participant !== false,
-          members: [{ mri: "8:live:self" }, { mri: "8:live:other" }],
+          members: settings.members ?? [
+            { mri: "8:live:self" },
+            { mri: "8:live:other" },
+          ],
         },
         ...(settings.extraChats ?? []),
       ],
@@ -151,7 +231,7 @@ test("live runner uses real clients, caps history at two pages and media at one 
   const f = fixture();
   const report = await runLiveSmoke(options, credentials, f.dependencies);
   expect(report.ok).toBe(true);
-  expect(report.checks).toHaveLength(7);
+  expect(report.checks).toHaveLength(8);
   expect(report.requests).toEqual({
     total: 7,
     directory: 1,
@@ -188,6 +268,241 @@ test("a short window does not count as a verified pagination check", async () =>
   );
   expect(report.checks.find((c) => c.name === "media cookie")?.status).toBe(
     "pass",
+  );
+});
+
+test("fixture targets keep profiles and media live when directory and history both fail", async () => {
+  const saved = await savedArchive();
+  const before = await readFile(saved.path, "utf8");
+  const f = fixture({ directoryStatus: 401, historyStatus: 403 });
+  const report = await runLiveSmoke(saved.options, credentials, f.dependencies);
+  expect(report.ok).toBe(false);
+  expect(report.requests).toEqual({
+    total: 6,
+    directory: 1,
+    profiles: 2,
+    history: 1,
+    media: 2,
+    retries: 0,
+  });
+  expect(report.checks.map(({ name, status }) => [name, status])).toEqual([
+    ["directory", "fail"],
+    ["self profile", "pass"],
+    ["participant profiles", "pass"],
+    ["history", "fail"],
+    ["pagination", "unverified"],
+    ["media cookie", "pass"],
+    ["media cache", "pass"],
+    ["media revalidation", "pass"],
+  ]);
+  expect(await readFile(saved.path, "utf8")).toBe(before);
+  for (const secret of [
+    "history-secret",
+    "directory-secret",
+    "profile-secret",
+    "media-secret",
+    "secret-body",
+    imageUrl,
+    "8:live:other",
+  ])
+    expect(JSON.stringify(report) + f.logs.join("\n")).not.toContain(secret);
+});
+
+test("fixture participant lookup does not depend on a successful self-profile request", async () => {
+  const saved = await savedArchive();
+  const f = fixture({
+    directoryStatus: 401,
+    profileStatus: 409,
+    continuation: false,
+  });
+  const report = await runLiveSmoke(saved.options, credentials, f.dependencies);
+  expect(report.requests.profiles).toBe(2);
+  expect(
+    report.checks.find((c) => c.name === "self profile")?.detail,
+  ).toContain("HTTP 409");
+  expect(
+    report.checks.find((c) => c.name === "participant profiles")?.status,
+  ).toBe("pass");
+  expect(report.checks.find((c) => c.name === "history")?.status).toBe("pass");
+  expect(report.checks.find((c) => c.name === "media cookie")?.status).toBe(
+    "pass",
+  );
+});
+
+test("fixture mode reports each independent service's failure instead of skipping requests", async () => {
+  const saved = await savedArchive();
+  const f = fixture({
+    directoryStatus: 401,
+    profileStatus: 409,
+    participantStatus: 403,
+    historyStatus: 401,
+    mediaStatus: 403,
+  });
+  const report = await runLiveSmoke(saved.options, credentials, f.dependencies);
+  expect(report.requests).toEqual({
+    total: 5,
+    directory: 1,
+    profiles: 2,
+    history: 1,
+    media: 1,
+    retries: 0,
+  });
+  for (const [name, status] of [
+    ["directory", 401],
+    ["self profile", 409],
+    ["participant profiles", 403],
+    ["history", 401],
+    ["media cookie", 403],
+  ] as const) {
+    const check = report.checks.find((item) => item.name === name);
+    expect(check?.status).toBe("fail");
+    expect(check?.detail).toContain(`HTTP ${status}`);
+  }
+  expect(
+    report.checks.filter((c) => c.status === "unverified").map((c) => c.name),
+  ).toEqual(["pagination", "media cache", "media revalidation"]);
+});
+
+test("a raw-ID history probe and self-profile probe continue after directory failure without a fixture", async () => {
+  const f = fixture({ directoryStatus: 401, continuation: false });
+  const report = await runLiveSmoke(options, credentials, f.dependencies);
+  expect(report.requests.history).toBe(1);
+  expect(report.requests.profiles).toBe(1);
+  expect(report.checks.find((c) => c.name === "self profile")?.status).toBe(
+    "pass",
+  );
+  expect(
+    report.checks.find((c) => c.name === "participant profiles")?.status,
+  ).toBe("unverified");
+  expect(report.checks.find((c) => c.name === "history")?.status).toBe("pass");
+});
+
+test("a successful directory cannot veto a supplied raw history target", async () => {
+  const f = fixture({
+    directoryId: "different-listed-chat",
+    continuation: false,
+  });
+  const report = await runLiveSmoke(options, credentials, f.dependencies);
+  expect(report.checks.find((c) => c.name === "directory")?.status).toBe(
+    "pass",
+  );
+  expect(report.checks.find((c) => c.name === "history")?.status).toBe("pass");
+  expect(report.requests.history).toBe(1);
+});
+
+test("a quiet live window does not prevent media verification using the archive reference", async () => {
+  const saved = await savedArchive();
+  const f = fixture({ emptyHistory: true, continuation: false });
+  const report = await runLiveSmoke(saved.options, credentials, f.dependencies);
+  expect(report.checks.find((c) => c.name === "history")?.status).toBe("pass");
+  expect(report.checks.find((c) => c.name === "pagination")?.status).toBe(
+    "unverified",
+  );
+  expect(report.requests.media).toBe(2);
+  expect(report.checks.find((c) => c.name === "media cookie")?.status).toBe(
+    "pass",
+  );
+});
+
+test("missing fixture sender leaves only participant coverage unverified when other inputs are known", async () => {
+  const messages: Message[] = [
+    {
+      id: "image",
+      originalarrivaltime: "2026-08-03T00:00:00Z",
+      messagetype: "RichText/Html",
+      content: `<img src="${imageUrl}">`,
+    },
+  ];
+  const saved = await savedArchive({ messages });
+  const f = fixture({ directoryStatus: 401, historyStatus: 401 });
+  const report = await runLiveSmoke(saved.options, credentials, f.dependencies);
+  expect(report.requests.profiles).toBe(1);
+  expect(
+    report.checks.find((c) => c.name === "participant profiles")?.status,
+  ).toBe("unverified");
+  expect(report.checks.find((c) => c.name === "media cookie")?.status).toBe(
+    "pass",
+  );
+});
+
+test("untrusted fixture image URLs are never requested and do not leak into diagnostics", async () => {
+  const saved = await savedArchive({
+    messages: [
+      {
+        id: "external",
+        originalarrivaltime: "2026-08-03T00:00:00Z",
+        messagetype: "RichText/Html",
+        content:
+          '<img src="https://external.invalid/image?token=fixture-secret">',
+      },
+    ],
+  });
+  const f = fixture({ directoryStatus: 401, historyStatus: 401 });
+  const report = await runLiveSmoke(saved.options, credentials, f.dependencies);
+  expect(report.requests.media).toBe(0);
+  expect(report.checks.find((c) => c.name === "media cookie")?.status).toBe(
+    "unverified",
+  );
+  expect(
+    f.calls.every((call) => new URL(call.url).hostname !== "external.invalid"),
+  ).toBe(true);
+  expect(f.logs.join("\n")).not.toContain("fixture-secret");
+});
+
+test.each(["another-account", undefined])(
+  "fixtures with wrong or missing account IDs fail before HTTP: %s",
+  async (accountId) => {
+    const saved = await savedArchive({ accountId });
+    const f = fixture();
+    await expect(
+      runLiveSmoke(saved.options, credentials, f.dependencies),
+    ).rejects.toThrow("Fixture account does not match");
+    expect(f.calls).toHaveLength(0);
+  },
+);
+
+test("malformed fixtures fail before HTTP without echoing their private content", async () => {
+  const saved = await savedArchive();
+  await writeFile(saved.path, "invalid-json-with-fixture-secret");
+  const f = fixture();
+  await expect(
+    runLiveSmoke(saved.options, credentials, f.dependencies),
+  ).rejects.toThrow("Input export is not valid JSON");
+  expect(f.calls).toHaveLength(0);
+  expect(f.logs.join("\n")).not.toContain("fixture-secret");
+});
+
+test("legacy account labels need a successful self profile to distinguish the participant", async () => {
+  const saved = await savedArchive({ accountId: "legacy" });
+  const f = fixture({
+    directoryStatus: 401,
+    profileStatus: 409,
+    historyStatus: 401,
+  });
+  const report = await runLiveSmoke(
+    saved.options,
+    { ...credentials, accountId: "legacy" },
+    f.dependencies,
+  );
+  expect(report.requests.profiles).toBe(1);
+  expect(
+    report.checks.find((c) => c.name === "participant profiles")?.status,
+  ).toBe("unverified");
+  expect(report.checks.find((c) => c.name === "media cookie")?.status).toBe(
+    "pass",
+  );
+});
+
+test("a failed second page is reported as a pagination failure while the first page remains verified", async () => {
+  const f = fixture({ secondHistoryStatus: 403 });
+  const report = await runLiveSmoke(options, credentials, f.dependencies);
+  expect(report.requests.history).toBe(2);
+  expect(report.checks.find((c) => c.name === "history")?.status).toBe("pass");
+  expect(report.checks.find((c) => c.name === "pagination")?.status).toBe(
+    "fail",
+  );
+  expect(report.checks.find((c) => c.name === "pagination")?.detail).toContain(
+    "HTTP 403",
   );
 });
 
@@ -271,7 +586,7 @@ test("failed profile-based label resolution prevents history while retaining the
   const report = await runLiveSmoke(selected, credentials, f.dependencies);
   expect(report.requests.directory).toBe(1);
   expect(report.requests.history).toBe(0);
-  expect(report.checks.find((c) => c.name === "profiles")).toMatchObject({
+  expect(report.checks.find((c) => c.name === "self profile")).toMatchObject({
     status: "fail",
     detail: expect.stringContaining("HTTP 409"),
   });
@@ -310,8 +625,8 @@ test.each([403, 409])(
     const f = fixture({ continuation: false, profileStatus });
     const report = await runLiveSmoke(options, credentials, f.dependencies);
     expect(report.ok).toBe(false);
-    expect(report.requests.profiles).toBe(1);
-    expect(report.checks.find((c) => c.name === "profiles")).toMatchObject({
+    expect(report.requests.profiles).toBe(2);
+    expect(report.checks.find((c) => c.name === "self profile")).toMatchObject({
       status: "fail",
       detail: expect.stringContaining(`HTTP ${profileStatus}`),
     });
@@ -338,26 +653,27 @@ test("an out-of-window second page cannot pass pagination, while valid first-pag
   const report = await runLiveSmoke(options, credentials, f.dependencies);
   expect(report.ok).toBe(false);
   expect(report.requests.history).toBe(2);
-  expect(report.checks.find((c) => c.name === "history")).toMatchObject({
+  expect(report.checks.find((c) => c.name === "pagination")).toMatchObject({
     status: "fail",
     detail: expect.stringContaining("outside the fixed date window"),
   });
-  expect(report.checks.find((c) => c.name === "pagination")?.status).toBe(
-    "unverified",
-  );
+  expect(report.checks.find((c) => c.name === "history")?.status).toBe("pass");
   expect(report.checks.find((c) => c.name === "media cookie")?.status).toBe(
     "pass",
   );
 });
 
-test("no eligible participant is reported unverified without making profile requests", async () => {
-  const f = fixture({ continuation: false, participant: false });
+test("no known participant leaves only that probe unverified, while self profile still runs", async () => {
+  const f = fixture({ continuation: false, members: [] });
   const report = await runLiveSmoke(options, credentials, f.dependencies);
   expect(report.ok).toBe(false);
-  expect(report.requests.profiles).toBe(0);
-  expect(report.checks.find((c) => c.name === "profiles")?.status).toBe(
-    "unverified",
+  expect(report.requests.profiles).toBe(1);
+  expect(report.checks.find((c) => c.name === "self profile")?.status).toBe(
+    "pass",
   );
+  expect(
+    report.checks.find((c) => c.name === "participant profiles")?.status,
+  ).toBe("unverified");
 });
 
 test("missing media credentials fail rather than reusing an existing normal cache", async () => {
@@ -431,6 +747,7 @@ test.each([
     console.log(JSON.stringify({
       raw: resolveLiveSmokeOptions({ chat: "fixture" }, now).window,
       label: resolveLiveSmokeOptions({ chatLabel: "Project Alpha" }, now).window,
+      fixture: resolveLiveSmokeOptions({ fixture: "chat.json" }, now).window,
       exported: resolveExportOptions({ chat: "fixture", last: "2d" }, now).window,
     }));`,
       ],
@@ -447,6 +764,7 @@ test.each([
     expect(JSON.parse(stdout)).toEqual({
       raw: window,
       label: window,
+      fixture: window,
       exported: window,
     });
   },
@@ -465,6 +783,9 @@ test("live CLI requires an explicit target and validates optional timezone-quali
   for (const input of [
     {},
     { from: options.from, to: options.to },
+    { fixture: "" },
+    { fixture: "chat.json", chat: "fixture" },
+    { fixture: "chat.json", chatLabel: "Other" },
     {
       chat: options.chat,
       chatLabel: "Other",

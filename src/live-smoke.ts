@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cac } from "cac";
-import { isHtmlMessage, type Message } from "./archive.ts";
+import { isHtmlMessage, readArchive, type Message } from "./archive.ts";
 import { selectChatByLabel } from "./chat-selection.ts";
 import {
   type LiveSmokeOptions,
@@ -13,7 +14,12 @@ import { loadCredentials, type Credentials } from "./credentials.ts";
 import { AppError } from "./errors.ts";
 import { createHttp, requestStats, type Fetch, type Http } from "./http.ts";
 import { downloadImages, imageUrl } from "./media.ts";
-import { resolveChatNames } from "./profiles.ts";
+import {
+  chatCounterpart,
+  labelChats,
+  readParticipantProfiles,
+  readSelfProfile,
+} from "./profiles.ts";
 import {
   historyProgress,
   readChatDirectory,
@@ -27,6 +33,51 @@ type Check = {
 };
 
 class Unverified extends AppError {}
+
+function participantMri(source: unknown): string | undefined {
+  if (typeof source !== "string") return;
+  const supported = /^8:(?:live|orgid):[^\s/?#]+$/;
+  if (supported.test(source)) return source;
+  try {
+    // Source sender links are identifiers here, never request destinations.
+    const url = new URL(source);
+    const segment = /^\/v1\/users\/ME\/contacts\/([^/]+)$/.exec(
+      url.pathname,
+    )?.[1];
+    if (
+      url.protocol !== "https:" ||
+      url.search ||
+      url.hash ||
+      url.username ||
+      url.password ||
+      !segment
+    )
+      return;
+    const mri = decodeURIComponent(segment);
+    if (supported.test(mri)) return mri;
+  } catch {
+    // Unknown sender shapes are not guessed into profile identities.
+  }
+}
+
+function knownParticipant(
+  sources: unknown[],
+  selfMri: string | undefined,
+  accountId: string,
+): string | undefined {
+  // Login account IDs are SHA-256(self MRI). Legacy custom account labels need
+  // a successful self read to distinguish the account from other participants.
+  if (!selfMri && !/^[a-f0-9]{64}$/.test(accountId)) return;
+  for (const source of sources) {
+    const mri = participantMri(source);
+    if (
+      mri &&
+      mri !== selfMri &&
+      createHash("sha256").update(mri).digest("hex") !== accountId
+    )
+      return mri;
+  }
+}
 
 // Limit the real downloader to one supported reference, even if a message has many.
 async function sampleImage(messages: Message[]): Promise<Message | undefined> {
@@ -56,6 +107,14 @@ export async function runLiveSmoke(
     log?: (message: string) => void;
   } = {},
 ) {
+  const fixture =
+    options.fixture === undefined
+      ? undefined
+      : await readArchive(options.fixture, dependencies.signal);
+  if (fixture && fixture.accountId !== credentials.accountId)
+    throw new AppError(
+      "Fixture account does not match the credentials; choose an archive from the same account.",
+    );
   const stats = requestStats();
   const checks: Check[] = [];
   const log = dependencies.log ?? console.log;
@@ -69,21 +128,8 @@ export async function runLiveSmoke(
   let conditionalSent = false;
   let mediaStatus = 0;
   let mediaHost = "";
-  let participantRequested = false;
   const http: Http = {
     ...base,
-    async json(url, purpose, headers, validate, readBody) {
-      const response = await base.json(
-        url,
-        purpose,
-        headers,
-        validate,
-        readBody,
-      );
-      if (purpose === "profiles" && readBody?.length)
-        participantRequested = true;
-      return response;
-    },
     async image(url, headers, validate) {
       mediaHost = url.hostname;
       conditionalSent = !!(
@@ -114,6 +160,7 @@ export async function runLiveSmoke(
     log(`[${result.status.toUpperCase()}] ${name}: ${result.detail}`);
     return result.status === "pass";
   }
+  let pages: ReturnType<typeof readHistoryPages> | undefined;
   try {
     log(
       `History window: ${new Date(options.window.from).toISOString()} (inclusive) to ${new Date(options.window.to).toISOString()} (exclusive).`,
@@ -123,59 +170,74 @@ export async function runLiveSmoke(
       chats = await readChatDirectory(http, credentials);
       return `${chats.length} chats; complete directory response.`;
     });
-    let resolvedChats: Awaited<ReturnType<typeof resolveChatNames>> | undefined;
-    await check("profiles", async () => {
-      if (!chats) throw new Unverified("Directory lookup did not succeed.");
-      const target = chats.find(
-        (chat) => chat.isOneOnOne && !chat.title && chat.members.length >= 2,
+    let self: Awaited<ReturnType<typeof readSelfProfile>> | undefined;
+    await check("self profile", async () => {
+      self = await readSelfProfile(http, credentials);
+      return "Direct self-profile request and payload validated; no directory or cache dependency.";
+    });
+    let names: Map<string, string> | undefined;
+    await check("participant profiles", async () => {
+      let ids: string[];
+      if (options.chatLabel !== undefined && chats && self) {
+        const selfMri = self.mri;
+        // Resolve every untitled one-to-one label to detect all collisions.
+        ids = [
+          ...new Set(
+            chats
+              .filter((chat) => chat.isOneOnOne && !chat.title)
+              .map((chat) => chatCounterpart(chat, selfMri))
+              .filter((mri): mri is string => !!mri && mri !== selfMri),
+          ),
+        ];
+      } else {
+        const mri = knownParticipant(
+          [
+            ...(fixture?.messages.map((message) => message.from) ?? []),
+            ...(chats?.flatMap((chat) => chat.members) ?? []),
+          ],
+          self?.mri,
+          credentials.accountId,
+        );
+        ids = mri ? [mri] : [];
+      }
+      if (!ids.length) {
+        names = new Map();
+        throw new Unverified(
+          "No known participant identity available; supply a fixture containing a supported sender.",
+        );
+      }
+      names = new Map(
+        (await readParticipantProfiles(http, credentials, ids)).map(
+          (profile) => [profile.mri, profile.displayName],
+        ),
       );
-      // Label selection needs every resolvable label to detect collisions, even
-      // between titled groups and untitled one-to-one chats.
-      const profileChats =
-        options.chatLabel !== undefined ? chats : target ? [target] : [];
-      resolvedChats = await resolveChatNames(http, credentials, profileChats, {
-        refresh: true,
-        cachePath: join(temporary, "profiles.json"),
-        signal: dependencies.signal,
-      });
-      if (!credentials.profileAuthorization)
-        throw new AppError("Profile credentials missing; run teams login.");
-      if (!target)
-        throw new Unverified(
-          "No untitled one-to-one chat available for a participant lookup.",
-        );
-      if (
-        resolvedChats.find((chat) => chat.id === target.id)?.label ===
-          "Unresolved one-to-one chat" ||
-        !participantRequested
-      )
-        throw new Unverified(
-          "Self profile checked, but no participant name resolved live.",
-        );
-      return options.chatLabel !== undefined
-        ? "Directory labels resolved with a fresh cache; self profile and participant name checked live."
-        : "Self profile and one participant name resolved with a fresh cache.";
+      if (!names.size)
+        throw new Unverified("No requested participant name resolved live.");
+      return `${names.size} participant name(s) resolved directly without cached names.`;
     });
 
     const progress = historyProgress();
     const messages: Message[] = [];
-    let secondPageAdded = 0;
     const historyRead = await check("history", async () => {
-      let chat = options.chat;
+      let chat = fixture?.chatId ?? options.chat;
       if (options.chatLabel !== undefined) {
-        if (!resolvedChats)
-          throw new Unverified("Directory label resolution did not succeed.");
-        chat = selectChatByLabel(resolvedChats, options.chatLabel).id;
+        if (!chats)
+          throw new Unverified(
+            "Label selection needs the directory; use --fixture or --chat for an independent history probe.",
+          );
+        const needsNames = chats.some((chat) => chat.isOneOnOne && !chat.title);
+        if (needsNames && (!self || names === undefined))
+          throw new Unverified(
+            "Directory label resolution did not succeed; use --fixture or --chat for an independent history probe.",
+          );
+        chat = selectChatByLabel(
+          needsNames ? labelChats(chats, self!, names!) : chats,
+          options.chatLabel,
+        ).id;
       }
       if (chat === undefined)
-        throw new AppError(
-          "Choose exactly one of --chat <id> or --chat-label <label>.",
-        );
-      if (chats && !chats.some((item) => item.id === chat))
-        throw new AppError(
-          "Selected chat is absent from the current directory.",
-        );
-      for await (const page of readHistoryPages(
+        throw new Unverified("No known history target available.");
+      pages = readHistoryPages(
         http,
         credentials,
         chat,
@@ -183,22 +245,22 @@ export async function runLiveSmoke(
         progress,
         undefined,
         { signal: dependencies.signal },
-      )) {
-        messages.push(...page);
-        if (progress.pages === 2) {
-          secondPageAdded = page.length;
-          break;
-        }
-      }
-      return `${progress.pages} page(s), ${messages.length} distinct messages; schemas and fixed date bounds validated.`;
+      );
+      const page = await pages.next();
+      if (!page.done) messages.push(...page.value);
+      return `${messages.length} distinct messages on the first page; schema and fixed date bounds validated.`;
     });
     await check("pagination", async () => {
-      if (!historyRead)
-        throw new Unverified("History sampling did not succeed.");
-      if (progress.pages !== 2 || secondPageAdded === 0)
+      if (!historyRead || !pages)
+        throw new Unverified("First history page did not succeed.");
+      const page = await pages.next();
+      if (page.done)
         throw new Unverified(
-          "Two validated pages with new records required; choose a busier historical window.",
+          "First page has no continuation; choose a busier historical window.",
         );
+      messages.push(...page.value);
+      if (!page.value.length)
+        throw new Unverified("Continuation returned no new records.");
       return "Followed a real continuation with new records; stopped after page two.";
     });
 
@@ -207,14 +269,12 @@ export async function runLiveSmoke(
     const cacheRoot = join(temporary, "media-cache");
     const mediaOptions = { cacheRoot, signal: dependencies.signal };
     const downloaded = await check("media cookie", async () => {
-      if (!historyRead && messages.length === 0)
-        throw new Unverified(
-          "No validated history sample available for media checks.",
-        );
-      image = await sampleImage(messages);
+      image =
+        (fixture && (await sampleImage(fixture.messages))) ||
+        (await sampleImage(messages));
       if (!image)
         throw new Unverified(
-          "No supported image in the two-page sample; choose an image-containing historical window.",
+          "No known supported image reference; supply an image-containing fixture or history window.",
         );
       const media = await downloadImages(
         [image],
@@ -266,7 +326,11 @@ export async function runLiveSmoke(
         : "Conditional GET returned HTTP 200; refreshed image validated (304 branch unverified).";
     });
   } finally {
-    await rm(temporary, { recursive: true, force: true });
+    try {
+      await pages?.return(undefined);
+    } finally {
+      await rm(temporary, { recursive: true, force: true });
+    }
   }
   log(
     `HTTP attempts: ${stats.total} total; directory ${stats.directory}, profiles ${stats.profiles}, history ${stats.history}, media ${stats.media}; retries ${stats.retries}.`,
@@ -291,7 +355,11 @@ export async function runLiveSmokeCli(argv = process.argv): Promise<number> {
     .option("--chat <id>", "Raw chat ID with enough history for two pages")
     .option(
       "--chat-label <label>",
-      "Exact resolved chat label (choose this or --chat)",
+      "Exact resolved chat label (requires live directory/name discovery)",
+    )
+    .option(
+      "--fixture <archive>",
+      "Use a same-account chat.json for independent targets (choose this, --chat, or --chat-label)",
     )
     .option(
       "--from <timestamp>",
