@@ -2,6 +2,7 @@ import { lstat, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { convertArchive, markdownPath } from "./convert.ts";
 import { AppError } from "./errors.ts";
+import { exportArchiveCandidates } from "./export-discovery.ts";
 import type { BatchConvertOptions } from "./command-validation.ts";
 
 type FileResult = {
@@ -77,6 +78,20 @@ async function* jsonFiles(
   directory: string,
   recursive: boolean,
 ): AsyncGenerator<string> {
+  if (!recursive) {
+    try {
+      for await (const path of exportArchiveCandidates(directory)) {
+        const info = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return;
+          throw error;
+        });
+        if (info?.isFile()) yield path;
+      }
+    } catch {
+      throw new AppError(`Could not read conversion directory: ${directory}.`);
+    }
+    return;
+  }
   const entries = await readdir(directory, { withFileTypes: true }).catch(
     () => {
       throw new AppError(`Could not read conversion directory: ${directory}.`);
@@ -86,17 +101,7 @@ async function* jsonFiles(
   for (const entry of entries) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (recursive) yield* jsonFiles(path, recursive);
-      else {
-        const input = join(path, "chat.json");
-        const info = await lstat(input).catch(
-          (error: NodeJS.ErrnoException) => {
-            if (error.code === "ENOENT") return;
-            throw new AppError(`Could not inspect export folder: ${path}.`);
-          },
-        );
-        if (info?.isFile()) yield input;
-      }
+      yield* jsonFiles(path, recursive);
     } else if (entry.isFile() && /\.json$/i.test(entry.name)) yield path;
   }
 }

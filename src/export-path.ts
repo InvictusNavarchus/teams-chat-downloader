@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+import dayjs from "dayjs";
 import { defaultExportRoot } from "./config.ts";
 import { AppError } from "./errors.ts";
 import type { ExportOptions } from "./command-validation.ts";
@@ -29,12 +30,18 @@ export function defaultExportDirectory(
   const name = unresolved
     ? `${slug || "chat"}-${createHash("sha256").update(options.chat).digest("hex").slice(0, 10)}`
     : slug;
+  if (options.last === "1d")
+    return join(
+      defaultExportRoot,
+      name,
+      dayjs(options.window.from).format("YYYY-MM-DD"),
+    );
   const from = filenameTimestamp(options.window.from);
   const to = filenameTimestamp(options.window.to);
   const period = options.last
     ? `last-${options.last}--to-${to}`
     : `${options.since ? "since" : "from"}-${from}--to-${to}`;
-  return join(defaultExportRoot, `${name}--${period}`);
+  return join(defaultExportRoot, name, period);
 }
 
 function filenameTimestamp(value: number): string {

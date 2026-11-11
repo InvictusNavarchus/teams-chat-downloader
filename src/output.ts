@@ -1,4 +1,12 @@
-import { access, link, mkdir, open, rename, unlink } from "node:fs/promises";
+import {
+  access,
+  link,
+  mkdir,
+  open,
+  rename,
+  rmdir,
+  unlink,
+} from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { AppError } from "./errors.ts";
 
@@ -20,7 +28,7 @@ export async function writeExport(
   return writeJson(path, document, "export", signal);
 }
 
-// Only the media workflow updates an archive that has already been published.
+// Daily refreshes and media passes replace previously published archives.
 export async function updateExport(
   path: string,
   document: unknown,
@@ -51,6 +59,29 @@ export async function updateMarkdown(
   signal?: AbortSignal,
 ): Promise<string> {
   return writeText(path, markdown, "export", signal, true);
+}
+
+// Daily history refreshes and media updates share one reservation. Keep the
+// established lock path so older media processes also exclude daily writers.
+export async function withArchiveLock<T>(
+  output: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  const lock = `${resolve(output)}.media.lock`;
+  try {
+    await mkdir(lock, { mode: 0o700 });
+  } catch (error) {
+    throw new AppError(
+      (error as NodeJS.ErrnoException).code === "EEXIST"
+        ? "An archive update is already running. If it crashed, inspect and remove the adjacent .media.lock directory before retrying."
+        : "Could not reserve the archive for an update.",
+    );
+  }
+  try {
+    return await action();
+  } finally {
+    await rmdir(lock);
+  }
 }
 
 function writeJson(

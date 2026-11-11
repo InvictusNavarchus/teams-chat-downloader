@@ -124,6 +124,29 @@ test("discovery scans only regular root JSON files and direct export folders, ig
   ).toBeUndefined();
 });
 
+test("discovery finds grouped daily exports and snapshots without following media, deeper folders, or symlinks", async () => {
+  const root = await temporary();
+  const outside = await temporary();
+  const outsideArchive = await archive(outside, "chat.json", { modified: 900 });
+  await archive(root, "legacy/chat.json", { rich: false });
+  const daily = await archive(root, "alpha/2026-11-11/chat.json", {
+    modified: 300,
+  });
+  await archive(root, "alpha/last-7d--to-2026-11-11T03-00-00-000Z/chat.json", {
+    modified: 200,
+  });
+  await archive(root, "alpha/2026-11-11/media/chat.json", { modified: 800 });
+  await archive(root, "alpha/2026-11-11/deeper/chat.json", { modified: 800 });
+  await symlink(outside, join(root, "alpha/2026-11-12"));
+  await mkdir(join(root, "alpha/2026-11-13"));
+  await symlink(outsideArchive, join(root, "alpha/2026-11-13/chat.json"));
+  expect((await discoverSmokeFixture(root, accountId))?.path).toBe(daily);
+  await rm(daily);
+  expect((await discoverSmokeFixture(root, accountId))?.path).toContain(
+    "alpha/last-7d--to-",
+  );
+});
+
 test("missing or non-matching exports leave discovery empty rather than switching accounts", async () => {
   const root = await temporary();
   expect(

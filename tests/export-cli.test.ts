@@ -5,6 +5,7 @@ import {
   readFile,
   readdir,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -57,10 +58,20 @@ async function fixture({
     preload,
     `
     const fixtures = await Bun.file(process.env.EXPORT_FIXTURES).json();
+    Date.now = () => fixtures.now;
     globalThis.fetch = async (input) => {
       const url = new URL(input instanceof Request ? input.url : input);
       if (url.pathname.endsWith("/users/me")) return Response.json(fixtures.directory, { status: fixtures.directoryStatus });
       if (url.pathname.endsWith("/messages")) {
+        if (fixtures.historyGate) {
+          await Bun.write(fixtures.historyGate + ".started", "started");
+          const deadline = performance.now() + 3000;
+          while (!(await Bun.file(fixtures.historyGate).exists())) {
+            if (performance.now() > deadline) throw new Error("History gate timed out");
+            await Bun.sleep(5);
+          }
+        }
+        if (fixtures.cancelHistory) process.emit("SIGINT");
         const chat = decodeURIComponent(url.pathname.split("/").at(-2));
         if (chat !== fixtures.expectedChat) throw new Error("History requested the wrong chat");
         const index = Number(url.searchParams.get("fixturePage") ?? 0);
@@ -102,6 +113,9 @@ async function fixture({
       imageStatus = 200,
       command = "export",
       expectedChat = "fixture",
+      now = Date.parse("2026-11-11T03:00:00Z"),
+      historyGate,
+      cancelHistory = false,
     }: {
       chats?: unknown[];
       directoryStatus?: number;
@@ -111,6 +125,9 @@ async function fixture({
       imageStatus?: number;
       command?: "export" | "media";
       expectedChat?: string;
+      now?: number;
+      historyGate?: string;
+      cancelHistory?: boolean;
     } = {},
   ) {
     await writeFile(
@@ -126,6 +143,9 @@ async function fixture({
         historyPages,
         imageStatus,
         expectedChat,
+        now,
+        historyGate,
+        cancelHistory,
       }),
     );
     const child = Bun.spawn(
@@ -150,6 +170,7 @@ async function fixture({
           ...process.env,
           EXPORT_FIXTURES: responses,
           XDG_CACHE_HOME: join(dir, "cache"),
+          TZ: "Asia/Jakarta",
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -162,7 +183,7 @@ async function fixture({
     ]);
     return { code, stdout, stderr };
   }
-  return { dir, run };
+  return { dir, run, credentials };
 }
 
 test("export selects a group label case-insensitively and reuses it for naming", async () => {
@@ -178,8 +199,8 @@ test("export selects a group label case-insensitively and reuses it for naming",
   expect(result.code).toBe(0);
   expect(result.stderr).toBe("");
   const summary = readSummary(result.stdout);
-  expect(basename(dirname(summary.output))).toStartWith(
-    "cafe-project-alpha--last-1d--",
+  expect(summary.output).toBe(
+    join(f.dir, "exports/cafe-project-alpha/2026-11-11/chat.json"),
   );
   const archive = JSON.parse(await readFile(summary.output, "utf8"));
   expect(archive.chatId).toBe(chat);
@@ -376,15 +397,14 @@ test("export without --out publishes a label-based export folder and reports the
     "chat.json",
     "chat.md",
   ]);
-  expect(basename(dirname(summary.output))).toMatch(
-    /^cafe-project-alpha--last-1d--to-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/,
+  expect(summary.output).toBe(
+    join(f.dir, "exports/cafe-project-alpha/2026-11-11/chat.json"),
   );
   expect(summary.messages).toBe(0);
   const document = JSON.parse(await readFile(summary.output, "utf8"));
   expect(document.status).toBe("complete");
-  expect(basename(dirname(summary.output))).toContain(
-    document.window.toExclusive.replace(/[:.]/g, "-"),
-  );
+  expect(document.window.from).toBe("2026-11-10T17:00:00.000Z");
+  expect(document.window.toExclusive).toBe("2026-11-11T03:00:00.000Z");
   expect(document.requests).toMatchObject({
     total: 2,
     directory: 1,
@@ -561,8 +581,8 @@ test("automatic naming resolves only the selected chat's participant label", asy
   const document = JSON.parse(
     await readFile(readSummary(result.stdout).output, "utf8"),
   );
-  expect(basename(dirname(readSummary(result.stdout).output))).toStartWith(
-    "jane-doe--last-1d--",
+  expect(basename(dirname(dirname(readSummary(result.stdout).output)))).toBe(
+    "jane-doe",
   );
   expect(document.requests).toMatchObject({
     directory: 1,
@@ -582,6 +602,239 @@ test("explicit --out overrides automatic naming without any directory or profile
   expect(
     JSON.parse(await readFile(summary.output, "utf8")).requests,
   ).toMatchObject({ total: 1, directory: 0, profiles: 0 });
+});
+
+test("daily refresh replaces today's history and Markdown, and the next local day gets a new folder", async () => {
+  const f = await fixture();
+  const message = {
+    id: "one",
+    originalarrivaltime: "2026-11-11T00:00:00Z",
+    messagetype: "Text",
+    content: "Earlier text",
+  };
+  const first = await f.run(["--last", "1d"], {
+    messages: [message, { ...message, id: "deleted" }],
+  });
+  expect(first.code).toBe(0);
+  const saved = readSummary(first.stdout);
+  const nextMessage = { ...message, content: "Updated text" };
+  const second = await f.run(["--last", "1d"], {
+    messages: [nextMessage],
+    now: Date.parse("2026-11-11T04:00:00Z"),
+  });
+  expect(second.code).toBe(0);
+  expect(readSummary(second.stdout)).toEqual({ ...saved, messages: 1 });
+  const archive = JSON.parse(await readFile(saved.output, "utf8"));
+  expect(archive.messages).toEqual([nextMessage]);
+  expect(archive.window.toExclusive).toBe("2026-11-11T04:00:00.000Z");
+  expect(archive.requests.history).toBe(1);
+  const markdown = await readFile(saved.markdown, "utf8");
+  expect(markdown).toContain("Updated text");
+  expect(markdown).not.toContain("Earlier text");
+  expect((await readdir(dirname(saved.output))).sort()).toEqual([
+    "chat.json",
+    "chat.md",
+  ]);
+  const tomorrow = await f.run(["--last", "1d"], {
+    now: Date.parse("2026-11-11T18:00:00Z"),
+  });
+  expect(tomorrow.code).toBe(0);
+  expect(readSummary(tomorrow.stdout).output).toBe(
+    join(f.dir, "exports/cafe-project-alpha/2026-11-12/chat.json"),
+  );
+  expect(await readFile(saved.markdown, "utf8")).toBe(markdown);
+});
+
+test("failed daily history retrieval preserves saved JSON, Markdown, and media", async () => {
+  const f = await fixture();
+  const first = await f.run(["--last", "1d"]);
+  const saved = readSummary(first.stdout);
+  const json = await readFile(saved.output, "utf8");
+  const markdown = await readFile(saved.markdown, "utf8");
+  await mkdir(join(dirname(saved.output), "media"));
+  await writeFile(join(dirname(saved.output), "media/keep.png"), "keep media");
+  const failed = await f.run(["--last", "1d"], { historyStatus: 401 });
+  expect(failed.code).toBe(1);
+  expect(await readFile(saved.output, "utf8")).toBe(json);
+  expect(await readFile(saved.markdown, "utf8")).toBe(markdown);
+  expect(
+    await readFile(join(dirname(saved.output), "media/keep.png"), "utf8"),
+  ).toBe("keep media");
+  expect(await readdir(dirname(saved.output))).not.toContain(
+    "chat.json.media.lock",
+  );
+});
+
+test("a failed first daily export removes its empty day folder and allows a retry", async () => {
+  const f = await fixture();
+  const failed = await f.run(["--last", "1d"], { historyStatus: 401 });
+  expect(failed.code).toBe(1);
+  expect(await readdir(f.dir)).not.toContain("exports");
+  expect((await f.run(["--last", "1d"])).code).toBe(0);
+});
+
+test("daily refresh reuses cached images without HTTP and can remove a stale Markdown transcript", async () => {
+  const f = await fixture({ media: true });
+  const messages = [
+    {
+      id: "image",
+      originalarrivaltime: "2026-11-11T00:00:00Z",
+      messagetype: "RichText/Html",
+      content:
+        '<img src="https://us-api.asm.skype.com/v1/objects/fixture-image/views/imgo">',
+    },
+  ];
+  const first = await f.run(["--last", "1d"], { messages });
+  expect(first.code).toBe(0);
+  const saved = readSummary(first.stdout);
+  const second = await f.run(["--last", "1d"], { messages, imageStatus: 401 });
+  expect(second.code).toBe(0);
+  expect(readSummary(second.stdout).output).toBe(saved.output);
+  expect(second.stdout).toContain("1 reused from local cache");
+  const archive = JSON.parse(await readFile(saved.output, "utf8"));
+  expect(archive.requests.media).toBe(0);
+  expect(await readFile(saved.markdown, "utf8")).toContain("](media/");
+  const jsonOnly = await f.run(["--last", "1d", "--no-markdown", "--no-media"]);
+  expect(jsonOnly.code).toBe(0);
+  expect(readSummary(jsonOnly.stdout).markdown).toBeUndefined();
+  expect(await Bun.file(saved.markdown).exists()).toBe(false);
+  expect(JSON.parse(await readFile(saved.output, "utf8")).media.status).toBe(
+    "not-downloaded",
+  );
+});
+
+test.each(["account", "chat", "date", "newer", "invalid"])(
+  "daily refresh refuses a conflicting %s archive before fetching history",
+  async (conflict) => {
+    const f = await fixture();
+    const first = await f.run(["--last", "1d"]);
+    const saved = readSummary(first.stdout);
+    const archive = JSON.parse(await readFile(saved.output, "utf8"));
+    if (conflict === "account") archive.accountId = "another-account";
+    if (conflict === "chat") archive.chatId = "another-chat";
+    if (conflict === "date") archive.window.from = "2026-11-09T17:00:00Z";
+    if (conflict === "newer")
+      archive.window.toExclusive = "2026-11-11T04:00:00Z";
+    const previous =
+      conflict === "invalid" ? "invalid JSON" : JSON.stringify(archive);
+    await writeFile(saved.output, previous);
+    const result = await f.run(["--last", "1d"]);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("history: 0, directory: 1");
+    expect(await readFile(saved.output, "utf8")).toBe(previous);
+  },
+);
+
+test("daily and media updates respect the same archive reservation", async () => {
+  const f = await fixture();
+  const first = await f.run(["--last", "1d"]);
+  const saved = readSummary(first.stdout);
+  const previous = await readFile(saved.output, "utf8");
+  await mkdir(`${saved.output}.media.lock`);
+  for (const [args, command] of [
+    [["--last", "1d"], "export"],
+    [["--input", saved.output], "media"],
+  ] as const) {
+    const result = await f.run([...args], { command });
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("already running");
+    expect(result.stdout).not.toContain("history: 1");
+    expect(await readFile(saved.output, "utf8")).toBe(previous);
+  }
+  expect(await readdir(dirname(saved.output))).toContain(
+    "chat.json.media.lock",
+  );
+});
+
+test("an active daily history refresh excludes another export and a media update", async () => {
+  const f = await fixture();
+  const saved = readSummary((await f.run(["--last", "1d"])).stdout);
+  const previous = await readFile(saved.output, "utf8");
+  const gate = join(f.dir, "release-history");
+  const active = f.run(["--last", "1d"], { historyGate: gate });
+  let completed;
+  try {
+    const deadline = performance.now() + 3000;
+    while (!(await Bun.file(`${gate}.started`).exists())) {
+      if (performance.now() > deadline)
+        throw new Error("History did not start");
+      await Bun.sleep(5);
+    }
+    const blocked = await f.run(["--last", "1d"]);
+    expect(blocked.code).toBe(1);
+    expect(blocked.stderr).toContain("already running");
+    expect(blocked.stdout).toContain("history: 0, directory: 1");
+    const media = await f.run(["--input", saved.output], { command: "media" });
+    expect(media.code).toBe(1);
+    expect(media.stderr).toContain("already running");
+    expect(await readFile(saved.output, "utf8")).toBe(previous);
+  } finally {
+    await writeFile(gate, "released");
+    completed = await active;
+  }
+  expect(completed.code).toBe(0);
+  expect(await readdir(dirname(saved.output))).not.toContain(
+    "chat.json.media.lock",
+  );
+});
+
+test("cancelling daily history preserves the saved export and releases the reservation", async () => {
+  const f = await fixture();
+  const saved = readSummary((await f.run(["--last", "1d"])).stdout);
+  const json = await readFile(saved.output, "utf8");
+  const markdown = await readFile(saved.markdown, "utf8");
+  const cancelled = await f.run(["--last", "1d"], { cancelHistory: true });
+  expect(cancelled.code).toBe(130);
+  expect(await readFile(saved.output, "utf8")).toBe(json);
+  expect(await readFile(saved.markdown, "utf8")).toBe(markdown);
+  expect(await readdir(dirname(saved.output))).not.toContain(
+    "chat.json.media.lock",
+  );
+  expect((await f.run(["--last", "1d"])).code).toBe(0);
+});
+
+test.each(["exports", "chat", "date", "chat.json", "chat.md", "media"])(
+  "daily refresh refuses a symlink at %s",
+  async (target) => {
+    const f = await fixture();
+    const first = await f.run(["--last", "1d"]);
+    const saved = readSummary(first.stdout);
+    const source =
+      target === "exports"
+        ? join(f.dir, "exports")
+        : target === "chat"
+          ? dirname(dirname(saved.output))
+          : target === "date"
+            ? dirname(saved.output)
+            : join(dirname(saved.output), target);
+    const outside = join(f.dir, "outside");
+    const isFile = target.endsWith(".json") || target.endsWith(".md");
+    if (isFile) await writeFile(outside, await readFile(source));
+    else await mkdir(outside);
+    await rm(source, { recursive: true, force: true });
+    await symlink(outside, source);
+    const result = await f.run(["--last", "1d"]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("symlink");
+    expect(result.stdout).toContain("history: 0, directory: 1");
+  },
+);
+
+test("explicit daily --out destinations and repeated exact ranges still refuse replacement", async () => {
+  const f = await fixture();
+  for (const args of [
+    ["--last", "1d", "--out", "custom"],
+    ["--from", "2026-11-01T00:00:00Z", "--to", "2026-11-02T00:00:00Z"],
+  ]) {
+    const first = await f.run(args);
+    expect(first.code).toBe(0);
+    const saved = readSummary(first.stdout);
+    const previous = await readFile(saved.output, "utf8");
+    const second = await f.run(args);
+    expect(second.code).toBe(1);
+    expect(second.stderr).toContain("already exists");
+    expect(await readFile(saved.output, "utf8")).toBe(previous);
+  }
 });
 
 test("Markdown export saves both JSON and Markdown by default, and --no-markdown skips it", async () => {
@@ -682,9 +935,9 @@ test.each([true, false])(
     const f = await fixture({ directoryToken });
     const result = await f.run(["--last", "1d"], { chats: [] });
     expect(result.code).toBe(0);
-    expect(basename(dirname(readSummary(result.stdout).output))).toMatch(
-      /^chat-[a-f0-9]{10}--last-1d--/,
-    );
+    expect(
+      basename(dirname(dirname(readSummary(result.stdout).output))),
+    ).toMatch(/^chat-[a-f0-9]{10}$/);
     expect(result.stderr).toContain("Chat label unavailable");
     expect(result.stdout).not.toContain("Chat label unavailable");
     expect(result.stderr).not.toContain("HTTP attempts");
@@ -704,7 +957,7 @@ test("repeating an explicit range preserves the previous export and stops before
   expect(first.code).toBe(0);
   const output = readSummary(first.stdout).output;
   expect(basename(dirname(output))).toBe(
-    "cafe-project-alpha--from-2026-11-01T00-00-00-000Z--to-2026-11-05T00-00-00-000Z",
+    "from-2026-11-01T00-00-00-000Z--to-2026-11-05T00-00-00-000Z",
   );
   const bytes = await readFile(output, "utf8");
   const repeated = await f.run(args);
@@ -713,7 +966,8 @@ test("repeating an explicit range preserves the previous export and stops before
   expect(repeated.stdout).toContain("history: 0");
   expect(repeated.stderr).not.toContain("HTTP attempts");
   expect(await readFile(output, "utf8")).toBe(bytes);
-  expect(await readdir(join(f.dir, "exports"))).toEqual([
+  expect(await readdir(join(f.dir, "exports"))).toEqual(["cafe-project-alpha"]);
+  expect(await readdir(join(f.dir, "exports/cafe-project-alpha"))).toEqual([
     basename(dirname(output)),
   ]);
 });

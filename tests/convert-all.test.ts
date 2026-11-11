@@ -157,6 +157,47 @@ test("default scanning converts direct export folders and recursion reaches deep
   ).toBe(true);
 });
 
+test("default scanning finds grouped daily exports and snapshots alongside legacy folders", async () => {
+  const f = await fixture();
+  const names = [
+    "legacy/chat.json",
+    "alpha/2026-11-11/chat.json",
+    "alpha/last-7d--to-2026-11-11T03-00-00-000Z/chat.json",
+    "beta/from-2026-11-01T00-00-00-000Z--to-2026-11-02T00-00-00-000Z/chat.json",
+  ];
+  for (const name of names) await f.put(name);
+  await f.put("alpha/2026-11-11/media/chat.json");
+  await f.put("alpha/2026-11-11/nested/chat.json");
+  const outside = await f.put("../outside/chat.json");
+  await symlink(dirname(outside.path), join(f.exports, "alpha/2026-11-12"));
+  await symlink(outside.path, join(f.exports, "alpha/2026-11-11/linked.json"));
+  const result = await f.run();
+  expect(result.code).toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    converted: 4,
+    skipped: 0,
+    failed: 0,
+  });
+  for (const name of names)
+    expect(
+      await Bun.file(join(f.exports, name.replace(/\.json$/, ".md"))).exists(),
+    ).toBe(true);
+  expect(
+    await Bun.file(join(f.exports, "alpha/2026-11-11/media/chat.md")).exists(),
+  ).toBe(false);
+  expect(
+    await Bun.file(join(f.exports, "alpha/2026-11-11/nested/chat.md")).exists(),
+  ).toBe(false);
+  expect(await Bun.file(join(dirname(outside.path), "chat.md")).exists()).toBe(
+    false,
+  );
+  expect(JSON.parse((await f.run()).stdout)).toMatchObject({
+    converted: 0,
+    skipped: 4,
+    failed: 0,
+  });
+});
+
 test("--dir selects another directory and --recursive includes nested exports", async () => {
   const f = await fixture();
   await f.put("unselected.json");

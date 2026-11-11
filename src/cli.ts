@@ -126,7 +126,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option("--credentials <file>", "Override automatic credential file lookup")
     .option(
       "--out <directory>",
-      `New export directory (default: ${defaultExportRoot}/<chat-label>--<period>)`,
+      `New export directory (default: ${defaultExportRoot}/<chat-label>/<period>; --last 1d refreshes today's folder)`,
     )
     .option(
       "--last <Nd>",
@@ -202,7 +202,10 @@ export async function runCli(argv = process.argv): Promise<number> {
       "--dir <directory>",
       `Directory of JSON exports (default: ${defaultExportRoot})`,
     )
-    .option("--recursive", "Include exports nested beyond direct child folders")
+    .option(
+      "--recursive",
+      "Include JSON files beyond the standard export layouts",
+    )
     .option(
       "--format <format>",
       `Output format (default: ${defaultOutputFormat})`,

@@ -7,12 +7,12 @@
 ### Core Design Principles
 
 1. **Direct HTTP Over Browser Automation**: Browser automation (via `playwright-core`) is strictly isolated to the interactive `login` command for credential capture. Listing chats, fetching history, and downloading media run entirely through direct HTTP calls using `ky`.
-2. **JSON as the Canonical Archive**: The primary export output is a Version 1 JSON archive (`history.json`). It retains rich text, original arrival timestamps, message edit states, and unknown Teams API properties without loss.
-3. **Sibling Markdown Representation**: A readable Markdown transcript (`history.md`) is rendered alongside the JSON archive by default. Markdown is derived from the JSON and can be regenerated completely offline.
+2. **JSON as the Canonical Archive**: The primary export output is a Version 1 JSON archive (`chat.json`). It retains rich text, original arrival timestamps, message edit states, and unknown Teams API properties without loss.
+3. **Sibling Markdown Representation**: A readable Markdown transcript (`chat.md`) is rendered alongside the JSON archive by default. Markdown is derived from the JSON and can be regenerated completely offline.
 4. **Two-Tier Persistent Caching**:
    - **Profiles Cache**: `$XDG_CACHE_HOME/teams-chat-download/profiles/` caches participant display names for 24 hours to resolve one-to-one chat labels.
    - **Media Cache**: `$XDG_CACHE_HOME/teams-chat-download/media/` deduplicates images by account and media object key, supporting conditional HTTP 304 revalidation and offline local reuse.
-5. **Defensive Non-Destructive Operations**: Exports will never overwrite existing export folders. File writes are atomic (written to temp files then renamed). Private file permissions (`0600`/`0700`) are strictly enforced for credentials and profiles.
+5. **Defensive Output Operations**: Default `--last 1d` exports refresh one verified account/chat/local-date folder; snapshots and explicit `--out` exports refuse existing folders. File writes are atomic (written to temp files then renamed). Private file permissions (`0600`/`0700`) are strictly enforced for credentials and profiles.
 
 ---
 
@@ -43,7 +43,8 @@ teams-chat-download/
 │   ├── date-window.ts    # Shared history date-window contract and validation
 │   ├── errors.ts         # Domain error classes, validation errors, and sanitized formatters
 │   ├── export.ts         # Label selection and chat export orchestration (history + text + media)
-│   ├── export-path.ts    # Destination folder formatting and kebab-case label sanitization
+│   ├── export-path.ts    # Chat/period layout, stable daily dates, and kebab-case label sanitization
+│   ├── export-discovery.ts # Bounded legacy and grouped archive candidate discovery
 │   ├── http.ts           # Ky HTTP client wrapper, retry policy, backoff, and request accounting
 │   ├── login.ts          # Playwright helper for interactive browser sign-in and token capture
 │   ├── live-smoke.ts     # Opt-in live HTTP probe, bounded sampling, temporary caches, and CLI
@@ -111,13 +112,21 @@ When modifying or extending this codebase, agents **must** respect these domain 
    - With no date arguments, default to the last two local calendar days including today, matching `export --last 2d`: yesterday at local midnight to one captured invocation time. `src/config.ts` owns `defaultLiveSmokeDays`; command validation shares the calendar-day calculation with exports. Explicit overrides require both timezone-qualified `--from` and `--to`; reject single bounds and future ends. Print the resolved window before requests; never widen it automatically to satisfy pagination/media coverage.
    - Saved credentials use the normal lookup or explicit `--credentials`.
    - Validate a fixture with the shared archive reader and require an exact `accountId` match before HTTP. Read its raw chat ID, supported non-self sender, and supported inline image as known inputs. Never treat archived responses as live passes or change the default live date window to the archived window. Reject fixture/ID/label selector combinations rather than guessing a saved label mapping.
-   - `src/smoke-targets.ts` discovers complete same-account archives under the configured default export root in the current working directory: root JSON files plus direct export-folder `chat.json`, without symlinks or recursion. Prefer archives with useful sender/image inputs, then newer modification times and deterministic path ordering. Skip invalid/unreadable automatic candidates with a count, ignore other accounts, and print the selected path. Explicit fixtures bypass discovery and fail rather than falling back when invalid. Without any fixture or selector, use the first live directory chat if available.
+   - `src/smoke-targets.ts` discovers complete same-account archives under the configured default export root in the current working directory: root JSON files, legacy direct export-folder `chat.json`, and standard `<chat>/<date-or-period>/chat.json` bundles. Discovery is bounded to those layouts, without symlinks, media traversal, or deeper recursion. Prefer archives with useful sender/image inputs, then newer modification times and deterministic path ordering. Skip invalid/unreadable automatic candidates with a count, ignore other accounts, and print the selected path. Explicit fixtures bypass discovery and fail rather than falling back when invalid. Without any fixture or selector, use the first live directory chat if available.
    - An explicit raw ID or label controls history and must never be silently replaced by a discovered fixture chat. Automatically discovered account-scoped targets may still support participant/media checks; label mappings must come from verified live directory/name results, never archive filenames.
    - Share `readHistoryPages` between the smoke runner and full `readHistory`; only the runner stops after two pages. Report the first page and continuation as separate checks, so a failed continuation does not erase a successful first-page probe. Sampling must never publish a complete archive or alter export exhaustion semantics.
    - Read the directory once and probe the self profile independently through `readSelfProfile`. Query a known participant through `readParticipantProfiles`, using fixture senders before directory members. Login-generated account IDs allow self-MRI exclusion even when the self probe fails; legacy custom account labels need a successful self response to identify a non-self participant. Source sender URLs are parsed only as identities and never used as request destinations.
    - Profile probes never reuse cached names. Label selection resolves all required one-to-one names and uses the shared `labelChats` mapping; it still depends on live directory/name discovery. Fixture/raw-ID history probes must run independently, without a directory-membership veto. Prefer a fixture image reference over live history discovery, so media can run after directory or history failure. Download at most one supported image using private temporary media storage; clean it on handled completion/failure/cancellation.
    - Validate cold download, zero-request local reuse, and conditional refresh when validators exist. Report missing coverage as `UNVERIFIED` and exit 1 if any required check fails or remains unverified. A conditional HTTP 200 passes refresh validation but must explicitly say that the HTTP 304 branch was not verified.
    - Keep normal caches, credentials, and exports unchanged. Never log credentials, source URLs, or message bodies. Live coverage is limited to the sampled participant family and media origin; it does not verify login capture or full history exhaustion.
+
+9. **Daily Export Refresh**:
+   - Default `--last 1d` exports use `exports/<normalized-chat-label>/<local-YYYY-MM-DD>/`; other windows are timestamped snapshots under the chat folder. Existing exports are not migrated. Raw-ID hash fallbacks remain supported.
+   - Re-fetch the whole local day through one captured invocation time; replace JSON and regenerate Markdown, without merging messages or retaining revisions. Explicit `--out` and all snapshot destinations retain no-overwrite protection.
+   - Before refreshing an existing daily folder, validate its version 1 archive, exact account ID, raw chat ID, and start bound; reject an endpoint newer than the requested invocation. Reject symlinks and unexpected types in the default directory components, archive, Markdown, and media directory.
+   - Hold `withArchiveLock` from `src/output.ts` across daily history retrieval, JSON/Markdown publication, and media work. Media commands share the existing `<input>.media.lock` path. `downloadLockedArchiveMedia` requires this reservation; ordinary media callers use `downloadArchiveMedia`.
+   - Failed history retrieval leaves the previous daily export intact. Failed new daily retrieval removes only empty directories created by that run. JSON and Markdown replacements are individually atomic; later Markdown/media failures retain published JSON. `--no-markdown` removes an old daily transcript after JSON publication; unreferenced old media files remain on disk, while the manifest describes current references.
+   - `src/export-discovery.ts` provides the bounded candidate layouts shared by default batch conversion and smoke discovery; callers lstat candidates and ignore symlinks. Arbitrary deeper conversion still requires `--recursive`.
 
 ---
 

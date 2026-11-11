@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { lstat, readdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { lstat } from "node:fs/promises";
+import { resolve } from "node:path";
 import {
   type Archive,
   isHtmlMessage,
@@ -8,6 +8,7 @@ import {
   readArchive,
 } from "./archive.ts";
 import { imageSourceUrl } from "./media.ts";
+import { exportArchiveCandidates } from "./export-discovery.ts";
 
 function participantMri(source: unknown): string | undefined {
   if (typeof source !== "string") return;
@@ -91,14 +92,11 @@ export async function discoverSmokeFixture(
       );
       return;
     }
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
+    for await (const path of exportArchiveCandidates(
+      directory,
+      () => skipped++,
+    )) {
       if (options.signal?.aborted) return;
-      const path = entry.isDirectory()
-        ? join(directory, entry.name, "chat.json")
-        : entry.isFile() && entry.name.toLowerCase().endsWith(".json")
-          ? join(directory, entry.name)
-          : undefined;
-      if (!path) continue;
       try {
         const info = await lstat(path);
         if (info.isFile()) candidates.push({ path, modified: info.mtimeMs });

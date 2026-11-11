@@ -1,4 +1,3 @@
-import { mkdir, rmdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { readArchive } from "./archive.ts";
@@ -10,7 +9,7 @@ import type { Http, RequestStats } from "./http.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { downloadImages } from "./media.ts";
 import type { MediaOptions } from "./command-validation.ts";
-import { updateExport, updateMarkdown } from "./output.ts";
+import { updateExport, updateMarkdown, withArchiveLock } from "./output.ts";
 
 const countsSchema = z.looseObject({
   total: z.number().int().nonnegative().default(0),
@@ -30,16 +29,28 @@ export async function downloadArchiveMedia(
   onProgress?: (event: ExportProgressEvent) => void,
 ) {
   const output = resolve(options.input);
-  const lock = `${output}.media.lock`;
-  try {
-    await mkdir(lock, { mode: 0o700 });
-  } catch (error) {
-    throw new AppError(
-      (error as NodeJS.ErrnoException).code === "EEXIST"
-        ? "A media update is already running for this archive. If it crashed, inspect and remove the adjacent .media.lock directory before retrying."
-        : "Could not reserve the archive for a media update.",
-    );
-  }
+  return withArchiveLock(output, () =>
+    downloadLockedArchiveMedia(
+      options,
+      credentials,
+      http,
+      stats,
+      signal,
+      onProgress,
+    ),
+  );
+}
+
+// Callers must hold withArchiveLock for the entire read/modify/write lifecycle.
+export async function downloadLockedArchiveMedia(
+  options: MediaOptions,
+  credentials: Credentials,
+  http: Http,
+  stats: RequestStats,
+  signal?: AbortSignal,
+  onProgress?: (event: ExportProgressEvent) => void,
+) {
+  const output = resolve(options.input);
   let loaded = false;
   try {
     const archive = await readArchive(output, signal);
@@ -116,7 +127,5 @@ export async function downloadArchiveMedia(
     throw new AppError(
       `Saved chat text kept at ${output}. ${reason} Retry images with teams media --input <saved-json>.`,
     );
-  } finally {
-    await rmdir(lock);
   }
 }

@@ -1,7 +1,10 @@
-import { mkdir, rm } from "node:fs/promises";
+import { lstat, mkdir, rm, rmdir, unlink } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import type { Archive } from "./archive.ts";
-import { downloadArchiveMedia } from "./archive-media.ts";
+import { readArchive, type Archive } from "./archive.ts";
+import {
+  downloadArchiveMedia,
+  downloadLockedArchiveMedia,
+} from "./archive-media.ts";
 import {
   assertSelectableChatLabel,
   selectChatByLabel,
@@ -12,8 +15,15 @@ import { AppError } from "./errors.ts";
 import { defaultExportDirectory } from "./export-path.ts";
 import type { Http, RequestStats } from "./http.ts";
 import type { MediaOutcome } from "./media.ts";
+import { renderMarkdown } from "./markdown.ts";
 import type { ExportOptions } from "./command-validation.ts";
-import { checkOutput, writeExport } from "./output.ts";
+import {
+  checkOutput,
+  updateExport,
+  updateMarkdown,
+  withArchiveLock,
+  writeExport,
+} from "./output.ts";
 import {
   type HistoryPageProgress,
   type HistoryProgress,
@@ -74,105 +84,238 @@ export async function exportChat(
       );
     directory = defaultExportDirectory({ ...options, chat }, label);
   }
-  await checkOutput(directory);
+  const daily = options.out === undefined && options.last === "1d";
+  if (!daily) await checkOutput(directory);
+  const chatId = chat;
+  const destination = directory;
   const out = join(directory, "chat.json");
-  const messages = await readHistory(
-    http,
-    credentials,
-    chat,
-    options.window,
-    progress,
-    (h) => onProgress?.({ type: "history", ...h }),
-    {
-      pageDelayMin: options.pageDelayMin,
-      pageDelayMax: options.pageDelayMax,
-      signal,
-    },
-  );
-  signal?.throwIfAborted();
-  try {
-    await mkdir(dirname(resolve(directory)), { recursive: true, mode: 0o700 });
-    await mkdir(directory, { mode: 0o700 });
-  } catch (error) {
-    throw new AppError(
-      (error as NodeJS.ErrnoException).code === "EEXIST"
-        ? "Export directory already exists; choose a new --out directory."
-        : "Could not create the export directory.",
-    );
-  }
   let published = false;
+  if (!daily) return publish(false);
+
+  // Reserve even first-time daily exports before history retrieval, so two
+  // invocations cannot race to publish different endpoints for the same day.
+  signal?.throwIfAborted();
+  const createdPaths = await prepareDailyDirectory(directory);
+  const created = createdPaths.includes(directory);
+  let reserved = false;
   try {
-    const document = {
-      version: 1,
-      status: "complete",
-      accountId: credentials.accountId,
-      chatId: chat,
-      window: {
-        from: new Date(options.window.from).toISOString(),
-        toExclusive: new Date(options.window.to).toISOString(),
-        timestampField: "originalarrivaltime",
-      },
-      completedAt: new Date().toISOString(),
-      history: {
-        ...progress,
-        uniqueMessages: messages.length,
-        serviceReportedExhaustion: true,
-        duplicatePolicy: "identical records deduplicated; conflicts fail",
-      },
-      requests: {
-        ...stats,
-        scope:
-          "HTTP client attempts; retries included; redirects refused; browser traffic excluded",
-      },
-      media: { status: "not-downloaded" },
-      messages,
-    } satisfies Archive;
-    const output = await writeExport(out, document, signal);
-    published = true;
-    onProgress?.({ type: "save", format: "json", destination: output });
-    let markdown: string | undefined;
-    if (options.markdown) {
-      try {
-        const converted = await convertArchive(
-          { input: output, format: "markdown" },
-          signal,
+    return await withArchiveLock(out, async () => {
+      reserved = true;
+      if (!created)
+        await assertDailyArchive(
+          directory,
+          chat,
+          credentials.accountId,
+          options,
         );
-        onProgress?.({
-          type: "convert",
-          format: "markdown",
-          destination: converted.output,
-        });
-        markdown = converted.output;
-      } catch (error) {
-        const reason =
-          error instanceof AppError
-            ? error.message
-            : "Conversion could not finish.";
-        throw new AppError(
-          `JSON export saved to ${output}. Markdown conversion failed: ${reason} Retry conversion with teams convert --input <saved-json> --out <new-markdown-path>.`,
-        );
+      return publish(!created);
+    });
+  } finally {
+    if (reserved && !published) {
+      // Remove only empty directories we created. Another writer may have
+      // acquired the lock after ours was released; never remove its files.
+      for (const path of createdPaths.reverse()) {
+        try {
+          await rmdir(path);
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === "ENOTEMPTY" || code === "EEXIST") break;
+          if (code !== "ENOENT")
+            throw new AppError(
+              "Could not clean up an empty daily export directory.",
+            );
+        }
       }
     }
-    if (options.media)
-      return await downloadArchiveMedia(
-        {
-          input: output,
-          markdown: options.markdown,
-          refreshMedia: options.refreshMedia,
-        },
-        credentials,
-        http,
-        stats,
-        signal,
-        onProgress,
-      );
-    return {
-      output,
-      messages: messages.length,
-      ...(markdown ? { markdown } : {}),
-    };
-  } catch (error) {
-    if (!published) await rm(directory, { recursive: true, force: true });
-    throw error;
   }
+
+  async function publish(refresh: boolean) {
+    const messages = await readHistory(
+      http,
+      credentials,
+      chatId,
+      options.window,
+      progress,
+      (h) => onProgress?.({ type: "history", ...h }),
+      {
+        pageDelayMin: options.pageDelayMin,
+        pageDelayMax: options.pageDelayMax,
+        signal,
+      },
+    );
+    signal?.throwIfAborted();
+    if (!daily)
+      try {
+        await mkdir(dirname(resolve(destination)), {
+          recursive: true,
+          mode: 0o700,
+        });
+        await mkdir(destination, { mode: 0o700 });
+      } catch (error) {
+        throw new AppError(
+          (error as NodeJS.ErrnoException).code === "EEXIST"
+            ? "Export directory already exists; choose a new --out directory."
+            : "Could not create the export directory.",
+        );
+      }
+    try {
+      const document = {
+        version: 1,
+        status: "complete",
+        accountId: credentials.accountId,
+        chatId,
+        window: {
+          from: new Date(options.window.from).toISOString(),
+          toExclusive: new Date(options.window.to).toISOString(),
+          timestampField: "originalarrivaltime",
+        },
+        completedAt: new Date().toISOString(),
+        history: {
+          ...progress,
+          uniqueMessages: messages.length,
+          serviceReportedExhaustion: true,
+          duplicatePolicy: "identical records deduplicated; conflicts fail",
+        },
+        requests: {
+          ...stats,
+          scope:
+            "HTTP client attempts; retries included; redirects refused; browser traffic excluded",
+        },
+        media: { status: "not-downloaded" },
+        messages,
+      } satisfies Archive;
+      const output = await (refresh ? updateExport : writeExport)(
+        out,
+        document,
+        signal,
+      );
+      published = true;
+      onProgress?.({ type: "save", format: "json", destination: output });
+      let markdown: string | undefined;
+      if (options.markdown) {
+        try {
+          const converted = refresh
+            ? {
+                output: await updateMarkdown(
+                  join(destination, "chat.md"),
+                  renderMarkdown(await readArchive(output, signal)),
+                  signal,
+                ),
+              }
+            : await convertArchive(
+                { input: output, format: "markdown" },
+                signal,
+              );
+          onProgress?.({
+            type: "convert",
+            format: "markdown",
+            destination: converted.output,
+          });
+          markdown = converted.output;
+        } catch (error) {
+          const reason =
+            error instanceof AppError
+              ? error.message
+              : "Conversion could not finish.";
+          throw new AppError(
+            `JSON export saved to ${output}. Markdown conversion failed: ${reason} Retry conversion with teams convert --input <saved-json> --out <new-markdown-path>.`,
+          );
+        }
+      } else if (refresh) {
+        // A previous transcript would describe stale history after this refresh.
+        await unlink(join(destination, "chat.md")).catch(
+          (error: NodeJS.ErrnoException) => {
+            if (error.code !== "ENOENT")
+              throw new AppError(
+                "JSON export saved, but the previous Markdown could not be removed.",
+              );
+          },
+        );
+      }
+      if (options.media)
+        return await (daily
+          ? downloadLockedArchiveMedia
+          : downloadArchiveMedia)(
+          {
+            input: output,
+            markdown: options.markdown,
+            refreshMedia: options.refreshMedia,
+          },
+          credentials,
+          http,
+          stats,
+          signal,
+          onProgress,
+        );
+      return {
+        output,
+        messages: messages.length,
+        ...(markdown ? { markdown } : {}),
+      };
+    } catch (error) {
+      if (!daily && !published)
+        await rm(destination, { recursive: true, force: true });
+      throw error;
+    }
+  }
+}
+
+async function prepareDailyDirectory(directory: string): Promise<string[]> {
+  const created: string[] = [];
+  // The default layout has exactly three components: exports/chat/date.
+  // Reject symlinks rather than refreshing an archive outside that layout.
+  for (const path of [
+    dirname(dirname(directory)),
+    dirname(directory),
+    directory,
+  ]) {
+    try {
+      await mkdir(path, { mode: 0o700 });
+      created.push(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST")
+        throw new AppError("Could not create the daily export directory.");
+    }
+    if (!(await lstat(path)).isDirectory())
+      throw new AppError(
+        "Daily export paths must be regular directories, without symlinks.",
+      );
+  }
+  return created;
+}
+
+async function assertDailyArchive(
+  directory: string,
+  chat: string,
+  accountId: string,
+  options: ExportOptions,
+): Promise<void> {
+  for (const [name, kind] of [
+    ["chat.json", "file"],
+    ["chat.md", "file"],
+    ["media", "directory"],
+  ] as const) {
+    const info = await lstat(join(directory, name)).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT" && name !== "chat.json") return;
+        throw new AppError(
+          "Cannot verify the existing daily export; choose a new --out directory.",
+        );
+      },
+    );
+    if (info && !(kind === "file" ? info.isFile() : info.isDirectory()))
+      throw new AppError(
+        "Daily export files and media must not be symlinks or unexpected file types.",
+      );
+  }
+  const archive = await readArchive(join(directory, "chat.json"));
+  if (
+    archive.accountId !== accountId ||
+    archive.chatId !== chat ||
+    Date.parse(archive.window.from) !== options.window.from ||
+    Date.parse(archive.window.toExclusive) > options.window.to
+  )
+    throw new AppError(
+      "Existing daily export belongs to another account, chat, or date window, or is newer than this invocation; choose a new --out directory.",
+    );
 }
