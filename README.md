@@ -26,7 +26,7 @@ bun run teams login
 bun run teams chats
 ```
 
-`login` opens a visible browser with a dedicated persistent Teams profile. Sign in and complete verification directly in that window. If capture waits for history, open a chat. The command captures the service headers, checks self-profile, directory, and history access over HTTP, saves a private credential file, then closes its browser. Passwords and verification codes are never captured by the CLI.
+`login` opens a visible browser with a dedicated persistent Teams profile. Sign in and complete verification directly in that window. If capture waits for history, open a chat. The command captures the service headers, checks self-profile, directory, and history access over HTTP, saves a private credential file, then closes its browser. Its self-profile check uses `forceRefresh=false` to avoid competing with the browser's forced profile refresh, which can cause HTTP 409. Passwords and verification codes are never captured by the CLI.
 
 Run `bun run teams login` again when credentials expire. It reuses the dedicated browser session; Microsoft may still require sign-in or verification. This is an explicit refresh command, not background renewal. The first run uses a separate profile from your everyday browser and Playwright MCP, so those existing sessions are not automatically imported.
 

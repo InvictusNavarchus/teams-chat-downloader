@@ -37,7 +37,7 @@ Incomplete profile pairs are never combined across requests. Reading request hea
 
 After both services have supplied candidates, use ordinary HTTP with redirect refusal and the existing timeout/retry/accounting policy to check:
 
-1. Self-profile using the verified query and captured Authorization/Skype pair. Require a nonempty MRI and derive the stable local account label from it.
+1. Self-profile using `skypeTeamsInfo=true&forceRefresh=false&ephemeralMeProfile=false&ggEnabled=true` and the captured Authorization/Skype pair. Require a nonempty MRI and derive the stable local account label from it. This verification reads the profile without forcing another refresh while the browser may already be refreshing it. Overlapping forced refreshes reproduced HTTP 409; see the [controlled comparison](05-validation-and-open-questions.md#13-login-profile-refresh-contention). Ordinary profile lookups retain their existing refresh behavior.
 2. The chat directory with Skype token only, including directory completeness validation. Name enrichment is disabled during this check.
 3. History using its separate Authentication value: for the first listed chat, request a one-millisecond window ending at the validation time. Discard any returned records. For an empty directory, use the observed read-only `GET /api/chatsvc/consumer/v1/users/ME/properties` route to avoid inventing a chat ID. This route returned HTTP 200 with a JSON object using the newly captured history header on the populated account. The empty-account branch has synthetic coverage; live acceptance with an actually empty account remains outstanding.
 

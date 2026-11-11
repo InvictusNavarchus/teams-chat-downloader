@@ -201,6 +201,36 @@ test("login captures a matching profile pair, verifies all services and atomical
   }
 });
 
+test("login verifies identity without competing with the browser's forced profile refresh", async () => {
+  const f = await fixture();
+  const fetch: Fetch = async (request) => {
+    const url = new URL(request.url);
+    if (url.pathname === "/api/mt/beta/users/me/") {
+      expect(f.browser.closed).toBe(false);
+      // The browser can still be refreshing this profile after header capture.
+      if (url.searchParams.get("forceRefresh") === "true") {
+        return Response.json({ errorCode: "Conflict" }, { status: 409 });
+      }
+    }
+    return f.fetch(request);
+  };
+
+  const result = await login(f.options, { ...f.dependencies, fetch });
+  expect(result.status).toBe("saved");
+  const self = new URL(f.requests[0]!.url);
+  expect(self.searchParams.get("forceRefresh")).toBe("false");
+  expect(self.searchParams.get("skypeTeamsInfo")).toBe("true");
+  expect(self.searchParams.get("ephemeralMeProfile")).toBe("false");
+  expect(self.searchParams.get("ggEnabled")).toBe("true");
+  expect((await loadCredentials(f.options.credentials)).accountId).toBe(
+    createHash("sha256").update(mri).digest("hex"),
+  );
+  expect(f.stats.total).toBe(3);
+  expect(f.stats.profiles).toBe(1);
+  expect(f.stats.retries).toBe(0);
+  expect(f.browser.closed).toBe(true);
+});
+
 test("login saves only matching unexpired media cookies without exposing them in progress", async () => {
   const f = await fixture();
   const requested: string[] = [];

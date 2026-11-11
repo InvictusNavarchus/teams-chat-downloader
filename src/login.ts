@@ -236,8 +236,9 @@ export async function login(
       signal,
       fetch: dependencies.fetch,
     });
+    // Verify identity without competing with the browser's forced refresh.
     const selfUrl = new URL(
-      "https://teams.live.com/api/mt/beta/users/me/?skypeTeamsInfo=true&forceRefresh=true&ephemeralMeProfile=false&ggEnabled=true",
+      "https://teams.live.com/api/mt/beta/users/me/?skypeTeamsInfo=true&forceRefresh=false&ephemeralMeProfile=false&ggEnabled=true",
     );
     const validateSelf = (url: URL) => {
       if (url.href !== selfUrl.href)

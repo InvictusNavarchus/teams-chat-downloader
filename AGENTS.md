@@ -91,6 +91,7 @@ When modifying or extending this codebase, agents **must** respect these domain 
    - Media (Images): Uses the `skypetoken_asm` cookie sent only to matching media origins.
    - Inline HTTPS `id-prod.asyncgw.teams.microsoft.com/v1/objects/{id}/views/imgo` sources are translated to the same path on `experimental-api.asm.skype.com`, using only that destination's media cookie. Never send credentials to the regional source host, infer other regions, or translate signed/query-bearing or namespaced regional URLs. `imageSourceUrl` recognizes source references for downloads and smoke sampling; `imageUrl` validates actual cookie destinations for login and HTTP. Preserve original source URLs and their digests in messages, cache keys, and Markdown mappings.
    - _Never merge these into a generic global credential bundle._
+   - Login's direct self-profile verification uses `forceRefresh=false` to validate the captured pair and derive account identity without competing with the browser's forced refresh. Concurrent forced self-profile refreshes have reproduced HTTP 409; do not reintroduce forced refresh for login verification.
 2. **Preserve Date Bounds on History Pagination**:
    - The `backwardLink` returned by Teams pagination drops the `endTime` parameter. If sent without correction, Teams reverts to returning present-day messages. The client (`teams.ts`) **must** preserve the initial requested `endTime` on every pagination request.
 3. **Pacing and Delay**:
