@@ -14,6 +14,7 @@ import {
 import {
   commandDefaults,
   collectionBackupIntervalMs,
+  collectionBackupSuffix,
   defaultExportRoot,
   defaultOutputFormat,
   defaultPageDelay,
@@ -259,8 +260,11 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option("--db <file>", "SQLite collection file; one account per database")
     .option(
       "--backup-dir <directory>",
-      `Publish verified immutable snapshots every ${collectionBackupIntervalMs / 3600000} hour(s) of progress and on completion; no automatic deletion`,
+      `Override backup directory (default: <database>${collectionBackupSuffix}); snapshots every ${collectionBackupIntervalMs / 3600000} hour(s) and on completion; no automatic deletion`,
     )
+    .option("--no-backup", "Disable automatic collection backups", {
+      default: commandDefaults.backup,
+    })
     .option("--chat <id>", "Raw chat ID; skips directory/profile lookup")
     .option(
       "--chat-label <label>",

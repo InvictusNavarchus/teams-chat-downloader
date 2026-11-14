@@ -518,8 +518,6 @@ test("CLI collection resumes without HTTP and exports offline without credential
     "collect",
     "--db",
     f.db,
-    "--backup-dir",
-    join(f.dir, "backups"),
     "--chat",
     "group",
     "--credentials",
@@ -542,7 +540,25 @@ test("CLI collection resumes without HTTP and exports offline without credential
   expect(second.exit).toBe(0);
   expect(second.stdout).toContain('"completedWindows":0');
   expect(second.stdout).not.toContain("HTTP attempts:");
-  expect(await readdir(join(f.dir, "backups"))).toHaveLength(2);
+  expect(await readdir(`${f.db}.backups`)).toHaveLength(2);
+  const disabled = await cli([...args, "--no-backup"], true);
+  expect(disabled.exit).toBe(0);
+  expect(disabled.stdout).not.toContain("[backup]");
+  expect(disabled.stdout).not.toContain('"backups":');
+  expect(await readdir(`${f.db}.backups`)).toHaveLength(2);
+  const override = await cli(
+    [...args, "--backup-dir", join(f.dir, "custom-backups")],
+    true,
+  );
+  expect(override.exit).toBe(0);
+  expect(await readdir(join(f.dir, "custom-backups"))).toHaveLength(1);
+  expect(await readdir(`${f.db}.backups`)).toHaveLength(2);
+  const conflict = await cli(
+    [...args, "--no-backup", "--backup-dir", join(f.dir, "custom-backups")],
+    true,
+  );
+  expect(conflict.exit).toBe(1);
+  expect(conflict.stderr).toContain("--no-backup cannot be combined");
   const output = join(f.dir, "cli-export");
   const exported = await cli(
     ["export-db", "--db", f.db, "--chat", "group", "--out", output],

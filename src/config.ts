@@ -8,7 +8,9 @@ export const defaultOutputFormat = "markdown";
 export const defaultLiveSmokeDays = 2;
 export const collectionWindowMs = 7 * 24 * 60 * 60 * 1000;
 export const collectionBackupIntervalMs = 60 * 60 * 1000;
+export const collectionBackupSuffix = ".backups";
 export const commandDefaults = {
+  backup: true,
   markdown: true,
   media: true,
   refreshMedia: false,
