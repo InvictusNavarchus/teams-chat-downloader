@@ -287,7 +287,7 @@ Existing `.playwright-mcp/` snapshots/logs are not safe fixture material by defa
 
 ## 12. Automated live smoke test
 
-Added **2026-11-11** for Teams Free with a personal Microsoft account. The opt-in `bun run test:live` runner and its invocation, request budget, temporary-cache policy, and exit codes are documented in the [README](../README.md#live-smoke-test) and [architecture reference](07-architecture.md#bounded-live-smoke-test). Ordinary `bun test` remains offline; synthetic coverage exercises successful bounded traversal/download/revalidation and failure reporting.
+Added **2026-11-11** for Teams Free with a personal Microsoft account. The opt-in `bun run test:live` runner and its invocation, request budget, temporary-cache policy, and exit codes are documented in the [development guide](development.md#live-smoke-test) and [architecture reference](07-architecture.md#bounded-live-smoke-test). Ordinary `bun test` remains offline; synthetic coverage exercises successful bounded traversal/download/revalidation and failure reporting.
 
 The first live attempt used saved credentials and a historical chat/window selected from an existing archive with more than 400 messages and supported images. With network access available, the directory and first history GET each returned **HTTP 401**. Two HTTP attempts were made without retries. Profiles, pagination, cold media download, local media reuse, and conditional revalidation remained **unverified**; this was an unsuccessful smoke run, not evidence that these services work with the current credentials.
 

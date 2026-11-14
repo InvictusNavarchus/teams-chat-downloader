@@ -1,82 +1,45 @@
-# Teams personal chat export: research reference
+# Documentation
 
-[Project overview](../README.md)
+[Project overview and quick start](../README.md)
 
-Research date: **2026-11-04**. Target: **Microsoft Teams Free with a personal Microsoft account**, using `teams.live.com`.
+## Using the CLI
 
-This directory contains the research and design reference for the chat export tool. **HTTP export, participant names, browser login, and supported image caching are implemented:** see the [project README](../README.md) for actual commands and limitations. The design examples below include later features and are not all implemented; unattended renewal and universal media discovery remain future work.
+These guides describe implemented behavior:
 
-## Main conclusion
+| Guide                                          | What you will find                                                                                  |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [User guide](user-guide.md)                    | Sign-in, chat selection, date ranges, collection, backups, images, offline conversion, and recovery |
+| [Development and verification](development.md) | Contributor setup, offline checks, and the opt-in live smoke test                                   |
 
-A normal export can use ordinary HTTP requests to list accessible chats, request a specific historical date window, paginate within that window, and download chat images. Browser automation is not required to execute those requests while the appropriate credentials remain valid.
+For a first export, start with the [quick start](../README.md#quick-start). For exact command options, run `bun run teams <command> --help`.
 
-Playwright powers the standalone visible `login` command for interactive authentication and credential acquisition. Session lifetime and unattended renewal remain unresolved; explicit refresh reopens the dedicated browser profile.
+## Technical references
 
-The evidence is from live, read-only HTTP experiments against one signed-in personal account. These private Teams endpoints are observed behavior, not a published Microsoft API contract.
+These documents explain implementation contracts and the evidence behind them. Dated experiments establish behavior for the sampled account, not a published Microsoft API guarantee.
 
-## Read these documents
+| Reference                                                            | Scope                                                                                                                       |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| [HTTP protocol](02-http-protocol.md)                                 | Endpoints, service-specific authentication, pagination, date bounds, and observed quirks                                    |
+| [Authentication and browser setup](03-authentication-and-browser.md) | Credential capture sources, browser/session roles, and historical environment troubleshooting                               |
+| [Architecture](07-architecture.md)                                   | Stack, module responsibilities, validation, HTTP policy, and storage boundaries; later milestones remain labeled separately |
+| [Participant profiles](08-participant-profiles.md)                   | Name resolution, profile authentication, and cache behavior                                                                 |
+| [Browser login](09-browser-login.md)                                 | Dedicated browser profile, capture, verification, persistence, and renewal limits                                           |
+| [Image export](10-image-export.md)                                   | Supported sources, service cookies, cache and refresh, output publication, and offline links                                |
+| [SQLite collection](11-sqlite-collection.md)                         | Schema, checkpoints, migration, image storage, verified backups, and offline exports                                        |
 
-| Document                                                             | Purpose                                                                                                                          |
-| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| [Findings and evidence](01-findings-and-evidence.md)                 | Scope, evidence vocabulary, exact test results, and corrections to earlier assumptions                                           |
-| [HTTP protocol reference](02-http-protocol.md)                       | Endpoints, authentication headers, response fields, date parameters, pagination, listing, and images                             |
-| [Authentication and browser setup](03-authentication-and-browser.md) | Credential acquisition, browser/session roles, the working Fedora Wayland configuration, and startup troubleshooting             |
-| [Proposed CLI design](04-cli-design.md)                              | User workflow, implementation boundaries, date semantics, media caching, outputs, and failure handling                           |
-| [Validation and open questions](05-validation-and-open-questions.md) | Untested behavior, implementation acceptance checks, and a practical order for resolving gaps                                    |
-| [Sources](06-sources.md)                                             | Primary documentation and upstream source references; distinction between public documentation and private endpoint observations |
-| [Architecture plan](07-architecture.md)                              | Agreed stack, module responsibilities, validation, Ky request policy, storage boundaries, and implementation milestones          |
-| [Participant profiles](08-participant-profiles.md)                   | Verified self/participant lookup, profile authentication, name resolution, and cache behavior                                    |
-| [Browser login](09-browser-login.md)                                 | Implemented login/refresh command, profile ownership, capture, verification, persistence, and limits                             |
-| [Image export](10-image-export.md)                                   | Implemented image adapter, service cookies, persistent cache, refresh, portable files, and offline links                         |
-| [SQLite collection](11-sqlite-collection.md)                         | Resumable history, independent image downloads, transactional migration, offline portable exports, and later analytics projections |
+[AGENTS.md](../AGENTS.md) records contributor rules and the invariants changes must preserve. Consult the [user guide](user-guide.md) for current command examples rather than copying commands from historical proposals.
 
-## Evidence rules
+## Research, proposals, and evidence
 
-Each document distinguishes:
+The initial investigation targeted Microsoft Teams Free at `teams.live.com` on **2026-11-04**. These documents retain the reasoning, measured results, and unresolved questions. Proposed interfaces are not necessarily implemented.
 
-- **Verified:** directly observed in a live experiment or in the local configuration.
-- **Documented:** supported by an identified upstream document or source file.
-- **Proposed:** an implementation recommendation, not existing behavior or a final product decision.
-- **Unknown:** not established by the investigation.
+| Document                                                             | Purpose                                                                                                |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [Findings and evidence](01-findings-and-evidence.md)                 | Live experiments, corrections, and the limits of each observation                                      |
+| [Proposed CLI design](04-cli-design.md)                              | Original requirements and design proposals, including superseded or unimplemented options              |
+| [Validation and open questions](05-validation-and-open-questions.md) | Verification results, acceptance checks, and remaining gaps                                            |
+| [Sources](06-sources.md)                                             | Upstream references and the distinction between public documentation and private endpoint observations |
 
-If a conclusion conflicts with an earlier conversational suggestion, the measured result and the correction recorded here take precedence. When future behavior changes, update the evidence and the relevant protocol section together. Do not quietly turn a proposal into a verified fact.
+Evidence is classified as **verified** (observed), **documented** (supported by an identified source), **proposed** (a recommendation), or **unknown** (not established). Preserve these distinctions when updating references; an implementation or synthetic test does not establish new live Teams behavior.
 
-## Facts an implementation must preserve
-
-1. History uses an `Authentication` header; do not silently replace it with `Authorization: Bearer ...`.
-2. Chat listing was separately verified with `x-skypetoken` alone.
-3. Image downloading was separately verified with the media cookie `skypetoken_asm`.
-4. History date boundaries are Unix timestamps in **milliseconds**, and both boundaries tested as inclusive.
-5. A bounded first request needs **no** pagination cursor and can jump directly to an older period.
-6. The returned `backwardLink` omits `endTime`. Preserve the requested date bounds explicitly on every subsequent page. An unchanged link returned current messages in the date-window test.
-7. A message array was not strictly chronological by arrival time. Do not infer completion from the first old message or from array position.
-8. Distinguish an exhausted history window from authentication, HTTP, or parsing failures.
-9. Media cache identity must include the media object and representation, rather than a temporary URL or chat title.
-10. Participant-name lookup is verified for the sampled personal and organization counterparts (E18). Full message semantics, automatic renewal, and universal media support remain incomplete.
-11. Concurrent forced self-profile refreshes can return HTTP 409. Login verification uses `forceRefresh=false` to avoid competing with the browser's refresh; see [E21](01-findings-and-evidence.md#e21--concurrent-forced-self-profile-refreshes-can-return-http-409) for the controlled evidence and limits.
-
-## Intended workflow
-
-The user primarily wants to select one chat and export a period such as the last seven days, including locally available images without downloading the same images on each export.
-
-A proposed interface is:
-
-```text
-teams login
-teams chats
-teams export --chat <chat-id> --last 7d --images
-teams export --chat <chat-id> --from <timestamp> --to <timestamp> --images
-```
-
-The command name, exact flags, output formats, credential persistence backend, and date-only input rules are not final. See the design document before implementing them.
-
-## What is deliberately absent
-
-- No live credentials, cookies, bearer values, raw cursors, real chat IDs, participant names, message bodies, or downloaded private images are included in these documents.
-- HTTP examples use placeholders. Field inventories and measured counts are evidence, not complete schemas.
-- Existing `.playwright-mcp/` files are investigation artifacts, not sanitized fixtures or the authoritative reference. They may contain private browsing information; they were not copied into these documents.
-- A Bun package, lockfile, TypeScript source, and synthetic test suite now accompany the references. Existing `.playwright-mcp/` artifacts remain outside source control, as do private credential state and exports.
-
-## Working constraints
-
-The user authorized the first implementation after the architecture discussion. Further work still follows the supplied project instructions: Bun, ES modules, scoped changes, and appropriate verification. Design examples alone do not authorize expanding scope, starting a development server, or changing the global MCP setup.
+Research examples use placeholders. Do not add credentials, raw cursors, real chat IDs, private messages, or downloaded images to documentation. Local browser investigation artifacts are not sanitized fixtures or authoritative references.

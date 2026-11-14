@@ -1,360 +1,105 @@
 # Teams Chat Download
 
-A Bun CLI for exporting chat history from **Microsoft Teams Free with a personal Microsoft account** (`teams.live.com`).
+Export chat history from **Microsoft Teams Free with a personal Microsoft account** (`teams.live.com`). Save a readable Markdown transcript, original message data as JSON, and supported inline images for offline use.
 
-Select a chat, collect long history into resumable SQLite storage or export a chosen date range directly, then download images with a persistent cache so overlapping exports can reuse media.
+For a short period, export directly. For long histories, collect into a resumable SQLite database and create portable exports when ready. Work or school Teams accounts are outside this tool's scope.
 
-## Project status
+## Quick start
 
-The CLI supports browser login, listing chat IDs, and exporting one chat's message history and supported inline images to JSON with a rendered Markdown transcript beside it. It uses strict TypeScript, CAC, Zod, Ky, Playwright for login, and Turndown for HTML-to-Markdown conversion. JSON is the canonical export: source message fields, rich text, and unknown fields remain preserved. Markdown is generated from the saved JSON and can be regenerated offline.
-
-One-to-one labels resolve through participant profiles and a persistent name cache. Images use an account-scoped persistent cache and are copied beside each export for offline use. Unattended credential renewal remains future work. Ordinary listing/export does not launch or connect to a browser.
-
-## Setup
-
-The implementation was tested with Bun **1.3.14**. Dependencies use caret (`^`) ranges in `package.json`; the committed `bun.lock` records exact resolved versions for reproducible installs. Install dependencies with the committed lockfile:
+You need [Bun](https://bun.sh/) and an installed Chromium, Chrome, or Edge browser. The project was tested with Bun **1.3.14**. From the project directory:
 
 ```sh
 bun install --frozen-lockfile
-bun run teams --help
-```
-
-Sign in using an installed Chromium, Chrome, or Edge:
-
-```sh
 bun run teams login
-bun run teams chats
 ```
 
-`login` opens a visible browser with a dedicated persistent Teams profile. Sign in and complete verification directly in that window. If capture waits for history, open a chat. The command captures the service headers, checks self-profile, directory, and history access over HTTP, saves a private credential file, then closes its browser. Its self-profile check uses `forceRefresh=false` to avoid competing with the browser's forced profile refresh, which can cause HTTP 409. Passwords and verification codes are never captured by the CLI.
+Sign in and complete verification in the browser window that opens. If prompted, open a chat. The CLI saves credentials and closes its browser; later exports do not need an open browser.
 
-Run `bun run teams login` again when credentials expire. It reuses the dedicated browser session; Microsoft may still require sign-in or verification. This is an explicit refresh command, not background renewal. The first run uses a separate profile from your everyday browser and Playwright MCP, so those existing sessions are not automatically imported.
-
-The default credential destination is `$XDG_STATE_HOME/teams-chat-download/credentials.json` (fallback `~/.local/state/teams-chat-download/credentials.json`). The browser profile is `browser/` beside that default destination, even with an explicit credential override. Relative/empty XDG state home is ignored. On this Fedora installation the command detects `/usr/bin/chromium-browser`, enables Chromium's sandbox, and selects native Wayland when `WAYLAND_DISPLAY` is set. It installs no browser and changes no global MCP settings.
-
-Optional overrides:
-
-```sh
-bun run teams login --browser /path/to/chromium --browser-profile /private/teams-browser --credentials /private/credentials.json --timeout 600
-```
-
-The login timeout defaults to 600 seconds. Browser profiles must be private (Unix mode 700) and cannot be used by two browser processes concurrently. Closing the window, timeout, cancellation, capture failure, or failed validation leaves previous credentials intact. See the [login reference](docs/09-browser-login.md) for the exact lifecycle and limits.
-
-Manual file input remains supported using [the credential template](examples/credentials.example.json). `historyAuthentication` is the **complete captured `Authentication` header value**; `directoryToken` is the captured `x-skypetoken` value. For names, `profileAuthorization` is the complete `Authorization` value including `Bearer`, paired with `directoryToken` from the same profile request. Each command only requires its own service credentials. For manually supplied credentials, `accountId` is a local account label. Login derives a stable SHA-256 account label from the verified self-profile MRI; it is not a token.
-
-For uncached images, `mediaCookies` optionally maps each supported media origin to its matching `skypetoken_asm` cookie value. `login` captures available, unexpired cookies from the browser jar after service verification. Existing credential files remain valid. If an export reports missing image credentials, run `bun run teams login --wait-for-media` and open an image-containing chat when prompted; this waits for a supported image request if no cookie is available yet. Cookie capture does not itself verify standalone HTTP image access; that is checked when downloading. Cookies are sent only to their matching media origin.
-
-`chats` and `export` find credentials automatically, in this order:
-
-1. An explicit `--credentials <file>` override, when supplied (no fallback).
-2. `$XDG_STATE_HOME/teams-chat-download/credentials.json`, or `~/.local/state/teams-chat-download/credentials.json` when that variable is unset, empty, or relative. Use an absolute `XDG_STATE_HOME` with the setup commands above.
-3. The existing `.private/credentials.json` inside this CLI installation, for compatibility with the original setup. This path is independent of your working directory.
-
-Only a missing file permits fallback. Invalid JSON, invalid credential fields, unreadable files, or unsafe permissions stop lookup. An existing project-private credential file therefore needs no migration unless you want to use the per-user location.
-
-Login always writes its default per-user state file unless `--credentials` overrides it; it does not overwrite the old project-private fallback automatically. A new default file takes precedence over that fallback on subsequent reads. See the [authentication reference](docs/03-authentication-and-browser.md) for historical browser setup and capture sources. Credential files with group/other permissions are rejected on Unix. The `.private/`, `exports/`, and browser-artifact directories are ignored by Git. Keep custom credential files and browser profiles outside version control too.
-
-## Usage
-
-List chat IDs and available group titles as JSON:
+List your chats, then replace `Project Alpha` below with a label from the list:
 
 ```sh
 bun run teams chats
+bun run teams export --chat-label 'Project Alpha' --last 7d
 ```
 
-Save a local reference for copying chat IDs. Run the same command whenever you want to refresh it:
+This exports the last seven **local calendar days**, including today so far, with Markdown and supported images. The command prints where it saved the files.
+
+## Choose your workflow
+
+### Export a recent or specific period
 
 ```sh
-bun run teams chats --out .private/chats.json
+# Today so far:
+bun run teams export --chat-label 'Project Alpha' --last 1d
+
+# A specific period, saved in a new folder:
+bun run teams export --chat-label 'Project Alpha' \
+  --from '2026-10-01T00:00:00+07:00' --to '2026-11-01T00:00:00+07:00' \
+  --out exports/alpha-october
 ```
 
-The file contains the JSON chat array printed in the terminal, including IDs and resolved labels, without status messages or request summaries. Every invocation fetches the current directory and reuses the name cache. To refresh names too, add `--refresh-names`. Chat lists are saved only with `--out`; export selection does not read or automatically maintain this file. Successful saves atomically replace the previous list; failed retrieval, failed writing, or cancellation leaves the previous file intact. New files use private permissions. The `.private/` example is ignored by Git. This replacement behavior applies to chat lists; history exports still refuse to overwrite existing files.
+Explicit timestamps need a timezone (`Z` or an offset). The start is included and the end excluded. Use `--chat '<raw-chat-id>'` instead of `--chat-label` when labels are duplicated or you need a stable selector for scripts.
 
-Named group titles are preserved. Untitled one-to-one chats use the other participant's display name; `title` remains null because it reflects the source title. Unavailable or ambiguous profiles retain an explicit unresolved label. Without `profileAuthorization`, listing still works and warns that names are unresolved. Profile authentication or HTTP failures fail explicitly. If Teams reports a partial directory, the command fails rather than presenting it as a complete listing.
+**Daily exports replace that day's saved export.** Without `--out`, `--last 1d` refreshes one folder per chat and local date, including its generated transcript. Other periods create snapshots, and an explicit `--out` always requires a new folder. A failed history request leaves the previous daily export intact.
 
-Names and self identity are cached for 24 hours in `$XDG_CACHE_HOME/teams-chat-download/profiles/` (default `~/.cache/teams-chat-download/profiles/`; relative XDG values are ignored). The cache is private, contains no tokens or email fields, and is isolated by account label and credential pair; renewed credentials start a new cache. A warm listing only fetches the directory. Force a profile refresh after a name change with:
+See the [user guide](docs/user-guide.md#choose-dates-and-export-history) for date options, timezone overrides, and output rules.
 
-```sh
-bun run teams chats --refresh-names
-```
-
-The [participant profile reference](docs/08-participant-profiles.md) records the observed requests, cache policy, and remaining limits. Name caching is separate from the image cache. Automatic export filenames resolve the selected chat's label through the same directory and name cache. Exports using a raw `--chat` ID and explicit `--out` do not request the directory or profiles. Label selection always needs a directory lookup, including with `--out`.
-
-Select a chat by the resolved `label` printed by `chats`:
+### Collect a long history and resume interruptions
 
 ```sh
-bun run teams export --chat-label 'Jane Doe' --last 7d
-bun run teams export --chat-label 'Project Alpha' --last 7d --out exports/alpha-week
-```
-
-Choose exactly one of `--chat <raw-id>` or `--chat-label <label>`. Labels match exactly after trimming surrounding whitespace and ignoring case; partial matches are not used. One-to-one chats can be selected by the participant's resolved name even when `title` is null. Generic labels `Untitled chat` and `Unresolved one-to-one chat` cannot be used for selection. Missing matches fail with guidance to list chats; duplicate matches report their labels and raw IDs so you can choose with `--chat`. No history is fetched for either failure.
-
-Label selection fetches the current directory, resolves participant names with the existing 24-hour profile cache, and reuses the selected label for automatic folder naming without a second directory request. It requires `directoryToken`; untitled one-to-one names also need `profileAuthorization` or remain unresolved. After a participant rename, refresh the name cache with `bun run teams chats --refresh-names` before selecting the new label. Raw IDs remain useful for scripts because labels can change or be duplicated.
-
-Export the last seven calendar days including today, or select an older period directly:
-
-```sh
-bun run teams export --chat '<raw-chat-id>' --last 7d
-bun run teams export --chat '<raw-chat-id>' --from '2026-08-01T00:00:00Z' --to '2026-08-08T00:00:00Z'
-bun run teams export --chat '<raw-chat-id>' --last 7d --out exports/last-week
-```
-
-Choose exactly one of `--last Nd`, `--since <timestamp>`, or `--from <timestamp> --to <timestamp>`. Full timestamps must include `Z` or an offset and use at most millisecond precision; date-only values are rejected. The start is inclusive and the end exclusive. Filtering and sorting use `originalarrivaltime`.
-
-`--last Nd` starts at local midnight N−1 calendar days ago and ends at one captured invocation time: `--last 1d` exports today so far, `--last 2d` exports yesterday and today so far, and `--last 7d` starts six days ago at midnight. Calendar boundaries use the machine's local timezone and account for daylight-saving changes; set `TZ` to override it (for example, `TZ=Asia/Jakarta bun run teams export --chat '<raw-chat-id>' --last 2d`). This replaces the previous rolling N×24-hour behavior. `--since` and explicit `--from`/`--to` continue to use the exact supplied timestamps.
-
-`--out <directory>` is optional. Default exports are grouped by chat under `exports/` in the current working directory. The chat label becomes normalized lowercase kebab-case: accents are removed, other Unicode letters and numbers are retained, separators become hyphens, and labels are capped at 40 characters. For a label of "Project Alpha":
-
-| Selection | Example directory under `exports/` |
-| --- | --- |
-| `--last 1d` | `project-alpha/2026-11-11` |
-| `--last 7d` | `project-alpha/last-7d--to-2026-11-11T03-00-00-000Z` |
-| `--since '2026-11-01T00:00:00Z'` | `project-alpha/since-2026-11-01T00-00-00-000Z--to-2026-11-11T03-00-00-000Z` |
-| `--from '2026-11-01T00:00:00Z' --to '2026-11-05T00:00:00Z'` | `project-alpha/from-2026-11-01T00-00-00-000Z--to-2026-11-05T00-00-00-000Z` |
-
-**Daily refresh:** without `--out`, `--last 1d` uses one folder per local calendar date (`TZ` applies). Each run fetches the entire day again, from local midnight to its captured invocation time, then replaces `chat.json` and regenerates `chat.md`. It does not append messages or retain previous revisions. The next local day gets a new folder. A history failure or cancellation before publication keeps the saved export intact. Cached images are reused by default; `--refresh-media` retains its usual revalidation behavior. Refreshing with `--no-markdown` removes the previous daily transcript after saving JSON so stale text is not presented as current. Old media files are retained; the new manifest lists only current references.
-
-A daily refresh validates the existing version 1 archive's account, raw chat ID, and window before history retrieval. It refuses mismatches, malformed archives, symlink destinations, and an archive whose endpoint is newer than this invocation. Daily refreshes and media updates share an exclusive adjacent `chat.json.media.lock` reservation. A concurrent update fails explicitly; after a hard crash, inspect and remove a stale lock only after verifying no updater is running. JSON and Markdown replacements are individually atomic, rather than a transaction across both files. If Markdown or media fails after JSON publication, the newly saved JSON remains available for retry.
-
-Other date selections remain separate snapshots, using UTC timestamps with milliseconds and filesystem-safe separators. Their `to` timestamp is the exclusive window end. Existing snapshot directories are refused, including a repeated explicit range. An explicit `--out <directory>` always requires a new directory, even with `--last 1d`; paired with a raw `--chat` ID, it skips label lookup. Successful stdout JSON includes the absolute `chat.json` path as `output`. If directory credentials or a matching chat label are unavailable for a raw-ID export, naming uses a short hash of the chat ID; generic untitled/unresolved labels also include that hash. Directory and profile request failures still fail explicitly. Chat renames can change the default chat folder; old exports are not moved or automatically migrated.
-
-`--chat` accepts the raw ID printed by `chats`. History pages use the tested size of 200 and preserve the original bounds on continuation. Continuation links accept equivalent percent encodings of the same chat ID while retaining strict HTTPS, host, and route checks. Identical duplicates are removed; conflicting records for one ID, invalid payloads, unexpected destinations, non-progress, and out-of-window messages fail explicitly.
-
-The first history request starts immediately. After each successful page, fetching a valid continuation waits a randomly selected **2–5 seconds** by default; there is no wait after the final page. Configure this range with `--page-delay-min <seconds>` and `--page-delay-max <seconds>` (each accepts 0–3600 seconds, including decimals; minimum must not exceed maximum). Equal values give a fixed pause; setting both to `0` disables the pause. For example:
-
-```sh
-bun run teams export --chat '<raw-chat-id>' --last 7d --page-delay-min 3 --page-delay-max 8
-```
-
-Pacing lowers the history request rate without changing the page size or total data requested. These are client settings, not verified Teams quotas or evidence of human-like traffic. SIGINT/SIGTERM interrupts the wait and prevents the next request. HTTP retry backoff and server `Retry-After` handling remain separate; the pause happens outside each HTTP operation's timeout budget.
-
-Every history export saves `chat.json` containing source messages and a versioned manifest with window, completion, pagination, and request counts. Snapshots and explicit `--out` exports refuse existing directories; default daily exports refresh their verified existing folder. After history retrieval finishes, JSON and the default Markdown transcript are saved **before any images are downloaded**. The initial media status is `not-downloaded`, and Markdown uses image placeholders. Failed history retrieval leaves no new complete-looking export. Retrieval currently holds the chosen window in memory and has no durable checkpoint during history pagination.
-
-### Resumable SQLite collection
-
-Use `collect` for long downloads. It saves original message JSON in a SQLite database, indexed by chat, message ID, and arrival time. No additional package is needed: collection uses Bun's built-in SQLite driver. Each database belongs to exactly one credential `accountId`; a different account is rejected before history requests.
-
-```sh
-# Collect everything the endpoint exposes, working backward from now:
+# Collect all history available from Teams:
 bun run teams collect --db exports/history.sqlite --chat-label 'Project Alpha' --all
 
-# Or collect a bounded period (use your preferred timezone offset):
-bun run teams collect --db exports/history.sqlite --chat '<raw-chat-id>' \
-  --from '2024-11-01T00:00:00+07:00' --to '2026-11-01T00:00:00+07:00'
-```
-
-Choose exactly one of `--all`, `--last Nd`, `--since <timestamp>`, or `--from <timestamp> --to <timestamp>`, plus exactly one of `--chat` and `--chat-label`. Date bounds use the export command's inclusive-start/exclusive-end semantics; collection rejects future ends. `--all` starts at Unix millisecond 1 and ends at one captured invocation time. Completion means server-reported exhaustion of that range, not proof that deleted or otherwise unavailable history has been recovered. Raw-ID collection skips directory/profile lookup. Labels use the existing live exact-match selection. `--credentials`, `--page-delay-min`, and `--page-delay-max` work as in exports; the configured pause also applies between collection windows.
-
-Collection starts with seven-day elapsed-time windows, newest first. An exhausted empty window doubles the next window's span; any nonempty window resets it to seven days. This avoids thousands of empty weekly requests before a chat existed, without stopping at the first empty period. Each window must reach the end of pagination before its messages and completion record are committed in one SQLite transaction. Empty windows have explicit coverage records. Partial windows remain in memory and are retried in full; completed checkpoints survive later HTTP/authentication errors and cancellation. Rerun the command after refreshing credentials or resolving the error: verified coverage is skipped, including when the new requested range overlaps previous collections. Commands ending at "now" also collect the newly uncovered tail on rerun.
-
-The collector stores full nested message payloads and preserves unknown fields. Identical IDs are deduplicated within each chat. A different payload for an existing ID fails and rolls back that window; it does not overwrite saved content or guess which revision is newer. Completed windows are not automatically refreshed for later edits or deletions. Message ordering across pages and durable cursors are not assumed. No credentials or pagination links are stored in the database.
-
-The database is a private regular file (Unix mode 600); symlink database files are rejected. An adjacent `.collection.lock` directory reserves it for one collector or database media updater. After a hard crash, remove a stale reservation only after verifying no updater is running. Back up the database and its adjacent `.media` directory together while updaters are stopped. SQLite uses its default rollback journal with full synchronization for writes.
-
-Collection automatically creates verified backups in `<database>.backups/`. For this command, the default is `exports/history.sqlite.backups/`:
-
-```sh
-bun run teams collect --db exports/history.sqlite --chat '<raw-chat-id>' --all
-```
-
-Use `--backup-dir backups/teams` to override the destination, or `--no-backup` to disable automatic backups for that invocation. These two options cannot be combined. Disabling backups keeps SQLite interval checkpoints and existing backup snapshots intact.
-
-With backups enabled, collection attempts a backup at the next completed interval after one hour, then at hourly intervals while making progress, and once on successful completion if there is unbacked progress. An interval taking longer than an hour delays the backup until that interval commits. A successful no-op collection also creates a snapshot, so rerunning a previously completed fixed range can back up existing data and newly downloaded media without fetching history. Backups cover **all chats** in the database and all images currently recorded as complete; pending image references remain pending. `media-db` does not itself trigger backups. Failed/cancelled collection retains prior snapshots but does not start a final backup.
-
-Each backup is a self-contained, uniquely named directory containing `history.sqlite`, `history.sqlite.media/`, and `SHA256SUMS`. SQLite creates a consistent snapshot (including committed WAL data if WAL was enabled externally); the app checks database integrity and verifies copied images. It builds the snapshot in a private sibling `.teams-backup-staging-*` directory and atomically moves it into the backup directory only when complete. The backup directory and its parent must be on the same local filesystem, separate from the live database/media, without symlink components. Snapshot files use mode 600 and directories mode 700. Backup work pauses collection between intervals while holding its existing reservation.
-
-Point your existing **`rclone copy` scheduler at exactly `exports/history.sqlite.backups/`** for the default example, or at your `--backup-dir` override, rather than its parent or the live database directory. Published snapshots are never modified or automatically deleted, so uploads can overlap collection. A snapshot published after rclone scans may wait until the next upload. Google Drive transfers are not atomic across a whole folder: an interrupted upload can leave a partial remote snapshot, and the presence of `SHA256SUMS` alone does not prove all files arrived. Verify every listed checksum after downloading. `rclone copy` retains remote copies when local files are removed; coordinate any future cleanup with the uploader. Every snapshot contains a full copy, so local and remote storage grow until you clean them up.
-
-A backup failure warns on stderr, increments `backups.failed` in the final result, and leaves previous backups intact; successful history collection still exits 0. Failed attempts are retried after the next hour of progress or at clean completion. After a hard crash, leftover sibling staging directories can be removed once no collection is running; they are never published snapshots.
-
-To restore, download/copy one entire snapshot into a **new working directory**, then run inside it:
-
-```sh
-sha256sum -c SHA256SUMS
-```
-
-Require all files to pass before using that restored `history.sqlite` with `collect`, `media-db`, or `export-db`. Keep `history.sqlite.media/` beside it. Work on the restored copy, not the immutable snapshot being uploaded. This recovers saved checkpoints as well as messages and images. No login credentials are included.
-
-Download images directly from the database, before any JSON export:
-
-```sh
+# Download its supported images:
 bun run teams media-db --db exports/history.sqlite
-# Optional: limit to one collected chat, or revalidate shared cache entries:
-bun run teams media-db --db exports/history.sqlite --chat '<raw-chat-id>'
-bun run teams media-db --db exports/history.sqlite --refresh-media
+
+# Create a portable export offline; copy the raw chat ID from `chats`:
+bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' --out exports/alpha-history
 ```
 
-Collection records supported image sources and message-to-image links in the same transaction as messages and coverage. `media-db` uses those tables directly, with the existing URL restrictions, regional-source translation, origin-specific cookies, image validation, and shared cache. It requires credentials for the database's account (`--credentials` overrides normal lookup). Downloaded bytes are also saved durably under `exports/history.sqlite.media/<content-hash>.<extension>`; they remain usable after the disposable shared cache is cleared. Each successful image is recorded immediately. On failure, rerun `media-db`: verified completed files are skipped without HTTP, and pending/failed resources are retried. Missing/corrupt files are repaired from the cache when possible. Unsupported references remain in the source messages and are counted separately; they are not sent to arbitrary hosts.
+If collection stops, rerun it with the same database: completed intervals are skipped. Each database belongs to one account and can hold multiple chats. Collection preserves saved history but does **not** synchronize later edits or deletions in completed intervals.
 
-Existing version 1 databases are upgraded transactionally to schema version 2 on the next `collect` or `media-db` call with matching credentials. Migration backfills image references from saved messages without history requests. Read-only `export-db` still accepts version 1 databases without changing them. Media tracking does not change the portable JSON archive version.
+Automatic backups go to `exports/history.sqlite.backups/` in this example. Backups are full snapshots and are not automatically pruned. Keep the live database and its adjacent `history.sqlite.media/` directory together. See [collection workflows](docs/user-guide.md#collect-long-histories) and [backup and restoration instructions](docs/user-guide.md#back-up-and-restore-collections).
 
-Export a collected chat to the existing portable archive formats entirely offline:
+## Use your exported files
 
-```sh
-bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' --out exports/full-history
-# Optional subrange; both bounds are required together:
-bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' \
-  --from '2026-09-01T00:00:00+07:00' --to '2026-10-01T00:00:00+07:00' --out exports/september
-# Optional text-only export (even if collected image files are unavailable):
-bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' --out exports/text-only --no-media
-```
-
-`export-db` requires no credentials or network access, refuses an existing output directory, and creates `chat.json` plus `chat.md` unless `--no-markdown` is supplied. Without bounds it exports the full stored coverage span; a range with any uncollected gap is rejected, even if messages exist on either side. Messages are sorted by arrival time and ID. Verified downloaded images are copied into the bundle's `media/` directory and included in its manifest and Markdown links. Pending images retain placeholders; a mix of downloaded/pending images or unsupported references marks the media as partial. No image references means media is complete. A recorded complete image whose file is missing/corrupt fails export before JSON publication: repair with `media-db`, or use `--no-media` for placeholders. The archive records collection provenance separately from its zero HTTP export counters. A Markdown failure retains the published JSON. SQLite exports currently load the selected messages into memory when generating JSON/Markdown. The existing `teams media --input <chat.json>` command remains supported for exported bundles.
-
-Analytics can be derived later from the preserved JSON. For example, run this query in a SQLite client (replace the chat ID):
-
-```sql
-SELECT date(arrival_ms / 1000, 'unixepoch') AS utc_day, count(*) AS messages
-FROM messages WHERE chat_id = '<raw-chat-id>'
-GROUP BY utc_day ORDER BY utc_day;
-```
-
-The database also exposes `payload_json` for SQLite JSON functions. Its schema is versioned, not a stable third-party API. See the [SQLite collection reference](docs/11-sqlite-collection.md) for schema and recovery details.
-
-### Images
-
-Exports download supported inline chat images by default, after saving the text. A successful media pass atomically updates the JSON manifest and then regenerates Markdown with local image links. An export with `--out exports/last-week` creates:
+A typical export looks like this:
 
 ```text
-exports/last-week/
-├── chat.json
-├── chat.md
-└── media/       # when supported images are included
+exports/alpha-october/
+├── chat.json    # Original message data and export metadata
+├── chat.md      # Readable transcript
+└── media/       # Downloaded images, when present
 ```
 
-Copy or delete the whole folder to manage the complete export. The manifest maps source messages to relative image paths, byte lengths, media types, and SHA-256 hashes; source messages remain unchanged. No image directory is created when there are no supported images.
+Open `chat.md` in a Markdown viewer. Keep the whole folder together when moving or sharing it so image links continue to work. JSON preserves source fields that the transcript may not fully render, such as complex Teams content.
+
+Regenerate a transcript offline, choosing a new destination if one already exists:
 
 ```sh
-bun run teams export --chat '<raw-chat-id>' --last 7d
-bun run teams export --chat '<raw-chat-id>' --last 7d --no-markdown
-bun run teams export --chat '<raw-chat-id>' --last 7d --refresh-media
-bun run teams export --chat '<raw-chat-id>' --last 7d --no-media
+bun run teams convert --input exports/alpha-october/chat.json --out exports/alpha-october/readable.md
 ```
 
-Complete images are reused from `$XDG_CACHE_HOME/teams-chat-download/media/` (default `~/.cache/teams-chat-download/media/`; relative XDG values are ignored). Cache entries are isolated by account and keyed by media origin, object path, and representation. Repeated references download once per export. Default reuse makes **zero media requests**, even without media credentials. `--refresh-media` explicitly revalidates cached images using ETag or Last-Modified when available; a `304` reuses the checked local bytes. Missing or corrupt entries are downloaded unconditionally. `--no-media` skips downloading and preserves the earlier not-downloaded manifest and placeholders; it cannot be combined with `--refresh-media`.
+Use `bun run teams convert-all` to generate missing transcripts under `exports/`. See [offline conversion](docs/user-guide.md#markdown-and-offline-conversion) for custom locations and batch options.
 
-Save text now and download images later without fetching history again:
+## Common issues and limits
 
-```sh
-bun run teams export --chat '<raw-chat-id>' --last 7d --out exports/last-week --no-media
-bun run teams media --input exports/last-week/chat.json
-```
+- **Expired credentials:** run `bun run teams login` again, then retry. Renewal is manual.
+- **Missing image credentials:** run `bun run teams login --wait-for-media` and open an image-containing chat when prompted.
+- **Images failed after text was saved:** retry with `bun run teams media --input <path/to/chat.json>`. For a collection, rerun `media-db`. Completed images are reused.
+- **Text only:** add `--no-media` to skip images or `--no-markdown` to save JSON without a transcript.
+- **Missing attachments or formatting:** only supported inline images are downloaded. Other attachments and some rich Teams structures remain placeholders or are incompletely rendered; original fields remain in JSON.
+- **Long downloads:** direct exports cannot resume unfinished history retrieval. Use `collect` for checkpoints. Very large offline exports may still need smaller date ranges to fit in memory.
 
-`media` uses the saved source references and credentials for the account that created the archive. It updates that JSON in place and regenerates its sibling Markdown, creating Markdown if absent. Add `--no-markdown` to preserve an edited transcript or keep a JSON-only archive; add `--refresh-media` to revalidate cached images. `--credentials <file>` overrides automatic credential lookup. Source messages, history metadata, and the history completion timestamp remain unchanged. `mediaUpdatedAt` records the successful media pass, and archive request counts accumulate published passes; failed media attempts are reported in terminal summaries rather than saved in the archive.
+The tool uses private Teams endpoints observed on a personal account, so service changes can break it. It can export only history Teams makes available; it cannot recover deleted or inaccessible messages.
 
-The supported adapter handles absolute HTTPS `imgo` URLs in HTML `<img src>` on `us-api.asm.skype.com` and `experimental-api.asm.skype.com`, with an optional namespace. Responses must be HTTP 200 JPEG, PNG, GIF, or WebP, with matching file signatures and container endings; each response is limited to 50 MiB. Downloads run sequentially. External URLs, signed/query-bearing URLs, other views, and opaque-only `amsreferences` are not resolved. They are counted as unsupported, rendered as placeholders, and mark `media.status` as `partial`; history completion remains separate. Otherwise media is `complete`, including exports with no images.
+Credentials and the dedicated browser profile are saved under `~/.local/state/teams-chat-download/` by default (`XDG_STATE_HOME` can override this). Keep credentials, browser profiles, and private chat exports out of version control. See [credential settings](docs/user-guide.md#sign-in-and-manage-credentials) for custom paths and lookup rules.
 
-Inline `https://id-prod.asyncgw.teams.microsoft.com/v1/objects/{id}/views/imgo` sources are also supported: downloads use the same path on `experimental-api.asm.skype.com`, following the verified Teams Free image mapping. Only that destination's saved media cookie is used; no credentials are sent to the regional source host. JSON retains the original source URLs, and cache/Markdown keys retain their original URL identity. Other regional hosts and namespaced regional paths remain unsupported. Existing exports with these references can be completed with `bun run teams media --input <saved-json>` without fetching history again.
+## More documentation
 
-Media authentication, HTTP, invalid-image, write failures, and cancellation keep the saved text, previous media manifest, and completed images/cache entries. Retry with `teams media --input <saved-json>`; completed cached images require no new download. Files use content hashes, so a failed refresh also preserves the images referenced by an earlier manifest. Media failures still exit unsuccessfully. JSON and Markdown updates are individually atomic: if Markdown updating fails after the manifest was saved, retry `media` to regenerate it. Progress and summary output distinguish local cache reuse (no request), revalidation with Teams (`HTTP 304`, cached bytes reused), and downloads (`HTTP 200`). Summaries also report unfinished and unsupported counts; media HTTP attempts and retries are included in request accounting. See the [image export reference](docs/10-image-export.md) for storage, refresh, and validation limits.
+- [User guide](docs/user-guide.md): advanced commands, dates, images, backups, and recovery.
+- [Documentation index](docs/README.md): technical references and historical research.
+- [Development and verification](docs/development.md): offline tests and opt-in live checks.
+- [Contributor instructions](AGENTS.md): project conventions and protocol invariants.
 
-### Markdown and offline conversion
-
-Exports render Markdown by default beside `chat.json`. Add `--no-markdown` to skip rendering and save JSON only:
-
-```sh
-bun run teams export --chat '<raw-chat-id>' --last 7d
-bun run teams export --chat '<raw-chat-id>' --last 7d --out exports/last-week
-bun run teams export --chat '<raw-chat-id>' --last 7d --no-markdown
-```
-
-Export `--out` selects the **export directory**. JSON is always named `chat.json`, with `chat.md` beside it (unless `--no-markdown` is passed). The second command saves `exports/last-week/chat.json` and `exports/last-week/chat.md`. Successful stdout includes the JSON path as `output` and the Markdown path as `markdown` (omitted with `--no-markdown`).
-
-Convert an existing export later without credentials, browser access, or Teams requests:
-
-```sh
-bun run teams convert --input exports/last-week/chat.json
-bun run teams convert --input exports/last-week/chat.json --format markdown --out exports/readable-chat.md
-```
-
-`convert` defaults to Markdown beside the source JSON. Its stdout reports `input`, `output`, `format`, and `messages`. New exports and offline conversion refuse existing destinations and publish private output files atomically; the media phase explicitly updates the saved archive and generated sibling Markdown. If initial Markdown conversion fails after JSON was saved, the command exits unsuccessfully before downloading images and reports the saved JSON path. Keep that file and retry with `convert --out <new-path>`, or use `media` to download images and regenerate sibling Markdown; history does not need to be downloaded again.
-
-Convert all JSON exports that do not already have a sibling Markdown destination:
-
-```sh
-bun run teams convert-all
-bun run teams convert-all --dir /path/to/exports
-bun run teams convert-all --dir /path/to/exports --recursive
-```
-
-`convert-all` defaults to the `exports/` directory under the current working directory. It scans regular `.json` files (case-insensitive) in that directory, legacy direct export-folder `chat.json`, and `chat.json` in standard `<chat>/<date-or-period>/` folders. The standard scan is bounded to those layouts; it does not descend into media or arbitrary nested folders. Add `--recursive` for other layouts or deeper JSON files; symlink entries are ignored. Conversion is sequential and offline, using the same validation, renderer, and atomic writer as `convert`. An existing sibling `.md` destination is skipped without reading its JSON, so rerunning the command converts only missing outputs. Existing Markdown is not refreshed, and the batch command does not accept a shared `--out` path.
-
-Stdout contains `directory`, `format`, `recursive`, `converted`, `skipped`, `failed`, and per-file `files` results with absolute input/output paths, status, and any conversion error. Invalid JSON, unsupported archives, and per-file write failures are reported while remaining files continue; any failed file makes the command exit with code 1. Empty directories succeed with zero counts. Missing or unreadable directories fail explicitly. Completed files and all source JSON are kept if a later file fails or the run is cancelled. Like `convert`, the only supported format is `markdown`.
-
-Conversion accepts complete version 1 exports using the current media paths. A shared reader validates the version, required rendering fields, and date window while retaining unknown fields. Markdown reads as a chronological transcript: one heading per calendar day, then compact speaker turns such as `**Alice · 09:15–09:17**`. Consecutive messages from the same source sender are grouped when the gap from the previous message is at most five minutes, with each message kept as its own paragraphs or rich-text blocks. A sender change, longer pause, new day, or system event starts a new turn. Missing sender identities stay separate; matching display names alone do not establish the same author. Available sender names fall back to the source sender ID or "Unknown sender". Message IDs and technical type labels remain in JSON.
-
-Dates and 24-hour times use the machine's local timezone, labeled once at the top; set `TZ` when converting to use another zone (for example, `TZ=UTC bun run teams convert --input exports/last-week/chat.json --out exports/utc-chat.md`). JSON retains the original timestamps and exact window bounds. Existing exports can be converted again with a new `--out` path to get the transcript layout without fetching history.
-
-Rich HTML supports paragraphs, emphasis, lists, blockquotes, code, and ordinary HTTP(S)/email links. Explicit `Text` messages remain literal text. Unsupported message types retain available content as literal text; missing/non-string content gets an explicit placeholder. Tables, cards, Teams-specific replies, reactions, and other complex structures are not fully reconstructed; JSON retains the source data.
-
-Downloaded images become local Markdown image links; conversion to another directory rebases those links relative to the new Markdown path. Conversion performs no downloads and does not copy image files, so keep the original image directory available. Older exports, `--no-media`, and unsupported images retain **not-downloaded placeholders**. Messages with `amsreferences` but no inline images get a media placeholder without copying media URLs or technical reference details. Executable HTML elements and unsafe link destinations are omitted, and source text is escaped rather than retained as raw HTML. HTML, PDF, and other output formats remain future work.
-
-The CLI is intended for standalone terminal use. Stdout contains command results (still printed as JSON), login and export progress (including history pagination reach and media download updates), save confirmations, and image and HTTP request summaries. Stdout as a whole is not a JSON document; use the saved chat-list or export files when you need JSON data without terminal messages. Warnings go to stderr via `console.warn()` and failures via `console.error()`; routine output uses `console.log()`. Available summaries are printed to stdout even when a command fails; the exit code indicates success or failure. Summaries count directory, profile, history, and media attempts separately, including retries. Each HTTP operation, including the two read-only profile POST routes, allows two retries for eligible read failures, has a 15-second attempt timeout and a 60-second total deadline, and honors applicable server wait guidance without shortening it. Redirects are refused. These are client settings, not known Teams quotas. SIGINT/SIGTERM cancels further requests.
-
-## Development and verification
-
-Shared command defaults and limits live in `src/config.ts`; CLI help and runtime fallbacks use those same values. `src/cli.ts` parses arguments with CAC and dispatches commands. `src/command-validation.ts` validates the resulting objects with Zod, applies defaults, and resolves command options, including export date windows and login paths. The shared date-window contract lives in `src/date-window.ts`. Environment-dependent credential and media paths are resolved by their existing helpers when invoked.
-
-```sh
-bun run typecheck
-bun run test
-```
-
-Offline tests use synthetic responses for pagination, validation, retries, cancellation, and output publication. An ordinary live check listed 15 chats with one directory request and exported 5 messages from a seven-day window with one history request, without retries. The browser remained open; a browser-closed check is still outstanding. See [E17](docs/01-findings-and-evidence.md#e17--first-bun-cli-live-check).
-
-### Live smoke test
-
-Run an explicit, bounded check against live Teams using saved credentials:
-
-```sh
-# Automatically find a same-account archive under exports/:
-bun run test:live
-# Override automatic fixture discovery, including for a custom export location:
-bun run test:live --fixture exports/example/chat.json
-# Or select a specific live history target:
-bun run test:live --chat '<raw-chat-id>'
-bun run test:live --chat-label 'Project Alpha'
-# Override the default window to probe a busier historical period:
-bun run test:live --chat-label 'Project Alpha' --from '2026-08-01T00:00:00Z' --to '2026-08-08T00:00:00Z'
-```
-
-With no selector, the runner automatically looks for complete same-account version 1 archives under `exports/` in the current working directory. It checks regular root `.json` files, legacy direct export-folder `chat.json`, and standard `<chat>/<date-or-period>/chat.json` bundles. It ignores symlinks, media directories, and deeper descendants. It prefers archives with a known non-self sender and a supported inline image; among equally useful candidates, newer file modification times win, then path order breaks ties. Invalid/unreadable candidates are skipped with a count; other accounts are ignored. The selected local path is printed. Discovery reads files only and makes no network requests.
-
-An automatically selected archive supplies the raw chat ID and known participant/image targets. If no usable archive is available, the runner uses live directory members and its first listed chat where possible; unavailable inputs remain `UNVERIFIED`. No archive or fixture argument is required. Supply at most one of `--fixture <chat.json>`, `--chat <raw-id>`, or `--chat-label <label>` to override the default. An explicit fixture bypasses discovery, must be a complete version 1 archive with `accountId` matching the credentials, and fails before HTTP if invalid or mismatched. The archive is read only; no archived response counts as a live service check.
-
-`--chat` overrides the history target without requiring directory lookup to succeed. `--chat-label` retains the same exact, case-insensitive label match as `export`, after trimming whitespace, including resolved participant names. Generic fallback labels cannot select chats; missing or duplicate matches prevent history retrieval, and duplicate errors list matching labels and raw IDs. Explicit label selection still requires a successful directory response and any needed profile names; archive filenames are never guessed into label mappings. In either case, automatic archive discovery can supply participant/image targets independently, even from another chat in the same account. The directory is fetched only once. For independent history checks during directory failures, use the default no-selector invocation, `--fixture`, or a raw `--chat` ID.
-
-With no date arguments, the window defaults to the last two local calendar days including today, matching `export --last 2d`: yesterday at local midnight through one captured invocation time. This also applies in fixture mode; the fixture's archived window does not replace the requested live window. Set `TZ` to override the machine's timezone. Supply both `--from` and `--to` to override this window; a single bound is rejected. Explicit timestamps require a timezone; the start is inclusive and the end exclusive, and the end cannot be in the future. The resolved window is printed before requests begin.
-
-Each service probe runs when its own inputs are available, even if another service fails:
-
-| Check                | Required input or result                                                            |
-| -------------------- | ----------------------------------------------------------------------------------- |
-| Directory            | Directory credentials                                                               |
-| Self profile         | Profile credentials, regardless of directory result                                 |
-| Participant profiles | Known non-self sender from the fixture, or live directory members                   |
-| History              | Automatic/explicit fixture ID, raw ID, resolved label, or first live directory chat |
-| Pagination           | Successful first history page with a continuation                                   |
-| Media cookie         | Supported image reference from the fixture, or sampled live history                 |
-| Media cache          | Valid bytes from this run's cold image download                                     |
-| Media revalidation   | Cold image bytes and an ETag or Last-Modified validator                             |
-
-The runner never widens the window automatically. No continuation, missing targets, or missing validators leave the affected checks `UNVERIFIED`. A failed second history page fails pagination while the first page remains verified. Without a discovered or explicit fixture, participant/image discovery can still depend on the directory or history. `--credentials <file>` overrides the usual saved-credential lookup. `--help` describes the arguments. This runner is separate from `bun test` and never opens a browser or refreshes credentials automatically.
-
-Profile probes use direct HTTP requests with no name-cache reuse. Fixture/raw-ID mode queries one known participant; label mode resolves all needed one-to-one names so duplicate labels are detected. History reads at most two pages at the existing page size of 200 and shares the exporter's URL, date-bound, duplicate, progress, payload, and pacing checks. Media uses at most one supported image reference, preferring the fixture's reference even if live history fails or is empty. A fresh temporary image cache forces a real HTTP 200 request to verify that image's origin-specific cookie. The runner then checks local reuse with zero requests and sends a conditional refresh if the image supplies ETag or Last-Modified. HTTP 304 verifies cached-byte reuse; HTTP 200 verifies the refresh fallback and explicitly leaves the 304 branch unverified.
-
-Each of the eight checks prints `PASS`, `FAIL`, or `UNVERIFIED`, followed by HTTP attempt counts including retries. `FAIL` means an attempted operation failed; `UNVERIFIED` means a required input/result was unavailable or the run was cancelled. Exit code 0 requires all checks to pass; any failure, unverified coverage, or invalid invocation exits with code 1. A typical successful fixture/raw-ID run uses seven HTTP attempts without retries: one directory, two profiles, two history, and two media. Label selection may require additional profile batches to detect all matching labels. It prints neither credentials nor message bodies or source URLs. Temporary cache/image files are removed on normal completion, handled failure, and cancellation; fixtures, saved credentials, exports, and normal caches are untouched. Abrupt termination such as SIGKILL can leave the private temporary directory behind.
-
-This is a sample-based HTTP smoke test, covering the selected history route, one participant profile family, and one image origin. It does not prove history exhaustion, every media origin, browser-login capture/renewal, or archive/Markdown publication. Those remain covered separately by offline tests and ordinary usage. See the [architecture reference](docs/07-architecture.md#bounded-live-smoke-test) and [current live verification result](docs/05-validation-and-open-questions.md#12-automated-live-smoke-test).
-
-The participant-name CLI check resolved all eight one-to-one names in a 15-chat directory. The first run used four requests; the next reused the cache and used one directory request, both without retries. See [E19](docs/01-findings-and-evidence.md#e19--participant-name-cli-and-cache-check).
-
-The login check completed twice using its dedicated persistent browser, three HTTP validation requests per run without retries. After the login browser closed, separate CLI processes listed all 15 chats with eight resolved one-to-one names and exported five messages successfully. The independent research MCP browser remained open. See [E20](docs/01-findings-and-evidence.md#e20--standalone-browser-login-and-saved-credential-reuse).
-
-## Documentation
-
-Start with the [research reference](docs/README.md) for the findings, protocol details, browser setup, proposed CLI design, validation plan, and sources. It distinguishes verified behavior from proposals and unresolved questions and serves as the implementation reference.
-
-The [architecture plan](docs/07-architecture.md) records module responsibilities, implementation defaults, and later milestones.
-
-The findings concern private Teams endpoints observed on one account. They are not a published Microsoft API contract.
+Run `bun run teams --help` or `bun run teams <command> --help` for CLI options.

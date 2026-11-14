@@ -26,6 +26,12 @@ Progress and HTTP validation counters go to stdout alongside the success JSON ob
 
 The CLI instructs the user to sign in and complete any verification directly in the browser. It does not fill or inspect password/MFA fields. It navigates only to `https://teams.live.com/v2/` and observes the requests Teams makes normally. If no successful history request occurs, the user can open a chat. The tool does not send messages, alter contacts, or drive a chat picker; normal Teams UI activity can still have normal application side effects such as marking a chat read.
 
+## Manual credential files
+
+The [credential template](../examples/credentials.example.json) remains supported for manual input. `historyAuthentication` is the complete captured `Authentication` header value; `directoryToken` is the captured `x-skypetoken` value. For names, `profileAuthorization` is the complete `Authorization` value including `Bearer`, paired with `directoryToken` from the same profile request. Each command requires only its own service credentials. A manually supplied `accountId` is a local account label; login derives a stable SHA-256 label from the verified self-profile MRI, not from a token.
+
+For uncached images, optional `mediaCookies` maps each supported origin to its matching `skypetoken_asm` cookie value. Cookies are sent only to matching destinations. See the [image credential contract](10-image-export.md#credentials-and-http) and the [user guide](user-guide.md#browser-and-credential-locations) for file lookup and permissions.
+
 ## Capture and validation
 
 Register response observation before navigating. Ignore non-2xx responses and other origins. Retain only:

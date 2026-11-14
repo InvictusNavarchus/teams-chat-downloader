@@ -80,6 +80,14 @@ JSON is published before Markdown. An existing destination is refused, and a Mar
 
 Simple analytics need no normalized schema: query indexed dates and IDs or use `json_extract(payload_json, ...)`. More specialized sender/member/content projections can be added later from source data. Treat the collection schema as versioned application storage rather than a public API.
 
+For example, count messages per UTC day in a SQLite client (replace the chat ID):
+
+```sql
+SELECT date(arrival_ms / 1000, 'unixepoch') AS utc_day, count(*) AS messages
+FROM messages WHERE chat_id = '<raw-chat-id>'
+GROUP BY utc_day ORDER BY utc_day;
+```
+
 ## Validation
 
 `tests/collection.test.ts` covers coverage, HTTP failure recovery, rollback, payload preservation, identity isolation, reservations, and offline CLI exports. `tests/database-media.test.ts` adds atomic reference indexing, cross-chat deduplication, per-image failure/cancellation recovery, cache-independent reuse, corrupt-file repair, conditional refresh, regional cookie isolation, transactional migration/backfill, and CLI media/export flows without intermediate JSON. Ordinary `bun test` remains offline without saved credentials.

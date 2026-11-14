@@ -20,7 +20,10 @@
 
 ```
 teams-chat-download/
-├── docs/                 # Authoritative research, protocol specs, and architecture plans
+├── docs/                 # User guides, technical references, and historical research
+│   ├── README.md                   # Documentation navigation and evidence categories
+│   ├── user-guide.md               # Detailed current usage, backups, and recovery
+│   ├── development.md              # Offline checks and opt-in live smoke verification
 │   ├── 01-findings-and-evidence.md
 │   ├── 02-http-protocol.md           # Authoritative Teams HTTP endpoints & observed quirks
 │   ├── 03-authentication-and-browser.md
@@ -104,7 +107,7 @@ When modifying or extending this codebase, agents **must** respect these domain 
 2. **Preserve Date Bounds on History Pagination**:
    - The `backwardLink` returned by Teams pagination drops the `endTime` parameter. If sent without correction, Teams reverts to returning present-day messages. The client (`teams.ts`) **must** preserve the initial requested `endTime` on every pagination request.
 3. **Pacing and Delay**:
-   - Sequential history requests must be paced with a delay (default 2–5 seconds) to avoid trigger-happy rate limiting on private consumer endpoints.
+   - Sequential history requests must be paced with a delay (default 1–2.5 seconds) to avoid trigger-happy rate limiting on private consumer endpoints.
 4. **Preserve Unknown Fields**:
    - Use `z.looseObject` in Zod schemas for Teams payloads. Never silently drop unknown fields from the JSON archive.
 5. **No Barrel Exports**:
@@ -156,6 +159,8 @@ When modifying or extending this codebase, agents **must** respect these domain 
 ## 4. Documentation Synchronization Protocol
 
 > [!IMPORTANT]
+> **Documentation ownership**: Keep `README.md` focused on setup, common workflows, and user-visible limits. Put detailed current usage in `docs/user-guide.md`, contributor verification in `docs/development.md`, and implementation contracts in the relevant technical references. Keep `docs/README.md` as the navigation index, clearly separating current behavior from historical proposals.
+>
 > **Rule for Agents and Contributors**:
 > Whenever a change is made to:
 > - CLI commands, options, default values, or exit codes
