@@ -167,6 +167,12 @@ export class HistoryStore {
     this.db.close();
   }
 
+  // Caller owns the collection reservation and a private, empty destination.
+  // SQLite includes committed WAL contents without copying live sidecar files.
+  snapshotTo(destination: string) {
+    this.db.query("VACUUM INTO ?").run(destination);
+  }
+
   private migrateImages() {
     this.db
       .transaction(() => {

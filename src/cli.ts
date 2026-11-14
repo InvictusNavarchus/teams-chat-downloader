@@ -13,6 +13,7 @@ import {
 } from "./command-validation.ts";
 import {
   commandDefaults,
+  collectionBackupIntervalMs,
   defaultExportRoot,
   defaultOutputFormat,
   defaultPageDelay,
@@ -256,6 +257,10 @@ export async function runCli(argv = process.argv): Promise<number> {
       "Collect resumable chat history into SQLite (text and source image references)",
     )
     .option("--db <file>", "SQLite collection file; one account per database")
+    .option(
+      "--backup-dir <directory>",
+      `Publish verified immutable snapshots every ${collectionBackupIntervalMs / 3600000} hour(s) of progress and on completion; no automatic deletion`,
+    )
     .option("--chat <id>", "Raw chat ID; skips directory/profile lookup")
     .option(
       "--chat-label <label>",
@@ -299,7 +304,14 @@ export async function runCli(argv = process.argv): Promise<number> {
             );
           else if (event.type === "history")
             reportProgress({ type: "history", ...event.progress });
-          else
+          else if (event.type === "backup") {
+            if (event.status === "saved")
+              console.log(`[backup] Saved verified snapshot: ${event.path}`);
+            else
+              console.warn(
+                `[backup] Snapshot failed. ${event.reason} Existing backups kept; collection continues.`,
+              );
+          } else
             console.log(
               `[collect] Checkpoint saved: ${event.messages} messages (${event.added} new).`,
             );

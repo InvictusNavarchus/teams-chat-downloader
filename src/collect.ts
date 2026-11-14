@@ -1,5 +1,6 @@
 import { setTimeout as wait } from "node:timers/promises";
 import { selectChatByLabel } from "./chat-selection.ts";
+import { CollectionBackups, type BackupEvent } from "./collection-backup.ts";
 import type { CollectOptions } from "./command-validation.ts";
 import { collectionWindowMs } from "./config.ts";
 import type { Credentials } from "./credentials.ts";
@@ -15,6 +16,7 @@ import {
 } from "./teams.ts";
 
 export type CollectionEvent =
+  | BackupEvent
   | { type: "window"; from: string; toExclusive: string }
   | { type: "history"; progress: HistoryPageProgress }
   | { type: "checkpoint"; messages: number; added: number };
@@ -33,6 +35,10 @@ export async function collectHistory(
   let store: HistoryStore | undefined;
   try {
     store = await HistoryStore.open(options.db, credentials.accountId);
+    const backups =
+      options.backupDir === undefined
+        ? undefined
+        : new CollectionBackups(options.db, options.backupDir, onProgress);
     let chat = options.chat;
     let label: string | undefined;
     if (options.chatLabel !== undefined) {
@@ -109,6 +115,7 @@ export async function collectHistory(
         addedMessages += added;
         completedWindows++;
         onProgress?.({ type: "checkpoint", messages: messages.length, added });
+        await backups?.checkpoint(store, signal);
         to = window.from;
         // All-history collection can span decades of emptiness before the chat
         // existed. Only exhausted empty intervals expand; data resets the week.
@@ -118,6 +125,7 @@ export async function collectHistory(
             : collectionWindowMs;
       }
     }
+    await backups?.finish(store, signal);
     return {
       database: options.db,
       accountId: credentials.accountId,
@@ -129,6 +137,7 @@ export async function collectHistory(
       status: "complete",
       completedWindows,
       addedMessages,
+      ...(backups ? { backups: backups.summary } : {}),
       alreadyCollectedMilliseconds:
         options.window.to - options.window.from - missingMs,
     };

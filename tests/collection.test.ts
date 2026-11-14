@@ -518,6 +518,8 @@ test("CLI collection resumes without HTTP and exports offline without credential
     "collect",
     "--db",
     f.db,
+    "--backup-dir",
+    join(f.dir, "backups"),
     "--chat",
     "group",
     "--credentials",
@@ -534,10 +536,13 @@ test("CLI collection resumes without HTTP and exports offline without credential
   const first = await cli(args);
   expect(first.exit).toBe(0);
   expect(first.stdout).toContain('"completedWindows":2');
+  expect(first.stdout).toContain("[backup] Saved verified snapshot:");
+  expect(first.stdout).toContain('"saved":1,"failed":0');
   const second = await cli(args, true);
   expect(second.exit).toBe(0);
   expect(second.stdout).toContain('"completedWindows":0');
   expect(second.stdout).not.toContain("HTTP attempts:");
+  expect(await readdir(join(f.dir, "backups"))).toHaveLength(2);
   const output = join(f.dir, "cli-export");
   const exported = await cli(
     ["export-db", "--db", f.db, "--chat", "group", "--out", output],
