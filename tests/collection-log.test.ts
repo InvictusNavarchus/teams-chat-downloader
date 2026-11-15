@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import {
   mkdtempSync,
+  mkdirSync,
+  chmodSync,
+  realpathSync,
   readFileSync,
   rmSync,
   statSync,
@@ -25,8 +28,12 @@ test("collection logs are private, unique, timestamped and immediately readable"
     expect(readFileSync(first.path, "utf8")).toMatch(
       /^\d{4}-.*Z checkpoint saved next line\n$/,
     );
-    expect(statSync(first.path).mode & 0o777).toBe(0o600);
-    expect(statSync(join(dir, "history.sqlite.logs")).mode & 0o777).toBe(0o700);
+    if (process.platform !== "win32") {
+      expect(statSync(first.path).mode & 0o777).toBe(0o600);
+      expect(statSync(join(dir, "history.sqlite.logs")).mode & 0o777).toBe(
+        0o700,
+      );
+    }
     expect(first.path).not.toBe(second.path);
     first.close();
     second.close();
@@ -40,7 +47,11 @@ test("collection logs are private, unique, timestamped and immediately readable"
 test("unsafe log destinations warn without failing collection", () => {
   const dir = mkdtempSync(join(tmpdir(), "collection-log-"));
   try {
-    symlinkSync(dir, join(dir, "history.sqlite.logs"));
+    symlinkSync(
+      dir,
+      join(dir, "history.sqlite.logs"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
     const warnings: string[] = [];
     expect(
       openCollectionLog(join(dir, "history.sqlite"), (s) => warnings.push(s)),
@@ -145,3 +156,58 @@ test("media-db records cancellation with its own operation name", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("logging accepts aliased parents but still rejects a linked log destination", () => {
+  const root = mkdtempSync(join(tmpdir(), "log-parent-"));
+  try {
+    const real = join(root, "real");
+    mkdirSync(real);
+    const alias = join(root, "alias");
+    symlinkSync(real, alias, process.platform === "win32" ? "junction" : "dir");
+    const warnings: string[] = [];
+    const log = openCollectionLog(
+      join(alias, "nested", "history.sqlite"),
+      (message) => warnings.push(message),
+    )!;
+    expect(log).toBeDefined();
+    log.write("through alias");
+    expect(log.path.startsWith(realpathSync(real))).toBe(true);
+    expect(readFileSync(log.path, "utf8")).toContain("through alias");
+    log.close();
+    expect(warnings).toEqual([]);
+    symlinkSync(
+      real,
+      join(real, "linked.sqlite.logs"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    expect(
+      openCollectionLog(join(alias, "linked.sqlite"), (message) =>
+        warnings.push(message),
+      ),
+    ).toBeUndefined();
+    expect(warnings).toHaveLength(1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform === "win32")(
+  "logging still refuses publicly accessible Unix log directories",
+  () => {
+    const root = mkdtempSync(join(tmpdir(), "log-permissions-"));
+    try {
+      const directory = join(root, "history.sqlite.logs");
+      mkdirSync(directory);
+      chmodSync(directory, 0o755);
+      const warnings: string[] = [];
+      expect(
+        openCollectionLog(join(root, "history.sqlite"), (message) =>
+          warnings.push(message),
+        ),
+      ).toBeUndefined();
+      expect(warnings).toHaveLength(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);

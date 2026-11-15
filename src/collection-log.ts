@@ -5,9 +5,10 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  realpathSync,
   writeSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { collectionLogSuffix } from "./config.ts";
 
@@ -39,21 +40,23 @@ export function openCollectionLog(
     }
   };
   try {
-    const directory = resolve(`${database}${collectionLogSuffix}`);
-    const ensureDirectory = (path: string): void => {
-      const parent = dirname(path);
-      if (parent !== path) ensureDirectory(parent);
-      try {
-        mkdirSync(path, { mode: 0o700 });
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      }
-      const stat = lstatSync(path);
-      if (!stat.isDirectory() || stat.isSymbolicLink())
-        throw new Error("Unsafe directory");
-    };
-    ensureDirectory(directory);
-    if ((lstatSync(directory).mode & 0o077) !== 0)
+    const databasePath = resolve(database);
+    // Match database access: parent directories may be aliases (e.g. macOS /var).
+    // Canonicalize only the parent; the log destination itself must not be a link.
+    mkdirSync(dirname(databasePath), { recursive: true, mode: 0o700 });
+    const directory = join(
+      realpathSync(dirname(databasePath)),
+      `${basename(databasePath)}${collectionLogSuffix}`,
+    );
+    try {
+      mkdirSync(directory, { mode: 0o700 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    const stat = lstatSync(directory);
+    if (!stat.isDirectory() || stat.isSymbolicLink())
+      throw new Error("Unsafe directory");
+    if (process.platform !== "win32" && (stat.mode & 0o077) !== 0)
       throw new Error("Unsafe log permissions");
     const path = join(
       directory,
@@ -67,7 +70,7 @@ export function openCollectionLog(
         constants.O_NOFOLLOW,
       0o600,
     );
-    fchmodSync(fd, 0o600);
+    if (process.platform !== "win32") fchmodSync(fd, 0o600);
     return {
       path,
       write(message: string) {
