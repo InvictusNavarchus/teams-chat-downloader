@@ -96,3 +96,52 @@ test("CLI persists credential failures and honors --no-log", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("media-db records cancellation with its own operation name", async () => {
+  const { readdirSync, writeFileSync } = await import("node:fs");
+  const dir = mkdtempSync(join(tmpdir(), "media-log-cancel-"));
+  try {
+    const credentials = join(dir, "credentials.json");
+    writeFileSync(
+      credentials,
+      JSON.stringify({
+        version: 1,
+        accountId: "test",
+        historyAuthentication: "private-token",
+      }),
+      { mode: 0o600 },
+    );
+    const preload = join(dir, "cancel.ts");
+    writeFileSync(
+      preload,
+      `const original = process.on.bind(process); process.on = function(event, listener) { const result = original(event, listener); if (event === "SIGTERM") queueMicrotask(() => process.emit("SIGTERM")); return result; };`,
+    );
+    const db = join(dir, "history.sqlite");
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        "--preload",
+        preload,
+        "src/cli.ts",
+        "media-db",
+        "--db",
+        db,
+        "--credentials",
+        credentials,
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(await child.exited).toBe(130);
+    const files = readdirSync(`${db}.logs`);
+    const log = readFileSync(join(`${db}.logs`, files[0]!), "utf8");
+    expect(log).toContain("[media-db] Cancelled:");
+    expect(log).not.toContain("Completed successfully");
+    expect(log).not.toContain("private-token");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

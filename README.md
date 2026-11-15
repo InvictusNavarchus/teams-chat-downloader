@@ -106,4 +106,6 @@ Run `bun run teams --help` or `bun run teams <command> --help` for CLI options.
 
 ### Collection execution logs
 
-`collect` automatically saves timestamped progress, coverage summaries, backup results, and handled failures in private `<database>.logs/` files. It prints the log path at startup; use `--no-log` to opt out. Logs are retained until manually removed and are separate from database backups. Logging failures warn without stopping collection. See the [logging details](docs/user-guide.md#collection-execution-logs).
+`collect`, `media-db`, and `export-db` automatically save timestamped progress, coverage summaries, backup results, and handled failures in private `<database>.logs/` files. Each command prints the log path at startup; use `--no-log` to opt out. Logs are retained until manually removed and are separate from database backups. Logging failures warn without stopping collection. See the [logging details](docs/user-guide.md#collection-execution-logs).
+
+This covers history collection, database media downloads, and offline database exports.

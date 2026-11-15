@@ -230,6 +230,7 @@ export function resolveCollectOptions(
 }
 
 const databaseExportOptionsSchema = z.strictObject({
+  log: z.boolean().default(commandDefaults.log),
   db: z.string().min(1),
   chat: z.string().min(1),
   out: z.string().min(1),
@@ -267,6 +268,7 @@ export function resolveDatabaseExportOptions(
 }
 
 const databaseMediaOptionsSchema = z.strictObject({
+  log: z.boolean().default(commandDefaults.log),
   db: z.string().min(1),
   chat: z.string().min(1).optional(),
   credentials: z.string().min(1).optional(),

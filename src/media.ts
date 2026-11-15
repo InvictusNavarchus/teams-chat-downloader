@@ -266,6 +266,7 @@ export async function downloadImages(
     cacheRoot?: string;
     signal?: AbortSignal;
     onProgress?: (progress: MediaProgress) => void;
+    onSummary?: (message: string) => void;
     // Database callers save bytes beside SQLite; descriptors retain portable paths.
     directory?: string;
     onImage?: (image: ArchiveImage) => void;
@@ -433,7 +434,7 @@ export async function downloadImages(
       "Could not save export images; completed images and cache kept.",
     );
   } finally {
-    console.log(
+    (options.onSummary ?? console.log)(
       `Images: ${media.cacheHits - revalidated} reused from local cache, ${revalidated} revalidated with Teams (HTTP 304), ${media.downloaded} downloaded (HTTP 200), ${failed} unfinished; unsupported media references: ${media.unsupported}.`,
     );
   }
