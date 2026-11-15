@@ -15,6 +15,7 @@ import {
   commandDefaults,
   collectionBackupIntervalMs,
   collectionBackupSuffix,
+  collectionLogSuffix,
   defaultExportRoot,
   defaultOutputFormat,
   defaultPageDelay,
@@ -23,6 +24,7 @@ import {
 } from "./config.ts";
 import { convertAllArchives } from "./convert-all.ts";
 import { convertArchive } from "./convert.ts";
+import { openCollectionLog } from "./collection-log.ts";
 import { collectHistory } from "./collect.ts";
 import { exportDatabase } from "./database-export.ts";
 import { downloadDatabaseMedia } from "./database-media.ts";
@@ -35,6 +37,15 @@ import { historyProgress, listChats } from "./teams.ts";
 
 export async function runCli(argv = process.argv): Promise<number> {
   const cli = cac("teams");
+  let collectionLog: ReturnType<typeof openCollectionLog>;
+  const output = (message: string) => {
+    console.log(message);
+    collectionLog?.write(message);
+  };
+  const warning = (message: string) => {
+    console.warn(message);
+    collectionLog?.write(message);
+  };
   const stats = requestStats();
   const progress = historyProgress();
   const controller = new AbortController();
@@ -47,13 +58,13 @@ export async function runCli(argv = process.argv): Promise<number> {
           ? ` — reached ${event.earliestTimestamp}`
           : "";
         const status = event.hasMore ? "" : " (history complete)";
-        console.log(
+        output(
           `[history] Page ${event.page}: ${event.pageMessages} messages (total: ${event.totalMessages})${reach}${status}`,
         );
         break;
       }
       case "media-start":
-        console.log(`[media] Found ${event.total} image(s); processing...`);
+        output(`[media] Found ${event.total} image(s); processing...`);
         break;
       case "media-progress": {
         const outcome = {
@@ -61,16 +72,14 @@ export async function runCli(argv = process.argv): Promise<number> {
           revalidated: "revalidated with Teams: HTTP 304; reused cached bytes",
           downloaded: "downloaded: HTTP 200",
         }[event.outcome];
-        console.log(
-          `[media] Image ${event.current}/${event.total} (${outcome})`,
-        );
+        output(`[media] Image ${event.current}/${event.total} (${outcome})`);
         break;
       }
       case "save":
-        console.log(`[export] Saved JSON archive: ${event.destination}`);
+        output(`[export] Saved JSON archive: ${event.destination}`);
         break;
       case "convert":
-        console.log("[convert] Converted to Markdown.");
+        output("[convert] Converted to Markdown.");
         break;
     }
   };
@@ -259,6 +268,13 @@ export async function runCli(argv = process.argv): Promise<number> {
     )
     .option("--db <file>", "SQLite collection file; one account per database")
     .option(
+      "--no-log",
+      `Disable automatic private logs in <database>${collectionLogSuffix}/`,
+      {
+        default: commandDefaults.log,
+      },
+    )
+    .option(
       "--backup-dir <directory>",
       `Override backup directory (default: <database>${collectionBackupSuffix}); snapshots every ${collectionBackupIntervalMs / 3600000} hour(s) and on completion; no automatic deletion`,
     )
@@ -293,6 +309,16 @@ export async function runCli(argv = process.argv): Promise<number> {
     .action(async (raw: Record<string, unknown>) => {
       const { "--": _trailing, ...input } = raw;
       const options = resolveCollectOptions(input);
+      if (options.log) {
+        collectionLog = openCollectionLog(options.db, (message) =>
+          console.warn(message),
+        );
+        if (collectionLog)
+          output(`[log] Collection log: ${collectionLog.path}`);
+      }
+      output(
+        `[collect] Requested ${new Date(options.window.from).toISOString()} to ${new Date(options.window.to).toISOString()} (exclusive)`,
+      );
       const credentials = await loadCredentials(options.credentials);
       const result = await collectHistory(
         options,
@@ -302,26 +328,35 @@ export async function runCli(argv = process.argv): Promise<number> {
         progress,
         controller.signal,
         (event) => {
-          if (event.type === "window")
-            console.log(
+          if (event.type === "warning") warning(event.message);
+          else if (event.type === "coverage") {
+            output(
+              `[collect] Already collected: ${event.alreadyCollectedMilliseconds} ms; remaining intervals: ${event.remainingIntervals}.`,
+            );
+            if (event.remainingIntervals === 0)
+              output(
+                "[collect] Requested range already collected; no history requests needed.",
+              );
+          } else if (event.type === "window")
+            output(
               `[collect] ${event.from} to ${event.toExclusive} (exclusive)`,
             );
           else if (event.type === "history")
             reportProgress({ type: "history", ...event.progress });
           else if (event.type === "backup") {
             if (event.status === "saved")
-              console.log(`[backup] Saved verified snapshot: ${event.path}`);
+              output(`[backup] Saved verified snapshot: ${event.path}`);
             else
-              console.warn(
+              warning(
                 `[backup] Snapshot failed. ${event.reason} Existing backups kept; collection continues.`,
               );
           } else
-            console.log(
+            output(
               `[collect] Checkpoint saved: ${event.messages} messages (${event.added} new).`,
             );
         },
       );
-      console.log(JSON.stringify(result));
+      output(JSON.stringify(result));
     });
   cli
     .command(
@@ -406,6 +441,7 @@ export async function runCli(argv = process.argv): Promise<number> {
       return 0;
     }
     await cli.runMatchedCommand();
+    collectionLog?.write("[collect] Completed successfully.");
     return 0;
   } catch (error) {
     // CAC's syntax errors do not include remote bodies or credential values.
@@ -414,14 +450,18 @@ export async function runCli(argv = process.argv): Promise<number> {
         ? error.message
         : errorMessage(error);
     console.error(message);
+    collectionLog?.write(
+      `[collect] ${controller.signal.aborted ? "Cancelled" : "Failed"}: ${message}`,
+    );
     return controller.signal.aborted ? 130 : 1;
   } finally {
     process.off("SIGINT", cancel);
     process.off("SIGTERM", cancel);
     if (stats.total > 0)
-      console.log(
+      output(
         `HTTP attempts: ${stats.total} (history: ${stats.history}, directory: ${stats.directory}, profiles: ${stats.profiles}, media: ${stats.media}); retries: ${stats.retries} included. History pages: ${progress.pages}.`,
       );
+    collectionLog?.close();
   }
 }
 

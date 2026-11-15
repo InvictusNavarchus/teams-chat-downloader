@@ -187,6 +187,7 @@ const collectOptionsSchema = exportOptionsSchema
   .extend({
     db: z.string().min(1),
     all: z.boolean().default(false),
+    log: z.boolean().default(commandDefaults.log),
     backup: z.boolean().default(commandDefaults.backup),
     backupDir: z.string().min(1).optional(),
   });
@@ -202,7 +203,7 @@ export function resolveCollectOptions(
   const result = collectOptionsSchema.safeParse(input);
   if (!result.success)
     throw validationError("Collection options", result.error);
-  const { db, all, backup, backupDir, ...options } = result.data;
+  const { db, all, backup, backupDir, log: _log, ...options } = result.data;
   if (!backup && backupDir !== undefined)
     throw new AppError("--no-backup cannot be combined with --backup-dir.");
   if (

@@ -210,3 +210,11 @@ bun run typecheck
 # Code formatting (Biome)
 bun run format
 ```
+
+### Collection execution logs
+
+`collect` automatically writes a private, timestamped log per invocation in `<database>.logs/` and prints its path. Use `--no-log` to disable file logging. Logs include the requested range, already-collected duration and remaining gap count, fetched pages and checkpoints, profile warnings, backup outcomes, final results, and handled failures or cancellation. Fully covered ranges explicitly report that no history requests are needed. Skipped intervals are summarized rather than listed individually.
+
+Logs contain operational metadata, including paths and account/chat identifiers, but no message bodies, credentials, or raw HTTP URLs. They are separate from SQLite checkpoints and backup snapshots; coverage in SQLite remains authoritative. Logging failures warn and collection continues. Files are mode 600 in a mode-700 log directory. Logs are not automatically pruned; remove old logs when no longer needed. Invalid command options fail before log creation. Hard crashes may leave a log without a final status, and logs are not fsynced per event.
+
+`src/collection-log.ts` owns private per-invocation event files; CLI output is mirrored without globally replacing console methods. `src/config.ts` owns the log default and suffix. Keep logging independent of collection success and never use logs to determine resumable coverage.
