@@ -16,6 +16,12 @@ import {
 } from "./teams.ts";
 
 export type CollectionEvent =
+  | {
+      type: "coverage";
+      alreadyCollectedMilliseconds: number;
+      remainingIntervals: number;
+    }
+  | { type: "warning"; message: string }
   | BackupEvent
   | { type: "window"; from: string; toExclusive: string }
   | { type: "history"; progress: HistoryPageProgress }
@@ -45,7 +51,10 @@ export async function collectHistory(
       const selected = selectChatByLabel(
         await listChats(http, credentials, {
           signal,
-          warn: (message) => console.warn(message),
+          warn: (message) =>
+            onProgress
+              ? onProgress({ type: "warning", message })
+              : console.warn(message),
         }),
         options.chatLabel,
       );
@@ -58,6 +67,12 @@ export async function collectHistory(
       );
     const gaps = store.missing(chat, options.window);
     const missingMs = gaps.reduce((sum, gap) => sum + gap.to - gap.from, 0);
+    onProgress?.({
+      type: "coverage",
+      alreadyCollectedMilliseconds:
+        options.window.to - options.window.from - missingMs,
+      remainingIntervals: gaps.length,
+    });
     let completedWindows = 0;
     let addedMessages = 0;
     for (const gap of gaps.reverse()) {

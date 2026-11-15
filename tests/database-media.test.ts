@@ -637,12 +637,49 @@ test("media-db CLI downloads without JSON and export-db links its saved images o
   expect(second.exit).toBe(0);
   expect(second.stdout).toContain('"alreadyDownloaded":1');
   expect(second.stdout).not.toContain("HTTP attempts:");
+  expect(second.stdout).toContain("No images need downloading");
+  const mediaLogs = await readdir(`${f.db}.logs`);
+  expect(mediaLogs).toHaveLength(2);
+  for (const file of mediaLogs) {
+    const log = await readFile(join(`${f.db}.logs`, file), "utf8");
+    expect(log).toContain("[media-db] Completed successfully.");
+    expect(log).toContain("Images:");
+    expect(log).not.toContain(imageUrl());
+    expect(log).not.toContain(f.credentials.historyAuthentication);
+  }
+  const disabled = await cli([...args, "--no-log"], true);
+  expect(disabled.exit).toBe(0);
+  expect(await readdir(`${f.db}.logs`)).toHaveLength(2);
+
   const output = join(f.dir, "cli-export");
   const exported = await cli(
     ["export-db", "--db", f.db, "--chat", "group", "--out", output],
     true,
   );
   expect(exported.exit).toBe(0);
+  const exportLogs = (await readdir(`${f.db}.logs`)).filter(
+    (file) => !mediaLogs.includes(file),
+  );
+  expect(exportLogs).toHaveLength(1);
+  const exportLog = await readFile(
+    join(`${f.db}.logs`, exportLogs[0]!),
+    "utf8",
+  );
+  expect(exportLog).toContain("[export-db] Completed successfully.");
+  expect(exportLog).toContain("Saved JSON archive");
+  expect(exportLog).toContain("Copied 1 image");
+  const failed = await cli(
+    ["export-db", "--db", f.db, "--chat", "group", "--out", output],
+    true,
+  );
+  expect(failed.exit).toBe(1);
+  const failedFile = (await readdir(`${f.db}.logs`)).find(
+    (file) => ![...mediaLogs, ...exportLogs].includes(file),
+  )!;
+  expect(await readFile(join(`${f.db}.logs`, failedFile), "utf8")).toContain(
+    "[export-db] Failed:",
+  );
+
   expect((await readArchive(join(output, "chat.json"))).media.status).toBe(
     "complete",
   );
@@ -656,11 +693,30 @@ test("media-db CLI downloads without JSON and export-db links its saved images o
       "group",
       "--out",
       join(f.dir, "cli-text"),
+      "--no-log",
       "--no-media",
     ],
     true,
   );
   expect(text.exit).toBe(0);
+  expect(await readdir(`${f.db}.logs`)).toHaveLength(4);
+  const mediaFailure = await cli([...args, "--refresh-media"], true);
+  expect(mediaFailure.exit).toBe(1);
+  const failureLogs = await Promise.all(
+    (await readdir(`${f.db}.logs`)).map((file) =>
+      readFile(join(`${f.db}.logs`, file), "utf8"),
+    ),
+  );
+  const failureLog = failureLogs.find((log) =>
+    log.includes("[media-db] Failed:"),
+  )!;
+  expect(failureLog).toContain("Images:");
+  expect(failureLog).toContain(
+    "Completed image files and database records remain saved",
+  );
+  expect(failureLog).not.toContain("Completed successfully");
+  expect(failureLog).not.toContain(imageUrl());
+
   expect(
     (await readArchive(join(f.dir, "cli-text", "chat.json"))).media.status,
   ).toBe("not-downloaded");

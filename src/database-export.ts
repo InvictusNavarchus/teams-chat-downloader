@@ -10,6 +10,7 @@ import { checkOutput, writeExport } from "./output.ts";
 export async function exportDatabase(
   options: DatabaseExportOptions,
   signal?: AbortSignal,
+  onProgress?: (message: string) => void,
 ) {
   signal?.throwIfAborted();
   await checkOutput(options.out);
@@ -21,6 +22,9 @@ export async function exportDatabase(
     store.close();
   }
   signal?.throwIfAborted();
+  onProgress?.(
+    `[export-db] Verified coverage; ${archive.messages.length} messages selected.`,
+  );
   await mkdir(dirname(options.out), { recursive: true, mode: 0o700 });
   try {
     await mkdir(options.out, { mode: 0o700 });
@@ -55,6 +59,7 @@ export async function exportDatabase(
           { mode: 0o600, flag: "wx", signal },
         );
         copied.add(image.path);
+        onProgress?.(`[export-db] Copied ${copied.size} image(s).`);
       }
     }
     const output = await writeExport(
@@ -63,10 +68,12 @@ export async function exportDatabase(
       signal,
     );
     published = true;
+    onProgress?.("[export-db] Saved JSON archive.");
     const markdown = options.markdown
       ? (await convertArchive({ input: output, format: "markdown" }, signal))
           .output
       : undefined;
+    if (markdown) onProgress?.("[export-db] Saved Markdown transcript.");
     return {
       output,
       messages: archive.messages.length,

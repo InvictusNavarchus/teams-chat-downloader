@@ -23,7 +23,9 @@ export async function downloadDatabaseMedia(
   credentials: Credentials,
   http: Http,
   signal?: AbortSignal,
-  onProgress?: (event: MediaProgress) => void,
+  onProgress?: (
+    event: MediaProgress | { phase: "summary"; message: string },
+  ) => void,
   cacheRoot?: string,
 ) {
   signal?.throwIfAborted();
@@ -75,6 +77,16 @@ export async function downloadDatabaseMedia(
     }
     const completed = new Set<string>();
     const unsupported = store.unsupportedImages(options.chat);
+    onProgress?.({
+      phase: "summary",
+      message: `[media-db] Images: ${images.length}; already downloaded: ${alreadyDownloaded}; to process: ${pending.length}; unsupported: ${unsupported}.`,
+    });
+    if (pending.length === 0)
+      onProgress?.({
+        phase: "summary",
+        message:
+          "[media-db] No images need downloading; no media requests needed.",
+      });
     try {
       const result = await downloadImages(
         pending,
@@ -88,6 +100,9 @@ export async function downloadDatabaseMedia(
           refresh: options.refreshMedia,
           signal,
           onProgress,
+          onSummary: onProgress
+            ? (message) => onProgress({ phase: "summary", message })
+            : undefined,
           onImage(image) {
             store!.saveImage(image);
             completed.add(image.key);

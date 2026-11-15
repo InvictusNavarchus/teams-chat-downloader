@@ -540,6 +540,23 @@ test("CLI collection resumes without HTTP and exports offline without credential
   expect(second.exit).toBe(0);
   expect(second.stdout).toContain('"completedWindows":0');
   expect(second.stdout).not.toContain("HTTP attempts:");
+  expect(second.stdout).toContain(
+    "Requested range already collected; no history requests needed.",
+  );
+  const logFiles = await readdir(`${f.db}.logs`);
+  expect(logFiles).toHaveLength(2);
+  const logs = await Promise.all(
+    logFiles.map((file) => readFile(join(`${f.db}.logs`, file), "utf8")),
+  );
+  expect(logs.some((log) => log.includes("Checkpoint saved:"))).toBe(true);
+  expect(logs.some((log) => log.includes("no history requests needed"))).toBe(
+    true,
+  );
+  for (const log of logs) {
+    expect(log).toContain("Completed successfully.");
+    expect(log).not.toContain("secret-history");
+  }
+
   expect(await readdir(`${f.db}.backups`)).toHaveLength(2);
   const disabled = await cli([...args, "--no-backup"], true);
   expect(disabled.exit).toBe(0);
