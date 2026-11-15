@@ -31,7 +31,9 @@ export async function exportDatabase(
   const store = await HistoryStore.open(options.db);
   let archive;
   try {
-    archive = store.archive(options.chat, options.window);
+    const chat = options.chat ?? store.chatIdForLabel(options.chatLabel!);
+    onProgress?.(`[export-db] Selected stored chat: ${JSON.stringify(chat)}.`);
+    archive = store.archive(chat, options.window);
   } finally {
     store.close();
   }
@@ -61,14 +63,16 @@ async function exportDailyDatabase(
 ) {
   const store = await HistoryStore.open(options.db);
   try {
+    const chat = options.chat ?? store.chatIdForLabel(options.chatLabel!);
+    onProgress?.(`[export-db] Selected stored chat: ${JSON.stringify(chat)}.`);
     const requested = options.window!;
     const today = dayjs(requested.to).startOf("day").valueOf();
-    const to = Math.min(requested.to, store.completedBounds(options.chat).to);
+    const to = Math.min(requested.to, store.completedBounds(chat).to);
     if (to <= today)
       throw new AppError(
         "Today's history has no completed coverage; run collect through today before daily export.",
       );
-    if (store.missing(options.chat, { from: requested.from, to }).length)
+    if (store.missing(chat, { from: requested.from, to }).length)
       throw new AppError(
         "Requested daily range has uncollected gaps; run collect for that range before exporting.",
       );
@@ -84,9 +88,9 @@ async function exportDailyDatabase(
         to,
       );
       const window = { from, to: end };
-      const archive = store.archive(options.chat, window);
+      const archive = store.archive(chat, window);
       const directory = defaultExportDirectory(
-        { chat: options.chat, last: "1d", window },
+        { chat, last: "1d", window },
         typeof archive.chatLabel === "string" ? archive.chatLabel : undefined,
       );
       const created = await prepareDailyDirectory(directory);
@@ -101,7 +105,7 @@ async function exportDailyDatabase(
             if (refresh)
               await assertDailyArchive(
                 directory,
-                options.chat,
+                chat,
                 store.accountId,
                 window,
               );

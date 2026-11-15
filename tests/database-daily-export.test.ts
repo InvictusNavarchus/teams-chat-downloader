@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readArchive } from "../src/archive.ts";
 import { resolveDatabaseExportOptions } from "../src/command-validation.ts";
+import { exportDatabase } from "../src/database-export.ts";
 import { HistoryStore } from "../src/history-store.ts";
 import { requestStats } from "../src/http.ts";
 
@@ -241,7 +242,7 @@ await exportDatabase(resolveDatabaseExportOptions({ db: ${JSON.stringify(f.db)},
   expect(archive.window.toExclusive).toBe("2026-11-02T05:00:00.000Z");
 });
 
-test("export-db CLI accepts --last and logs the cutoff and daily results", async () => {
+test("export-db CLI accepts --chat-label with --last and logs the resolved chat and cutoff", async () => {
   const f = await fixture();
   const invocation = Date.now();
   const midnight = new Date(invocation);
@@ -249,7 +250,7 @@ test("export-db CLI accepts --last and logs the cutoff and daily results", async
   const store = await HistoryStore.open(f.db, "account");
   store.commit(
     "cli",
-    "CLI",
+    "DE-DQC (tim Biru Oligarki)",
     { from: midnight.getTime() - 2 * 86400000, to: invocation },
     [],
     counters,
@@ -263,8 +264,8 @@ test("export-db CLI accepts --last and logs the cutoff and daily results", async
       "export-db",
       "--db",
       f.db,
-      "--chat",
-      "cli",
+      "--chat-label",
+      "DE-DQC (tim Biru Oligarki)",
       "--last",
       "3d",
     ],
@@ -285,6 +286,7 @@ test("export-db CLI accepts --last and logs the cutoff and daily results", async
   expect(JSON.parse(stdout.trim().split("\n").at(-1)!).days).toHaveLength(3);
   const files = await readdir(`${f.db}.logs`);
   const log = await readFile(join(`${f.db}.logs`, files[0]!), "utf8");
+  expect(log).toContain('Selected stored chat: "cli"');
   expect(log).toContain("today's collected cutoff");
   expect(log).toContain("Saved JSON archive");
 });
@@ -346,4 +348,74 @@ test("daily media export cleans failed first publication, retries, and repairs l
   expect(await readFile(join(f.day("2026-11-13"), "chat.json"), "utf8")).toBe(
     saved,
   );
+});
+
+test("saved labels select daily and combined exports with trimmed case-insensitive exact matching", async () => {
+  const f = await fixture();
+  const daily = await run(f, {
+    chat: undefined,
+    chatLabel: "  pRoJeCt AlPhA  ",
+  });
+  expect(daily.code).toBe(0);
+  const archive = await readArchive(join(f.day("2026-11-15"), "chat.json"));
+  expect(archive.chatId).toBe("group");
+  expect(archive.chatLabel).toBe("Project Alpha");
+  const combined = await exportDatabase(
+    resolveDatabaseExportOptions({
+      db: f.db,
+      chatLabel: " PROJECT ALPHA ",
+      out: join(f.dir, "combined"),
+    }),
+  );
+  expect((await readArchive(combined.output)).chatId).toBe("group");
+});
+
+test("missing, partial, and duplicate saved labels fail before any archive publication", async () => {
+  const f = await fixture();
+  const before = await readFile(f.db);
+  for (const chatLabel of ["Missing", "Project"]) {
+    const result = await run(f, { chat: undefined, chatLabel });
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      "No saved chat matches --chat-label in this database",
+    );
+    expect(
+      await Bun.file(join(f.day("2026-11-13"), "chat.json")).exists(),
+    ).toBe(false);
+  }
+  expect(await readFile(f.db)).toEqual(before);
+  const store = await HistoryStore.open(f.db, "account");
+  store.commit(
+    "other-group",
+    " project alpha ",
+    { from: start, to: cutoff },
+    [],
+    counters,
+    requestStats(),
+  );
+  store.close();
+  const result = await run(f, { chat: undefined, chatLabel: "Project Alpha" });
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("Multiple chats match --chat-label");
+  expect(result.stderr).toContain('"group"');
+  expect(result.stderr).toContain('"other-group"');
+  expect(await Bun.file(join(f.day("2026-11-13"), "chat.json")).exists()).toBe(
+    false,
+  );
+  // A raw ID still selects an unambiguous chat when labels collide.
+  expect((await run(f)).code).toBe(0);
+});
+
+test("database export requires exactly one selector and rejects blank or generic labels", () => {
+  for (const selector of [
+    {},
+    { chat: "group", chatLabel: "Project Alpha" },
+    { chatLabel: " " },
+    { chatLabel: "Untitled chat" },
+    { chatLabel: " unresolved one-to-one chat " },
+  ]) {
+    expect(() =>
+      resolveDatabaseExportOptions({ db: "db", last: "3d", ...selector }, now),
+    ).toThrow();
+  }
 });

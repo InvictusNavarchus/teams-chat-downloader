@@ -164,10 +164,10 @@ The default handles every chat in the database, using credentials for its accoun
 
 ### Export a collection offline
 
-Copy the raw chat ID from `chats` for `export-db`; this command does not accept labels.
+Select exactly one of `--chat <raw-id>` or `--chat-label <label>`. Labels match the values saved in SQLite, exactly after trimming surrounding whitespace and ignoring case. Matching stays offline without profile/name refresh. Missing labels fail with database-specific guidance; duplicate matches list saved labels and raw IDs so you can select with `--chat`. Generic fallback labels cannot select a chat. If a chat was collected without a label, use its raw ID.
 
 ```sh
-bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' --last 3d
+bun run teams export-db --db exports/history.sqlite --chat-label 'Project Alpha' --last 3d
 bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' --out exports/full-history
 bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' \
   --from '2026-09-01T00:00:00+07:00' --to '2026-10-01T00:00:00+07:00' --out exports/september

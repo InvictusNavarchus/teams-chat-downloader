@@ -378,6 +378,10 @@ export async function runCli(argv = process.argv): Promise<number> {
       { default: commandDefaults.log },
     )
     .option("--chat <id>", "Raw chat ID stored in the collection")
+    .option(
+      "--chat-label <label>",
+      "Exact saved SQLite chat label (case-insensitive; offline)",
+    )
     .option("--out <directory>", "New directory for one combined archive")
     .option(
       "--last <Nd>",
@@ -399,7 +403,7 @@ export async function runCli(argv = process.argv): Promise<number> {
       const options = resolveDatabaseExportOptions(input);
       startLog("export-db", options);
       output(
-        `[export-db] Requested chat: ${options.chat}; range: ${options.window ? new Date(options.window.from).toISOString() : "stored coverage"} to ${options.window ? new Date(options.window.to).toISOString() : "stored coverage"}; media: ${options.media}; markdown: ${options.markdown}; destination: ${options.out ?? "daily folders"}`,
+        `[export-db] Requested chat: ${JSON.stringify(options.chat ?? options.chatLabel)}; range: ${options.window ? new Date(options.window.from).toISOString() : "stored coverage"} to ${options.window ? new Date(options.window.to).toISOString() : "stored coverage"}; media: ${options.media}; markdown: ${options.markdown}; destination: ${options.out ?? "daily folders"}`,
       );
       output(
         JSON.stringify(

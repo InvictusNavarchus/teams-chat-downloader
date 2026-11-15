@@ -232,7 +232,8 @@ export function resolveCollectOptions(
 const databaseExportOptionsSchema = z.strictObject({
   log: z.boolean().default(commandDefaults.log),
   db: z.string().min(1),
-  chat: z.string().min(1),
+  chat: z.string().min(1).optional(),
+  chatLabel: exportOptionsSchema.shape.chatLabel,
   out: z.string().min(1).optional(),
   last: exportOptionsSchema.shape.last,
   from: timestampSchema.optional(),
@@ -252,6 +253,9 @@ export function resolveDatabaseExportOptions(
   if (!result.success)
     throw validationError("Database export options", result.error);
   const options = result.data;
+  assertChatSelection(options);
+  if (options.chatLabel !== undefined)
+    assertSelectableChatLabel(options.chatLabel);
   if (
     options.last !== undefined &&
     [options.out, options.from, options.to].some((value) => value !== undefined)

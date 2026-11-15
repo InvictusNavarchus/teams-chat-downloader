@@ -8,6 +8,7 @@ import {
   type Message,
   messageSchema,
 } from "./archive.ts";
+import { selectChatByLabel } from "./chat-selection.ts";
 import { assertWindow, type Window } from "./date-window.ts";
 import { AppError } from "./errors.ts";
 import { requestStats, type RequestStats } from "./http.ts";
@@ -370,6 +371,19 @@ export class HistoryStore {
         "Could not commit the collection window; messages and coverage were rolled back together.",
       );
     }
+  }
+
+  chatIdForLabel(label: string): string {
+    const chats = this.db
+      .query<{ id: string; label: string }, []>(
+        "SELECT chat_id AS id, label FROM chats WHERE label IS NOT NULL ORDER BY chat_id",
+      )
+      .all();
+    return selectChatByLabel(
+      chats,
+      label,
+      "No saved chat matches --chat-label in this database. Use --chat <id>, or collect the chat with its current label first.",
+    ).id;
   }
 
   completedBounds(chat: string): Window {
