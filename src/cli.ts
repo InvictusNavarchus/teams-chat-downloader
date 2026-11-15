@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { cac } from "cac";
 import { downloadArchiveMedia } from "./archive-media.ts";
 import {

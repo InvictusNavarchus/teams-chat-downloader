@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "teams": "./src/cli.ts"
+  },
   "scripts": {
     "teams": "bun src/cli.ts",
     "typecheck": "tsc --noEmit",

@@ -183,6 +183,8 @@ When modifying or extending this codebase, agents **must** respect these domain 
 
 ## 5. Development & Testing Commands
 
+`package.json` exposes `teams` through the executable Bun-shebang entry point `src/cli.ts`. After dependency installation, `bun link` makes it available through Bun's global executable directory on `PATH`; `bun unlink` removes the registration. Keep the caller's working directory unchanged: relative database/output paths and default `exports/` belong to the invoking workspace, not this tool's checkout. The linked command requires Bun and the checkout's dependencies and runs current source directly.
+
 `src/config.ts` owns shared command defaults and limits. Import those values in command validation, CLI help, and runtime fallbacks rather than duplicating literals. `src/command-validation.ts` owns all command input schemas, their types, and option resolution; `src/cli.ts` owns argument parsing and dispatch. `src/date-window.ts` owns the shared window contract so the Teams client does not depend on command validation. Resolve environment-dependent credential and media paths at invocation time in their existing helpers. Keep protocol constants in their domain modules.
 
 Use caret (`^`) ranges for dependencies and dev dependencies in `package.json`. Keep the workspace ranges in `bun.lock` synchronized; its resolved package versions provide reproducible installs.

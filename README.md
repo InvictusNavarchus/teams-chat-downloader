@@ -15,6 +15,22 @@ bun run teams login
 
 Sign in and complete verification in the browser window that opens. If prompted, open a chat. The CLI saves credentials and closes its browser; later exports do not need an open browser.
 
+### Run from any directory
+
+After installing dependencies, run `bun link` once from this checkout to expose the `teams` command. Ensure Bun's global executable directory (`bun pm bin -g`, normally `~/.bun/bin`) is on your `PATH`.
+
+```sh
+# From this repository:
+bun link
+# From any working directory:
+teams --help
+teams chats
+```
+
+The command runs this checkout directly: keep it and its dependencies installed, with Bun on `PATH`. Source updates take effect immediately; relink after moving the checkout. Relative paths (including the default `exports/` directory and `--db`) resolve from the directory where you invoke `teams`. Credentials keep their existing user-state location. Run `bun unlink` from this checkout to remove the link.
+
+### Export chats
+
 List your chats, then replace `Project Alpha` below with a label from the list:
 
 ```sh
