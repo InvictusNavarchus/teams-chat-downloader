@@ -20,6 +20,7 @@ import {
 import type { Credentials } from "./credentials.ts";
 import { AppError } from "./errors.ts";
 import type { Http } from "./http.ts";
+import { teamsEmojiText } from "./teams-emoji.ts";
 
 export const mediaOrigins = [
   "https://experimental-api.asm.skype.com",
@@ -197,6 +198,7 @@ export function messageImageReferences(message: Message): {
     new HTMLRewriter()
       .on("img", {
         element(element) {
+          if (teamsEmojiText(element) !== undefined) return;
           inline++;
           const source = imageSourceUrl(element.getAttribute("src") ?? "");
           if (source) images.set(digest(source.href), source.href);

@@ -552,7 +552,7 @@ test("version 1 remains readable offline; writable migration backfills image ref
     f.cacheRoot,
   );
   store = await HistoryStore.open(f.db);
-  expect(store.version).toBe(2);
+  expect(store.version).toBe(3);
   expect(store.archive("group").messages).toEqual([message()]);
   expect(store.missing("group", { from, to })).toEqual([]);
   expect(store.images()[0]!.status).toBe("complete");
@@ -720,4 +720,57 @@ test("media-db CLI downloads without JSON and export-db links its saved images o
   expect(
     (await readArchive(join(f.dir, "cli-text", "chat.json"))).media.status,
   ).toBe("not-downloaded");
+});
+
+test("version 2 migration repairs emoji counts and preserves attachments and payloads", async () => {
+  const f = await fixture();
+  const messages = [
+    message("emoji", '<img itemtype="http://schema.skype.com/Emoji" alt="🎉">'),
+    message("unsupported", '<img src="https://example.test/file">'),
+    message("photo"),
+  ];
+  await seed(f.db, messages);
+  const sql = new Database(f.db);
+  sql.run("UPDATE collection_meta SET version=2");
+  sql.run("UPDATE messages SET unsupported_images=1 WHERE message_id='emoji'");
+  sql.close();
+  await expect(HistoryStore.open(f.db, "wrong")).rejects.toThrow(
+    "different account",
+  );
+  let store = await HistoryStore.open(f.db);
+  expect(store.version).toBe(2);
+  expect(store.unsupportedImages()).toBe(2);
+  store.close();
+  store = await HistoryStore.open(f.db, "account");
+  expect(store.version).toBe(3);
+  expect(store.unsupportedImages()).toBe(1);
+  expect(store.images()).toHaveLength(1);
+  expect(store.archive("group").messages).toEqual(
+    [...messages].sort((a, b) => a.id.localeCompare(b.id)),
+  );
+  expect(store.missing("group", { from, to })).toEqual([]);
+  store.close();
+  store = await HistoryStore.open(f.db, "account");
+  expect(store.unsupportedImages()).toBe(1);
+  store.close();
+});
+
+test("failed version 2 count repair rolls back counts and version", async () => {
+  const f = await fixture();
+  await seed(f.db, [message()]);
+  const sql = new Database(f.db);
+  sql.run("UPDATE collection_meta SET version=2");
+  sql.run("UPDATE messages SET payload_json='{}', unsupported_images=17");
+  sql.close();
+  await expect(HistoryStore.open(f.db, "account")).rejects.toThrow(
+    "Could not open",
+  );
+  const check = new Database(f.db, { readonly: true });
+  expect(check.query("SELECT version FROM collection_meta").get()).toEqual({
+    version: 2,
+  });
+  expect(check.query("SELECT unsupported_images FROM messages").get()).toEqual({
+    unsupported_images: 17,
+  });
+  check.close();
 });

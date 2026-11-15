@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import TurndownService from "turndown";
 import { isHtmlMessage, type Archive, type Message } from "./archive.ts";
+import { teamsEmojiText } from "./teams-emoji.ts";
 
 type Turn = {
   day: string;
@@ -94,6 +95,8 @@ export function renderMarkdown(
   converter.addRule("unavailable-image", {
     filter: "img",
     replacement: (_content, node) => {
+      const emoji = teamsEmojiText(node);
+      if (emoji !== undefined) return inline(emoji);
       hasInlineImage = true;
       const alt = node.getAttribute("alt");
       let key = "";

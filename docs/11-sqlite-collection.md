@@ -23,7 +23,7 @@ Daily mode rejects `--out` and explicit bounds, splits at local calendar midnigh
 
 `src/daily-export.ts` shares directory/type validation and existing-archive identity/window checks between HTTP and database daily exports. Database publication holds `withArchiveLock` across validation, local media copying, JSON replacement, and Markdown regeneration. Existing newer endpoints cannot be shortened. New media files are published from sibling temporary files; prior unreferenced files remain. Failed new daily media publication removes its unpublished media files; JSON remains after Markdown failure. Previously completed days remain if a later day fails. Combined export retains new-directory-only behavior.
 
-## Schema version 2
+## Schema version 3
 
 | Table | Stored fields |
 | --- | --- |
@@ -40,7 +40,7 @@ Coverage records are independent of message presence. A successful empty interva
 
 One source may link to multiple messages and chats, with one account-scoped download record. Original regional URLs retain their digests; destination translation occurs only inside the shared downloader. Unsupported references remain in original payloads and are counted, not queued for arbitrary requests.
 
-After account validation, writable opens transactionally migrate version 1: add image tables/indexes and unsupported counts, backfill saved message references, and advance the version together. Migration performs no HTTP and preserves messages and coverage; failures roll back the schema/backfill. Read-only version 1 exports remain supported without migration and retain their legacy not-downloaded media state. Unknown future versions fail. Database version 2 does not change portable JSON archive version 1.
+After account validation, writable opens transactionally migrate version 1: add image tables/indexes and unsupported counts, backfill saved message references, and advance the version together. Migration performs no HTTP and preserves messages and coverage; failures roll back the schema/backfill. Read-only version 1 exports remain supported without migration and retain their legacy not-downloaded media state. Unknown future versions fail. Database version 3 does not change portable JSON archive version 1.
 
 ## Retrieval and recovery
 
@@ -115,3 +115,5 @@ Implementation references: [Bun SQLite](https://bun.sh/docs/runtime/sqlite) for 
 Logs contain operational metadata, including paths and account/chat identifiers, but no message bodies, credentials, or raw HTTP URLs. They are separate from SQLite checkpoints and backup snapshots; coverage in SQLite remains authoritative. Logging failures warn and collection continues. On Unix, files are mode 600 in a mode-700 log directory. Windows privacy depends on filesystem ACLs; the CLI does not validate or configure those ACLs. Database parent directories may be symlink aliases; the log directory itself must not be a symlink. Logs are not automatically pruned; remove old logs when no longer needed. Invalid command options fail before log creation. Hard crashes may leave a log without a final status, and logs are not fsynced per event.
 
 Collection workflow logs identify the command that ran. `media-db` records verified downloaded-image skips, pending work, refresh mode, per-image outcomes, and the final image summary even on handled download failure. `export-db` records the requested chat/range and media/Markdown options, coverage verification, copied-image progress, and JSON/Markdown publication. All three commands support `--no-log`. The export database remains read-only and offline; its diagnostic log is a separate sibling file. Standalone JSON commands (`export`, `media`, `convert`) do not write these database workflow logs.
+
+Version 3 recalculates every stored unsupported-image count using standard Teams emoji recognition. Writable opens migrate version 2 atomically; version 1 upgrades include both image indexing and count repair in one transaction. Original payloads, coverage, and downloaded image metadata remain unchanged. Failed parsing rolls back the upgrade. Read-only version 1/2 opens remain supported without writes; version 2 retains its old counts until a writable collection or media operation migrates it.

@@ -137,7 +137,7 @@ export class HistoryStore {
             "SELECT version, account_id FROM collection_meta WHERE id=1",
           )
           .get();
-        if (!meta || ![1, 2].includes(meta.version))
+        if (!meta || ![1, 2, 3].includes(meta.version))
           throw new AppError("Unsupported collection database version.");
         if (accountId !== undefined && meta.account_id !== accountId)
           throw new AppError(
@@ -147,10 +147,13 @@ export class HistoryStore {
         const store = new HistoryStore(
           db,
           meta.account_id,
-          accountId !== undefined ? 2 : meta.version,
+          accountId !== undefined ? 3 : meta.version,
         );
-        if (accountId !== undefined && meta.version === 1)
-          store.migrateImages();
+        if (accountId !== undefined && meta.version < 3)
+          db.transaction(() => {
+            if (meta.version === 1) store.migrateImages();
+            store.recalculateUnsupportedImages();
+          }).immediate();
         return store;
       } catch (error) {
         db.close();
@@ -204,6 +207,30 @@ export class HistoryStore {
         this.db.run("UPDATE collection_meta SET version=2 WHERE id=1");
       })
       .immediate();
+  }
+
+  private recalculateUnsupportedImages() {
+    const update = this.db.query(
+      "UPDATE messages SET unsupported_images=? WHERE chat_id=? AND message_id=?",
+    );
+    for (const row of this.db
+      .query<
+        {
+          chat_id: string;
+          message_id: string;
+          payload_json: string;
+        },
+        []
+      >("SELECT chat_id, message_id, payload_json FROM messages")
+      .iterate()) {
+      const message = messageSchema.parse(JSON.parse(row.payload_json));
+      update.run(
+        messageImageReferences(message).unsupported,
+        row.chat_id,
+        row.message_id,
+      );
+    }
+    this.db.run("UPDATE collection_meta SET version=3 WHERE id=1");
   }
 
   private indexImages(chat: string, message: Message) {

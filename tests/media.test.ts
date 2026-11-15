@@ -23,6 +23,7 @@ import {
   imageSourceUrl,
   imageUrl,
   mediaDirectory,
+  messageImageReferences,
 } from "../src/media.ts";
 import { resolveExportOptions } from "../src/command-validation.ts";
 import { historyProgress } from "../src/teams.ts";
@@ -694,4 +695,26 @@ test("export saves portable images, offline conversion rebases links, and --no-m
     if (oldCache === undefined) delete process.env.XDG_CACHE_HOME;
     else process.env.XDG_CACHE_HOME = oldCache;
   }
+});
+
+test("standard emoji are text while missing and unsupported attachments remain counted", () => {
+  const emoji = '<img itemtype="http://schema.skype.com/Emoji" alt="🎉">';
+  expect(
+    messageImageReferences({ ...message(emoji), amsreferences: [] }),
+  ).toEqual({ images: [], unsupported: 0 });
+  expect(
+    messageImageReferences({ ...message(emoji), amsreferences: ["attachment"] })
+      .unsupported,
+  ).toBe(1);
+  for (const html of [
+    '<img alt="🎉">',
+    '<img itemtype="http://schema.skype.com/CustomEmoji" alt="cat">',
+    '<img itemtype="http://schema.skype.com/Emoji" alt=" ">',
+    '<img itemtype="http://schema.skype.com/Emoji">',
+  ]) {
+    expect(messageImageReferences(message(emoji + html)).unsupported).toBe(1);
+  }
+  expect(
+    messageImageReferences(message(emoji + '<img src="' + url + '">')).images,
+  ).toHaveLength(1);
 });

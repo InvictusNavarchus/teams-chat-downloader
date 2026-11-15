@@ -60,3 +60,7 @@ Per-image progress distinguishes `reused from local cache`, `revalidated with Te
 The archive reader validates version-1 manifests and image fields. Image paths must be `media/<hash>.<extension>`; absolute and parent-traversal paths are rejected. Markdown matches local images by source message identity and normalized source-URL digest, so hidden or removed HTML nodes cannot shift later image mappings. Alternative Markdown destinations rebase links to the original image directory without network requests or file copying.
 
 Supported formats and paths do not imply original-upload fidelity, all-image discovery, video/file support, stickers/cards/replies coverage, signed-URL handling, deleted-image recovery, cookie renewal, or support for every region. The November 11 direct HTTP probe validates one cold image response with saved credentials; end-to-end live CLI publication, live login-cookie capture, and behavior on other accounts remain to be checked through ordinary authorized usage.
+
+### Standard Teams emoji
+
+Images marked `itemtype="http://schema.skype.com/Emoji"` with nonblank `alt` are text, rendered with Markdown escaping and excluded from unsupported-media counts. Recognition does not broaden authenticated download destinations. Custom emoji and images without usable emoji text retain normal attachment handling. Emoji alone do not suppress warnings for opaque `amsreferences` attachments. Original HTML remains intact in JSON.

@@ -376,3 +376,27 @@ test("media references without inline images get a readable placeholder", () => 
   expect(result).not.toContain("private-reference");
   expect(result).not.toContain("_No text available._");
 });
+
+test("Teams emoji render as escaped text without hiding missing attachments", () => {
+  const emoji = '<img itemtype="http://schema.skype.com/Emoji" alt="🎉">';
+  const result = renderMarkdown(archive([message("Celebrate " + emoji)]));
+  expect(result).toContain("Celebrate 🎉");
+  expect(result).not.toContain("not downloaded");
+  expect(
+    renderMarkdown(
+      archive([message(emoji, { amsreferences: ["attachment"] })]),
+    ),
+  ).toContain("Media not downloaded");
+  expect(
+    renderMarkdown(archive([message(emoji + '<img alt="photo">')])),
+  ).toContain("Image not downloaded: photo");
+  expect(
+    renderMarkdown(
+      archive([
+        message(
+          '<img itemtype="http://schema.skype.com/Emoji" alt="&lt;script&gt;">',
+        ),
+      ]),
+    ),
+  ).toContain("&lt;script&gt;");
+});
