@@ -167,13 +167,20 @@ The default handles every chat in the database, using credentials for its accoun
 Copy the raw chat ID from `chats` for `export-db`; this command does not accept labels.
 
 ```sh
+bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' --last 3d
 bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' --out exports/full-history
 bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' \
   --from '2026-09-01T00:00:00+07:00' --to '2026-10-01T00:00:00+07:00' --out exports/september
 bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' --out exports/text-only --no-media
 ```
 
-No credentials or network are needed. Without bounds, export uses the full stored coverage span; any uncollected gap causes rejection. Bounds must be paired. The destination must be new. `--no-markdown` skips the transcript; `--no-media` uses image placeholders.
+No credentials or network are needed. In combined mode (`--out`), without bounds, export uses the full stored coverage span; any uncollected gap causes rejection. Bounds must be paired. The combined destination must be new. `--no-markdown` skips the transcript; `--no-media` uses image placeholders.
+
+For daily folders, use `--last Nd` without `--out` or explicit bounds. The last N local calendar days include today, using the same calendar rules as direct exports (including daylight saving changes). The saved database label names `exports/<normalized-chat-label>/<YYYY-MM-DD>/`; missing labels use the existing hashed chat-ID fallback. No directory/profile requests are made.
+
+Earlier days require complete midnight-to-midnight coverage. Today ends at the earlier of invocation time and the latest completed collection endpoint, which the command prints; the archive records that exact bound. This uses completed coverage, not the latest message timestamp. If today's coverage is absent or any requested interval has gaps, the command fails before writing daily folders. Fully covered empty days produce empty archives.
+
+Reruns replace matching daily archives and regenerate Markdown under the shared archive/media lock. Existing account, chat, start bound, and endpoint are checked before replacement; a newer archive is never shortened. Symlinks and unexpected output types are rejected. `--no-markdown` removes a previous daily transcript after JSON publication. Old unreferenced media files remain, while the manifest describes current references. Each day publishes independently; if a later day fails or the command is cancelled, already published days remain. JSON remains available after a Markdown failure. Daily export loads one day's messages at a time.
 
 Downloaded images are copied into the portable bundle. Pending images remain placeholders. A missing or corrupt image recorded as complete fails export before JSON publication: repair it with `media-db` or use `--no-media`. Markdown failure retains JSON. Very large exports may need smaller subranges because archive generation loads the selected messages into memory.
 

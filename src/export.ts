@@ -1,4 +1,4 @@
-import { lstat, mkdir, rm, rmdir, unlink } from "node:fs/promises";
+import { mkdir, rm, rmdir, unlink } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { readArchive, type Archive } from "./archive.ts";
 import {
@@ -9,6 +9,7 @@ import {
   assertSelectableChatLabel,
   selectChatByLabel,
 } from "./chat-selection.ts";
+import { prepareDailyDirectory, assertDailyArchive } from "./daily-export.ts";
 import { convertArchive } from "./convert.ts";
 import type { Credentials } from "./credentials.ts";
 import { AppError } from "./errors.ts";
@@ -106,7 +107,7 @@ export async function exportChat(
           directory,
           chat,
           credentials.accountId,
-          options,
+          options.window,
         );
       return publish(!created);
     });
@@ -258,64 +259,4 @@ export async function exportChat(
       throw error;
     }
   }
-}
-
-async function prepareDailyDirectory(directory: string): Promise<string[]> {
-  const created: string[] = [];
-  // The default layout has exactly three components: exports/chat/date.
-  // Reject symlinks rather than refreshing an archive outside that layout.
-  for (const path of [
-    dirname(dirname(directory)),
-    dirname(directory),
-    directory,
-  ]) {
-    try {
-      await mkdir(path, { mode: 0o700 });
-      created.push(path);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST")
-        throw new AppError("Could not create the daily export directory.");
-    }
-    if (!(await lstat(path)).isDirectory())
-      throw new AppError(
-        "Daily export paths must be regular directories, without symlinks.",
-      );
-  }
-  return created;
-}
-
-async function assertDailyArchive(
-  directory: string,
-  chat: string,
-  accountId: string,
-  options: ExportOptions,
-): Promise<void> {
-  for (const [name, kind] of [
-    ["chat.json", "file"],
-    ["chat.md", "file"],
-    ["media", "directory"],
-  ] as const) {
-    const info = await lstat(join(directory, name)).catch(
-      (error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT" && name !== "chat.json") return;
-        throw new AppError(
-          "Cannot verify the existing daily export; choose a new --out directory.",
-        );
-      },
-    );
-    if (info && !(kind === "file" ? info.isFile() : info.isDirectory()))
-      throw new AppError(
-        "Daily export files and media must not be symlinks or unexpected file types.",
-      );
-  }
-  const archive = await readArchive(join(directory, "chat.json"));
-  if (
-    archive.accountId !== accountId ||
-    archive.chatId !== chat ||
-    Date.parse(archive.window.from) !== options.window.from ||
-    Date.parse(archive.window.toExclusive) > options.window.to
-  )
-    throw new AppError(
-      "Existing daily export belongs to another account, chat, or date window, or is newer than this invocation; choose a new --out directory.",
-    );
 }

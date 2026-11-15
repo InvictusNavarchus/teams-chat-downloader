@@ -378,7 +378,11 @@ export async function runCli(argv = process.argv): Promise<number> {
       { default: commandDefaults.log },
     )
     .option("--chat <id>", "Raw chat ID stored in the collection")
-    .option("--out <directory>", "New directory for chat.json and chat.md")
+    .option("--out <directory>", "New directory for one combined archive")
+    .option(
+      "--last <Nd>",
+      "Export each of the last N local calendar days to refreshable daily folders",
+    )
     .option(
       "--from <timestamp>",
       "Inclusive start; requires --to (default: full collected range)",
@@ -395,7 +399,7 @@ export async function runCli(argv = process.argv): Promise<number> {
       const options = resolveDatabaseExportOptions(input);
       startLog("export-db", options);
       output(
-        `[export-db] Requested chat: ${options.chat}; range: ${options.from ?? "stored coverage"} to ${options.to ?? "stored coverage"}; media: ${options.media}; markdown: ${options.markdown}; destination: ${options.out}`,
+        `[export-db] Requested chat: ${options.chat}; range: ${options.window ? new Date(options.window.from).toISOString() : "stored coverage"} to ${options.window ? new Date(options.window.to).toISOString() : "stored coverage"}; media: ${options.media}; markdown: ${options.markdown}; destination: ${options.out ?? "daily folders"}`,
       );
       output(
         JSON.stringify(

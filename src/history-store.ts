@@ -372,16 +372,21 @@ export class HistoryStore {
     }
   }
 
+  completedBounds(chat: string): Window {
+    const bounds = this.db
+      .query<{ from_ms: number | null; to_ms: number | null }, [string]>(
+        "SELECT MIN(from_ms) AS from_ms, MAX(to_ms) AS to_ms FROM completed_windows WHERE chat_id=?",
+      )
+      .get(chat)!;
+    if (bounds.from_ms === null || bounds.to_ms === null)
+      throw new AppError("No completed history is stored for this chat.");
+    return { from: bounds.from_ms, to: bounds.to_ms };
+  }
+
   archive(chat: string, requested?: Window): Archive {
     return this.db.transaction(() => {
-      const bounds = this.db
-        .query<{ from_ms: number | null; to_ms: number | null }, [string]>(
-          "SELECT MIN(from_ms) AS from_ms, MAX(to_ms) AS to_ms FROM completed_windows WHERE chat_id=?",
-        )
-        .get(chat)!;
-      if (bounds.from_ms === null || bounds.to_ms === null)
-        throw new AppError("No completed history is stored for this chat.");
-      const window = requested ?? { from: bounds.from_ms, to: bounds.to_ms };
+      const bounds = this.completedBounds(chat);
+      const window = requested ?? bounds;
       if (this.missing(chat, window).length)
         throw new AppError(
           "Requested range has uncollected gaps; run collect for that range before exporting.",

@@ -55,7 +55,12 @@ bun run teams media-db --db exports/history.sqlite
 
 # Create a portable export offline; copy the raw chat ID from `chats`:
 bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' --out exports/alpha-history
+
+# Export the last three local calendar days into separate daily folders:
+bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' --last 3d
 ```
+
+`export-db --last Nd` writes `exports/<saved-chat-label>/<YYYY-MM-DD>/chat.json` and a sibling Markdown transcript for each day, including today. Reruns safely refresh matching daily folders. Today ends at the verified collection cutoff (printed by the command); earlier days require full coverage, including empty days. Collect through today first. Use `--no-markdown --no-media` for JSON only. Daily mode cannot be combined with `--out` or explicit bounds.
 
 If collection stops, rerun it with the same database: completed intervals are skipped. Each database belongs to one account and can hold multiple chats. Collection preserves saved history but does **not** synchronize later edits or deletions in completed intervals.
 

@@ -6,7 +6,7 @@ import { AppError } from "./errors.ts";
 import type { ExportOptions } from "./command-validation.ts";
 
 export function defaultExportDirectory(
-  options: ExportOptions,
+  options: Pick<ExportOptions, "chat" | "last" | "since" | "window">,
   label?: string,
 ): string {
   if (options.chat === undefined)

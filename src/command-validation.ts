@@ -233,7 +233,8 @@ const databaseExportOptionsSchema = z.strictObject({
   log: z.boolean().default(commandDefaults.log),
   db: z.string().min(1),
   chat: z.string().min(1),
-  out: z.string().min(1),
+  out: z.string().min(1).optional(),
+  last: exportOptionsSchema.shape.last,
   from: timestampSchema.optional(),
   to: timestampSchema.optional(),
   markdown: z.boolean().default(commandDefaults.markdown),
@@ -245,24 +246,41 @@ export type DatabaseExportOptions = z.infer<
 
 export function resolveDatabaseExportOptions(
   input: unknown,
+  now = Date.now(),
 ): DatabaseExportOptions {
   const result = databaseExportOptionsSchema.safeParse(input);
   if (!result.success)
     throw validationError("Database export options", result.error);
   const options = result.data;
+  if (
+    options.last !== undefined &&
+    [options.out, options.from, options.to].some((value) => value !== undefined)
+  )
+    throw new AppError(
+      "Use --last Nd for daily folders, or --out with optional paired bounds for one combined archive.",
+    );
+  if (options.last === undefined && options.out === undefined)
+    throw new AppError(
+      "Supply --last Nd for daily folders, or --out for one combined archive.",
+    );
   if ((options.from === undefined) !== (options.to === undefined))
     throw new AppError(
       "Supply both --from and --to, or omit both to export the collected range.",
     );
   const window =
-    options.from === undefined
-      ? undefined
-      : { from: Date.parse(options.from), to: Date.parse(options.to!) };
+    options.last !== undefined
+      ? {
+          from: calendarDayStart(now, Number(options.last.slice(0, -1))),
+          to: now,
+        }
+      : options.from === undefined
+        ? undefined
+        : { from: Date.parse(options.from), to: Date.parse(options.to!) };
   if (window) assertWindow(window);
   return {
     ...options,
     db: resolve(options.db),
-    out: resolve(options.out),
+    out: options.out === undefined ? undefined : resolve(options.out),
     window,
   };
 }

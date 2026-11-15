@@ -15,7 +15,11 @@ Collection requires `--db`, one of `--chat` or `--chat-label`, and one of `--all
 
 `media-db` requires an existing `--db` and credentials for its account (normal lookup or `--credentials`). It handles all chats by default; optional `--chat <raw-id>` limits the queue. `--refresh-media` revalidates through the shared cache. No JSON export or history/directory/profile request is needed.
 
-`export-db` requires `--db`, a raw `--chat`, and a new `--out` directory. Optional `--from` and `--to` must appear together; otherwise use the minimum/maximum completed bounds. Any coverage gap fails before publication. Export is offline without credentials. `--no-markdown` creates JSON only; `--no-media` skips image copying and emits placeholders.
+`export-db` requires `--db`, a raw `--chat`, and either `--last Nd` for daily folders or a new `--out` directory for one combined archive. In combined mode, optional `--from` and `--to` must appear together; otherwise use the minimum/maximum completed bounds. Any coverage gap fails before publication. Export is offline without credentials. `--no-markdown` creates JSON only; `--no-media` skips image copying and emits placeholders.
+
+Daily mode rejects `--out` and explicit bounds, splits at local calendar midnights, and uses saved labels with the shared export-path naming rules. Validate coverage for the full requested range before publication: earlier days must be complete, and today's endpoint is capped to the latest completed collection endpoint or invocation time, whichever is earlier. Require some coverage today and reject internal gaps. Print the cutoff and preserve it in the archive window; covered empty days produce empty archives. Each day's archive is read in a SQLite transaction without loading the whole requested range into memory.
+
+`src/daily-export.ts` shares directory/type validation and existing-archive identity/window checks between HTTP and database daily exports. Database publication holds `withArchiveLock` across validation, local media copying, JSON replacement, and Markdown regeneration. Existing newer endpoints cannot be shortened. New media files are published from sibling temporary files; prior unreferenced files remain. Failed new daily media publication removes its unpublished media files; JSON remains after Markdown failure. Previously completed days remain if a later day fails. Combined export retains new-directory-only behavior.
 
 ## Schema version 2
 
