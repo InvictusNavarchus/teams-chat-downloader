@@ -66,19 +66,23 @@ async function exportDailyDatabase(
     const chat = options.chat ?? store.chatIdForLabel(options.chatLabel!);
     onProgress?.(`[export-db] Selected stored chat: ${JSON.stringify(chat)}.`);
     const requested = options.window!;
-    const today = dayjs(requested.to).startOf("day").valueOf();
-    const to = Math.min(requested.to, store.completedBounds(chat).to);
-    if (to <= today)
+    const bounds = store.completedBounds(chat);
+    const to = Math.min(requested.to, bounds.to);
+    if (to <= requested.from || bounds.from >= requested.to)
       throw new AppError(
-        "Today's history has no completed coverage; run collect through today before daily export.",
+        "No completed history overlaps the requested daily range; collect that range before exporting.",
       );
     if (store.missing(chat, { from: requested.from, to }).length)
       throw new AppError(
         "Requested daily range has uncollected gaps; run collect for that range before exporting.",
       );
     onProgress?.(
-      `[export-db] Daily range verified; today's collected cutoff: ${new Date(to).toISOString()}.`,
+      `[export-db] Daily range verified; collected cutoff: ${new Date(to).toISOString()}.`,
     );
+    if (to < requested.to)
+      onProgress?.(
+        `[export-db] Skipping uncollected tail: ${new Date(to).toISOString()} to ${new Date(requested.to).toISOString()}.`,
+      );
     const days = [];
     for (let from = requested.from; from < to; ) {
       signal?.throwIfAborted();

@@ -79,10 +79,14 @@ async function fixture(end = cutoff, gap = false) {
     day: (date: string) => join(dir, "exports", "project-alpha", date),
   };
 }
-async function run(f: Awaited<ReturnType<typeof fixture>>, extra = {}) {
+async function run(
+  f: Awaited<ReturnType<typeof fixture>>,
+  extra = {},
+  invocation = now,
+) {
   const script = `import { exportDatabase } from ${JSON.stringify(join(import.meta.dir, "../src/database-export.ts"))};
 import { resolveDatabaseExportOptions } from ${JSON.stringify(join(import.meta.dir, "../src/command-validation.ts"))};
-const result = await exportDatabase(resolveDatabaseExportOptions(JSON.parse(process.env.DAILY_OPTIONS), ${now}), undefined, console.log);
+const result = await exportDatabase(resolveDatabaseExportOptions(JSON.parse(process.env.DAILY_OPTIONS), ${invocation}), undefined, console.log);
 console.log(JSON.stringify(result));`;
   const child = Bun.spawn([process.execPath, "-e", script], {
     cwd: f.dir,
@@ -157,15 +161,55 @@ test("daily refresh advances the stored cutoff and rejects a newer existing arch
   );
 });
 
-test("coverage gaps and stale collections fail before any daily folder is published", async () => {
-  for (const f of [await fixture(cutoff, true), await fixture(today)]) {
+test("internal coverage gaps fail before any daily folder is published", async () => {
+  const f = await fixture(cutoff, true);
+  const result = await run(f);
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("uncollected gaps");
+  expect(await Bun.file(join(f.day("2026-11-13"), "chat.json")).exists()).toBe(
+    false,
+  );
+});
+
+test("daily export stops at an earlier collected cutoff without requiring today's coverage", async () => {
+  for (const end of [start + 12 * 3600000, yesterday + 15 * 3600000, today]) {
+    const f = await fixture(end);
     const result = await run(f);
-    expect(result.code).toBe(1);
-    expect(result.stderr).toMatch(/uncollected gaps|no completed coverage/);
+    expect(result.stderr).toBe("");
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      `collected cutoff: ${new Date(end).toISOString()}`,
+    );
+    expect(result.stdout).toContain("Skipping uncollected tail");
+    const summary = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
+    expect(summary.days).toHaveLength(end <= yesterday ? 1 : 2);
+    const last = await readArchive(summary.days.at(-1).output);
+    expect(last.window.toExclusive).toBe(new Date(end).toISOString());
     expect(
-      await Bun.file(join(f.day("2026-11-13"), "chat.json")).exists(),
+      await Bun.file(join(f.day("2026-11-15"), "chat.json")).exists(),
     ).toBe(false);
+    if (end === today) expect(last.messages).toEqual([]);
+    // The same cutoff also works when exporting on a weekday after collection stopped.
+    const weekday = await run(
+      f,
+      { last: "5d" },
+      new Date(2026, 10, 17, 12).getTime(),
+    );
+    expect(weekday.code).toBe(0);
+    expect((await run(f)).code).toBe(0);
   }
+});
+
+test("daily export with no coverage in the requested range fails without creating folders", async () => {
+  const f = await fixture(yesterday);
+  const result = await run(f, { last: "1d" });
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain(
+    "No completed history overlaps the requested daily range",
+  );
+  expect(await Bun.file(join(f.day("2026-11-15"), "chat.json")).exists()).toBe(
+    false,
+  );
 });
 
 test("daily refresh rejects wrong identity, symlinks, and an active archive lock", async () => {
@@ -287,7 +331,7 @@ test("export-db CLI accepts --chat-label with --last and logs the resolved chat 
   const files = await readdir(`${f.db}.logs`);
   const log = await readFile(join(`${f.db}.logs`, files[0]!), "utf8");
   expect(log).toContain('Selected stored chat: "cli"');
-  expect(log).toContain("today's collected cutoff");
+  expect(log).toContain("collected cutoff");
   expect(log).toContain("Saved JSON archive");
 });
 

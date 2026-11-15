@@ -62,7 +62,7 @@ bun run teams export-db --db exports/history.sqlite --chat-label 'Project Alpha'
 
 `export-db` accepts exactly one of `--chat <raw-id>` or `--chat-label <label>`. Labels match saved SQLite labels exactly after trimming whitespace and ignoring case; missing or duplicate matches fail. Label lookup stays offline and does not refresh names.
 
-`export-db --last Nd` writes `exports/<saved-chat-label>/<YYYY-MM-DD>/chat.json` and a sibling Markdown transcript for each day, including today. Reruns safely refresh matching daily folders. Today ends at the verified collection cutoff (printed by the command); earlier days require full coverage, including empty days. Collect through today first. Use `--no-markdown --no-media` for JSON only. Daily mode cannot be combined with `--out` or explicit bounds.
+`export-db --last Nd` writes `exports/<saved-chat-label>/<YYYY-MM-DD>/chat.json` and a sibling Markdown transcript for each collected day in the requested range. Reruns safely refresh matching daily folders. Export stops at the verified collection cutoff (printed by the command), even if it falls on an earlier day. The final day can be partial; later uncollected days are skipped and reported. Coverage gaps before the cutoff still fail, and fully collected empty days are exported. Use `--no-markdown --no-media` for JSON only. Daily mode cannot be combined with `--out` or explicit bounds.
 
 If collection stops, rerun it with the same database: completed intervals are skipped. Each database belongs to one account and can hold multiple chats. Collection preserves saved history but does **not** synchronize later edits or deletions in completed intervals.
 
