@@ -11,7 +11,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openCollectionLog } from "../src/collection-log.ts";
+import {
+  openCollectionLog,
+  writeCommandContext,
+} from "../src/collection-log.ts";
 import { resolveCollectOptions } from "../src/command-validation.ts";
 
 test("collection logs are private, unique, timestamped and immediately readable", () => {
@@ -66,6 +69,126 @@ test("collection file logging defaults on and supports opt out", () => {
   const options = { db: "history.sqlite", chat: "chat", all: true };
   expect(resolveCollectOptions(options).log).toBe(true);
   expect(resolveCollectOptions({ ...options, log: false }).log).toBe(false);
+});
+
+test("invocation context escapes values and excludes unrecognized and credential fields", () => {
+  const lines: string[] = [];
+  const input = {
+    chatLabel: 'Project "Alpha"\nnext line',
+    credentials: "secret-credential-path",
+    token: "private-token",
+    "--": ["trailing-secret"],
+    backup: false,
+  };
+  writeCommandContext({ write: (line) => lines.push(line) }, "collect", input, {
+    ...input,
+    window: { from: 1, to: 1000, secret: "window-secret" },
+  });
+  const text = lines.join("\n");
+  expect(lines).toHaveLength(3);
+  expect(lines.every((line) => !line.includes("\n"))).toBe(true);
+  expect(text).toContain('--chat-label "Project \\"Alpha\\"\\nnext line"');
+  expect(text).toContain("--no-backup");
+  expect(text).toContain('--credentials "[REDACTED]"');
+  expect(text).toContain('"toExclusive":"1970-01-01T00:00:01.000Z"');
+  for (const secret of [
+    "secret-credential-path",
+    "private-token",
+    "trailing-secret",
+    "window-secret",
+  ])
+    expect(text).not.toContain(secret);
+});
+
+test("database command logs start with input, working directory and resolved defaults", async () => {
+  const { readdirSync, existsSync } = await import("node:fs");
+  const dir = mkdtempSync(join(tmpdir(), "invocation-log-"));
+  try {
+    const commands = [
+      {
+        name: "collect",
+        args: [
+          "--chat-label",
+          "Project Alpha",
+          "--last",
+          "7d",
+          "--no-backup",
+          "--credentials",
+          join(dir, "missing.json"),
+        ],
+      },
+      {
+        name: "media-db",
+        args: [
+          "--chat-label",
+          "Project Alpha",
+          "--refresh-media",
+          "--credentials",
+          join(dir, "missing.json"),
+        ],
+      },
+      {
+        name: "export-db",
+        args: [
+          "--chat-label",
+          "Project Alpha",
+          "--last",
+          "7d",
+          "--no-media",
+          "--no-markdown",
+        ],
+      },
+    ];
+    for (const { name, args } of commands) {
+      for (const enabled of [true, false]) {
+        const db = join(dir, `${name}-${enabled}.sqlite`);
+        const child = Bun.spawn(
+          [
+            process.execPath,
+            "src/cli.ts",
+            name,
+            "--db",
+            db,
+            ...args,
+            ...(enabled ? [] : ["--no-log"]),
+          ],
+          { stdout: "pipe", stderr: "pipe" },
+        );
+        await Promise.all([
+          new Response(child.stdout).text(),
+          new Response(child.stderr).text(),
+        ]);
+        expect(await child.exited).toBe(1);
+        if (!enabled) {
+          expect(existsSync(`${db}.logs`)).toBe(false);
+          continue;
+        }
+        const files = readdirSync(`${db}.logs`);
+        const text = readFileSync(join(`${db}.logs`, files[0]!), "utf8");
+        const lines = text.split("\n");
+        expect(lines[0]).toContain(
+          `[${name}] Input (normalized): teams ${name}`,
+        );
+        expect(lines[0]).toContain('--chat-label "Project Alpha"');
+        expect(lines[1]).toContain(
+          `Working directory: ${JSON.stringify(process.cwd())}`,
+        );
+        expect(lines[2]).toContain("Resolved options:");
+        expect(text).toContain(`[${name}] Failed:`);
+        if (name === "collect") {
+          expect(lines[0]).toContain('--last "7d"');
+          expect(lines[0]).toContain("--no-backup");
+          expect(lines[2]).toContain('"pageDelayMin":1');
+          expect(lines[2]).toContain('"toExclusive":');
+        } else if (name === "export-db") {
+          expect(lines[0]).toContain("--no-media");
+          expect(lines[2]).toContain('"markdown":false');
+        } else expect(lines[2]).toContain('"refreshMedia":true');
+      }
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("CLI persists credential failures and honors --no-log", async () => {

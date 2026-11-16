@@ -25,7 +25,7 @@ import {
 } from "./config.ts";
 import { convertAllArchives } from "./convert-all.ts";
 import { convertArchive } from "./convert.ts";
-import { openCollectionLog } from "./collection-log.ts";
+import { openCollectionLog, writeCommandContext } from "./collection-log.ts";
 import { collectHistory } from "./collect.ts";
 import { exportDatabase } from "./database-export.ts";
 import { downloadDatabaseMedia } from "./database-media.ts";
@@ -50,14 +50,18 @@ export async function runCli(argv = process.argv): Promise<number> {
   let operation = "collect";
   const startLog = (
     command: string,
-    options: { db: string; log?: boolean },
+    options: { db: string; log?: boolean } & Record<string, unknown>,
+    input: Record<string, unknown>,
   ) => {
     operation = command;
     if (options.log) {
       collectionLog = openCollectionLog(options.db, (message) =>
         console.warn(message),
       );
-      if (collectionLog) output(`[log] Collection log: ${collectionLog.path}`);
+      if (collectionLog) {
+        writeCommandContext(collectionLog, command, input, options);
+        output(`[log] Collection log: ${collectionLog.path}`);
+      }
     }
     output(`[${command}] Started; database: ${options.db}`);
   };
@@ -324,7 +328,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     .action(async (raw: Record<string, unknown>) => {
       const { "--": _trailing, ...input } = raw;
       const options = resolveCollectOptions(input);
-      startLog("collect", options);
+      startLog("collect", options, input);
       output(
         `[collect] Requested ${new Date(options.window.from).toISOString()} to ${new Date(options.window.to).toISOString()} (exclusive)`,
       );
@@ -402,7 +406,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     .action(async (raw: Record<string, unknown>) => {
       const { "--": _trailing, ...input } = raw;
       const options = resolveDatabaseExportOptions(input);
-      startLog("export-db", options);
+      startLog("export-db", options, input);
       output(
         `[export-db] Requested chat: ${JSON.stringify(options.chat ?? options.chatLabel)}; range: ${options.window ? new Date(options.window.from).toISOString() : "stored coverage"} to ${options.window ? new Date(options.window.to).toISOString() : "stored coverage"}; media: ${options.media}; markdown: ${options.markdown}; destination: ${options.out ?? "daily folders"}`,
       );
@@ -439,7 +443,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     .action(async (raw: Record<string, unknown>) => {
       const { "--": _trailing, ...input } = raw;
       const options = resolveDatabaseMediaOptions(input);
-      startLog("media-db", options);
+      startLog("media-db", options, input);
       output(
         `[media-db] Requested chat: ${JSON.stringify(options.chat ?? options.chatLabel ?? "all chats")}; refresh: ${options.refreshMedia}`,
       );

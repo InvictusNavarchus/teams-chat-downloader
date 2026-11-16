@@ -12,6 +12,63 @@ import { basename, dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { collectionLogSuffix } from "./config.ts";
 
+// Explicitly select operational fields so new options cannot silently leak into logs.
+const loggedOptions = [
+  "db",
+  "chat",
+  "chatLabel",
+  "all",
+  "last",
+  "since",
+  "from",
+  "to",
+  "pageDelayMin",
+  "pageDelayMax",
+  "backup",
+  "backupDir",
+  "log",
+  "out",
+  "markdown",
+  "media",
+  "refreshMedia",
+] as const;
+
+export function writeCommandContext(
+  log: { write(message: string): void },
+  command: string,
+  input: Record<string, unknown>,
+  resolved: Record<string, unknown>,
+) {
+  const select = (options: Record<string, unknown>) => {
+    const selected: Record<string, string | number | boolean> = {};
+    for (const key of loggedOptions) {
+      const value = options[key];
+      if (["string", "number", "boolean"].includes(typeof value))
+        selected[key] = value as string | number | boolean;
+    }
+    if (options.credentials !== undefined) selected.credentials = "[REDACTED]";
+    return selected;
+  };
+  const args = Object.entries(select(input)).map(([key, value]) => {
+    const flag = key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+    return typeof value === "boolean"
+      ? `--${value ? "" : "no-"}${flag}`
+      : `--${flag} ${JSON.stringify(value)}`;
+  });
+  log.write(
+    `[${command}] Input (normalized): teams ${command} ${args.join(" ")}`,
+  );
+  log.write(`[${command}] Working directory: ${JSON.stringify(process.cwd())}`);
+  const settings: Record<string, unknown> = select(resolved);
+  const window = resolved.window as { from: number; to: number } | undefined;
+  if (window)
+    settings.window = {
+      from: new Date(window.from).toISOString(),
+      toExclusive: new Date(window.to).toISOString(),
+    };
+  log.write(`[${command}] Resolved options: ${JSON.stringify(settings)}`);
+}
+
 // Synchronous, small event writes preserve ordering without a buffered shutdown queue.
 // Logs are diagnostic evidence, not a durability or completion authority.
 export function openCollectionLog(
