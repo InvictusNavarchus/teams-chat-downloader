@@ -115,7 +115,7 @@ test("saved labels scope image downloads and unsupported counts to one chat", as
   );
   expect(result).toMatchObject({ saved: 1, images: 1, unsupported: 0 });
   expect(stats.total).toBe(1);
-  expect(events).toContain('[media-db] Selected stored chat: "group".');
+  expect(events).toContain('[images] Selected stored chat: "group".');
   const store = await HistoryStore.open(f.db);
   expect(store.images("group")[0]!.status).toBe("complete");
   expect(store.images("other")[0]!.status).toBe("pending");

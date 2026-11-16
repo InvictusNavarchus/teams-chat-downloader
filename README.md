@@ -1,138 +1,122 @@
 # Teams Chat Download
 
-Export chat history from **Microsoft Teams Free with a personal Microsoft account** (`teams.live.com`). Save a readable Markdown transcript, original message data as JSON, and supported inline images for offline use.
-
-For a short period, export directly. For long histories, collect into a resumable SQLite database and create portable exports when ready. Work or school Teams accounts are outside this tool's scope.
+Download chat history from **Microsoft Teams Free with a personal Microsoft account** (`teams.live.com`). Keep resumable history in SQLite and produce portable JSON, readable Markdown, and supported inline images. Work or school Teams accounts are outside this tool's scope.
 
 ## Quick start
 
-You need [Bun](https://bun.sh/) and an installed Chromium, Chrome, or Edge browser. The project was tested with Bun **1.3.14**. From the project directory:
+You need [Bun](https://bun.sh/) and an installed Chromium, Chrome, or Edge browser. From the project directory:
 
 ```sh
 bun install --frozen-lockfile
 bun run teams login
+bun run teams chats
+bun run teams download --chat-label 'Project Alpha' --last 7d
 ```
 
-Sign in and complete verification in the browser window that opens. If prompted, open a chat. The CLI saves credentials and closes its browser; later exports do not need an open browser.
+Sign in and complete verification in the browser opened by `login`. Later commands use direct HTTP and do not need an open browser. Replace `Project Alpha` with a label from `chats`.
+
+`download` collects missing history, downloads pending images, and writes `chat.json` and `chat.md`. `--last 7d` means seven local calendar days including today; each day gets a folder under `exports/<chat-label>/`. Reruns regenerate matching daily bundles from saved history.
+
+**Collection resumes automatically.** Completed intervals are skipped, and later edits or deletions in those intervals are not synchronized. Existing saved messages are preserved. There is no history refresh mode or `--resume` flag. Image revalidation remains available through `--refresh-media`.
 
 ### Run from any directory
 
-After installing dependencies, run `bun link` once from this checkout to expose the `teams` command. Ensure Bun's global executable directory (`bun pm bin -g`, normally `~/.bun/bin`) is on your `PATH`.
+Run `bun link` once from this checkout to expose `teams` on your `PATH`. Bun's global executable directory is shown by `bun pm bin -g` (normally `~/.bun/bin`).
 
 ```sh
-# From this repository:
 bun link
-# From any working directory:
 teams --help
-teams chats
+teams download --chat-label 'Project Alpha' --last 1d
 ```
 
-The command runs this checkout directly: keep it and its dependencies installed, with Bun on `PATH`. Source updates take effect immediately; relink after moving the checkout. Relative paths (including the default `exports/` directory and `--db`) resolve from the directory where you invoke `teams`. Credentials keep their existing user-state location. Run `bun unlink` from this checkout to remove the link.
+The linked command runs current source from this checkout and requires its dependencies and Bun. Relative paths and the default `exports/` directory belong to the invoking working directory. Relink after moving the checkout; `bun unlink` removes the registration.
 
-### Export chats
+## One collection workflow
 
-List your chats, then replace `Project Alpha` below with a label from the list:
+| Command | Purpose |
+| --- | --- |
+| `download` | Collect missing history, download images, and export JSON/Markdown |
+| `collect` | Collect missing history without producing a portable export |
+| `images` | Download or repair images referenced by saved history |
+| `export` | Create JSON/Markdown from saved history, completely offline |
 
-```sh
-bun run teams chats
-bun run teams export --chat-label 'Project Alpha' --last 7d
-```
+All four accept `--db <file>`. Without it, online commands use an account-specific database under `$XDG_STATE_HOME/teams-chat-download/collections/` (default `~/.local/state/teams-chat-download/collections/`). Offline `export` discovers a single default collection without credentials; if several accounts have collections, specify `--db`. Existing custom databases are not moved or automatically discovered.
 
-This exports the last seven **local calendar days**, including today so far, with Markdown and supported images. The command prints where it saved the files.
-
-## Choose your workflow
-
-### Export a recent or specific period
+### Download a period
 
 ```sh
-# Today so far:
-bun run teams export --chat-label 'Project Alpha' --last 1d
+# Today so far, using the default account collection:
+teams download --chat-label 'Project Alpha' --last 1d
 
-# A specific period, saved in a new folder:
-bun run teams export --chat-label 'Project Alpha' \
+# A specific period as one combined bundle in a new folder:
+teams download --chat-label 'Project Alpha' \
   --from '2026-10-01T00:00:00+07:00' --to '2026-11-01T00:00:00+07:00' \
   --out exports/alpha-october
+
+# Use your existing collection:
+teams download --db exports/history.sqlite --chat-label 'Project Alpha' --last 7d
 ```
 
-Explicit timestamps need a timezone (`Z` or an offset). The start is included and the end excluded. Use `--chat '<raw-chat-id>'` instead of `--chat-label` when labels are duplicated or you need a stable selector for scripts.
+Choose one date mode: `--last Nd`, `--since <timestamp>`, paired `--from`/`--to`, or `--all`. Timestamps require a timezone, start is included and end excluded, and future ends are refused. Use `--chat '<raw-chat-id>'` when labels are duplicated. Raw-ID downloads skip name lookup and use saved labels or a hashed ID for automatic folders.
 
-**Daily exports replace that day's saved export.** Without `--out`, `--last 1d` refreshes one folder per chat and local date, including its generated transcript. Other periods create snapshots, and an explicit `--out` always requires a new folder. A failed history request leaves the previous daily export intact.
+Without `--out`, `--last Nd` regenerates one folder per day. Other date modes create a combined timestamped snapshot. Explicit `--out` always requires a new directory. `--no-media` skips images; `--no-markdown` omits Markdown.
 
-See the [user guide](docs/user-guide.md#choose-dates-and-export-history) for date options, timezone overrides, and output rules.
-
-### Collect a long history and resume interruptions
+### Collect now, export later
 
 ```sh
-# Collect all history available from Teams:
-bun run teams collect --db exports/history.sqlite --chat-label 'Project Alpha' --all
-
-# Download its supported images:
-bun run teams media-db --db exports/history.sqlite --chat-label 'Project Alpha'
-
-# Create a portable export offline using the label saved during collection:
-bun run teams export-db --db exports/history.sqlite --chat-label 'Project Alpha' --out exports/alpha-history
-
-# Export the last three local calendar days into separate daily folders:
-bun run teams export-db --db exports/history.sqlite --chat-label 'Project Alpha' --last 3d
+teams collect --chat-label 'Project Alpha' --all
+teams images --chat-label 'Project Alpha'
+teams export --chat-label 'Project Alpha' --last 3d
+teams export --chat-label 'Project Alpha' --out exports/alpha-history
 ```
 
-`media-db` accepts either `--chat <raw-id>` or `--chat-label <label>` to limit downloads to one chat; omit both to handle every chat in the database. Combining the selectors fails.
+`collect` saves text and image references; `images` downloads the files. Omit the selector on `images` to handle all chats. `export` uses exactly one saved label or raw ID, requires no credentials, and never contacts Teams. Daily export stops at the verified collection cutoff and reports the skipped uncollected tail; internal coverage gaps fail. Combined export requires `--out` and optionally paired date bounds.
 
-`export-db` accepts exactly one of `--chat <raw-id>` or `--chat-label <label>`. Both database commands match labels saved in SQLite exactly after trimming whitespace and ignoring case; missing, duplicate, or generic fallback labels fail. Label lookup stays offline and does not refresh names.
-
-`export-db --last Nd` writes `exports/<saved-chat-label>/<YYYY-MM-DD>/chat.json` and a sibling Markdown transcript for each collected day in the requested range. Reruns safely refresh matching daily folders. Export stops at the verified collection cutoff (printed by the command), even if it falls on an earlier day. The final day can be partial; later uncollected days are skipped and reported. Coverage gaps before the cutoff still fail, and fully collected empty days are exported. Use `--no-markdown --no-media` for JSON only. Daily mode cannot be combined with `--out` or explicit bounds.
-
-If collection stops, rerun it with the same database: completed intervals are skipped. Each database belongs to one account and can hold multiple chats. Collection preserves saved history but does **not** synchronize later edits or deletions in completed intervals.
-
-Automatic backups go to `exports/history.sqlite.backups/` in this example. Backups are full snapshots and are not automatically pruned. Keep the live database and its adjacent `history.sqlite.media/` directory together. See [collection workflows](docs/user-guide.md#collect-long-histories) and [backup and restoration instructions](docs/user-guide.md#back-up-and-restore-collections).
+Collection makes automatic verified backups in `<database>.backups/`, hourly between completed intervals and on clean completion. Use `--backup-dir` to change the location or `--no-backup` to disable them. Backups are full snapshots and are not automatically pruned. The collection phase finishes its backup before image downloading; newly downloaded images enter a backup on a subsequent successful collection. Keep the live database and adjacent `<database>.media/` directory together. See [backup and restoration](docs/user-guide.md#back-up-and-restore-collections).
 
 ## Use your exported files
 
-A typical export looks like this:
-
 ```text
 exports/alpha-october/
-├── chat.json    # Original message data and export metadata
-├── chat.md      # Readable transcript
-└── media/       # Downloaded images, when present
+├── chat.json
+├── chat.md
+└── media/
 ```
 
-Open `chat.md` in a Markdown viewer. Keep the whole folder together when moving or sharing it so image links continue to work. JSON preserves source fields that the transcript may not fully render, such as complex Teams content.
-
-Regenerate a transcript offline, choosing a new destination if one already exists:
+Keep the whole folder together so image links continue to work. JSON preserves original message fields and collection provenance. Markdown is derived and can be regenerated offline:
 
 ```sh
-bun run teams convert --input exports/alpha-october/chat.json --out exports/alpha-october/readable.md
+teams convert --input exports/alpha-october/chat.json --out exports/alpha-october/readable.md
+teams convert-all
 ```
 
-Use `bun run teams convert-all` to generate missing transcripts under `exports/`. See [offline conversion](docs/user-guide.md#markdown-and-offline-conversion) for custom locations and batch options.
+For an existing standalone JSON archive, `teams media --input <chat.json>` remains available to download images and regenerate its transcript.
 
-## Common issues and limits
+## Migration from earlier commands
 
-- **Expired credentials:** run `bun run teams login` again, then retry. Renewal is manual.
-- **Missing image credentials:** run `bun run teams login --wait-for-media` and open an image-containing chat when prompted.
-- **Images failed after text was saved:** retry with `bun run teams media --input <path/to/chat.json>`. For a collection, rerun `media-db`. Completed images are reused.
-- **Text only:** add `--no-media` to skip images or `--no-markdown` to save JSON without a transcript.
-- **Missing attachments or formatting:** only supported inline images are downloaded. Other attachments and some rich Teams structures remain placeholders or are incompletely rendered; original fields remain in JSON.
-- **Long downloads:** direct exports cannot resume unfinished history retrieval. Use `collect` for checkpoints. Very large offline exports may still need smaller date ranges to fit in memory.
+- Replace online `export ...` commands with `download ...`. `export` now always reads saved SQLite history offline.
+- `export-db` remains an alias for `export`; `media-db` remains an alias for `images`.
+- `download --last Nd` produces daily folders for every selected day. Use `--out <new-directory>` for one combined bundle.
+- Repeated downloads preserve completed history rather than re-fetching it. Existing archives and custom databases are not migrated.
 
-The tool uses private Teams endpoints observed on a personal account, so service changes can break it. It can export only history Teams makes available; it cannot recover deleted or inaccessible messages.
+## Recovery and limits
 
-Credentials and the dedicated browser profile are saved under `~/.local/state/teams-chat-download/` by default (`XDG_STATE_HOME` can override this). Keep credentials, browser profiles, and private chat exports out of version control. See [credential settings](docs/user-guide.md#sign-in-and-manage-credentials) for custom paths and lookup rules.
+- Expired credentials: run `login` again. For missing image credentials, use `login --wait-for-media` and open a chat containing images.
+- Interrupted download: rerun it. Completed database intervals and image files remain saved. A failed history phase leaves previously exported files intact.
+- Image failure: saved text and available images are exported when possible, and the command exits unsuccessfully. Retry `download`, or run `images` and then `export`.
+- Unsupported attachments remain placeholders. Only supported inline images are downloaded; standard Teams emoji render as text.
+- Collection preserves previously observed history; it cannot recover messages Teams never made available. It does not synchronize later edits or deletions.
+- Combined exports load their selected range into memory; daily exports load one day at a time.
+
+`download`, `collect`, `images`, and `export` write private per-invocation logs in `<database>.logs/`. The path is printed; `--no-log` disables them. Logs include operational paths and account/chat IDs, but no message bodies or credentials. Logs and backups are retained until manually removed. Logging failures warn without stopping collection. Unix files use private permissions; Windows privacy depends on filesystem ACLs.
+
+Credentials and the dedicated browser profile live under `~/.local/state/teams-chat-download/` by default (`XDG_STATE_HOME` can override this). Keep credentials, collections, and exports out of version control. Private Teams endpoints can change and break the tool.
 
 ## More documentation
 
-- [User guide](docs/user-guide.md): advanced commands, dates, images, backups, and recovery.
-- [Documentation index](docs/README.md): technical references and historical research.
-- [Development and verification](docs/development.md): offline tests and opt-in live checks.
-- [Contributor instructions](AGENTS.md): project conventions and protocol invariants.
+- [User guide](docs/user-guide.md)
+- [Documentation index](docs/README.md)
+- [Development and verification](docs/development.md)
+- [Contributor instructions](AGENTS.md)
 
-Run `bun run teams --help` or `bun run teams <command> --help` for CLI options.
-
-### Collection execution logs
-
-`collect`, `media-db`, and `export-db` automatically save timestamped progress, coverage summaries, backup results, and handled failures in `<database>.logs/` files (private Unix permissions; Windows privacy depends on filesystem ACLs). Each log begins with normalized command input, working directory, and resolved settings (including defaults and date bounds when available); credential-file arguments are redacted. Each command prints the log path at startup; use `--no-log` to opt out. Logs are retained until manually removed and are separate from database backups. Logging failures warn without stopping collection. See the [logging details](docs/user-guide.md#collection-execution-logs).
-
-This covers history collection, database media downloads, and offline database exports.
-
-Standard Teams emoji render as text (for example, 🎉) and do not count as missing media. Custom emoji and unsupported attachments still report missing media. Existing SQLite counts are repaired automatically on the next writable `collect` or `media-db` open; read-only exports do not migrate databases. Regenerate Markdown to update existing transcripts.
+Run `teams <command> --help` for options.

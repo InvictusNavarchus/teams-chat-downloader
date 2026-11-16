@@ -8,7 +8,7 @@ These guides describe implemented behavior:
 
 | Guide                                          | What you will find                                                                                  |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| [User guide](user-guide.md)                    | Sign-in, chat selection, date ranges, collection, backups, images, offline conversion, and recovery |
+| [User guide](user-guide.md)                    | Unified download/collect/export workflow, account collections, backups, images, conversion, and recovery |
 | [Development and verification](development.md) | Contributor setup, offline checks, and the opt-in live smoke test                                   |
 
 For a first export, start with the [quick start](../README.md#quick-start). For exact command options, run `bun run teams <command> --help`.

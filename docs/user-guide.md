@@ -66,20 +66,20 @@ bun run teams chats --refresh-names
 
 `--out` saves a clean JSON array, replacing an earlier chat list only after a successful write. Saved lists are reference snapshots: selection always uses the current directory and does not read this file. Terminal output includes progress and summaries, so use the saved file for machine-readable JSON.
 
-For `export` and `collect`, choose exactly one selector:
+For `download` and `collect`, choose exactly one selector:
 
 ```sh
-bun run teams export --chat-label 'Project Alpha' --last 7d
-bun run teams export --chat '<raw-chat-id>' --last 7d
+bun run teams download --chat-label 'Project Alpha' --last 7d
+bun run teams download --chat '<raw-chat-id>' --last 7d
 ```
 
 Labels match exactly after trimming surrounding whitespace and ignoring case; partial matches are not supported. Generic labels `Untitled chat` and `Unresolved one-to-one chat` cannot select a chat. If a name is duplicated, use the raw ID shown in the error or chat list. IDs are preferable for scripts because labels can change.
 
-Label selection requires a current directory lookup and any needed participant names, even with an explicit output path. Raw-ID exports with `--out` skip that lookup; raw-ID collection also skips it. Profile cache locations and lookup mechanics are documented in the [participant profile reference](08-participant-profiles.md).
+Label selection requires a current directory lookup and any needed participant names, even with an explicit output path. Raw-ID downloads and collection skip that lookup, using any saved label for output naming. Offline `export` and `images` label lookup use only saved labels. Profile cache locations and lookup mechanics are documented in the [participant profile reference](08-participant-profiles.md).
 
 ## Choose dates and export history
 
-Choose exactly one date mode for a direct export:
+Choose exactly one date mode for `download` or `collect` (`--all` is also supported):
 
 | Option                                | Range                                                         |
 | ------------------------------------- | ------------------------------------------------------------- |
@@ -91,49 +91,34 @@ Choose exactly one date mode for a direct export:
 `--last Nd` means calendar days, including today, rather than N × 24 hours. The machine's local timezone applies; set `TZ` to override it. Explicit timestamps require `Z` or a timezone offset and at most millisecond precision. Date-only values are rejected. Filtering uses the original message arrival time.
 
 ```sh
-bun run teams export --chat-label 'Project Alpha' --last 7d
-bun run teams export --chat '<raw-chat-id>' --since '2026-11-01T00:00:00+07:00'
-bun run teams export --chat '<raw-chat-id>' \
+bun run teams download --chat-label 'Project Alpha' --last 7d
+bun run teams download --chat '<raw-chat-id>' --since '2026-11-01T00:00:00+07:00'
+bun run teams download --chat '<raw-chat-id>' \
   --from '2026-10-01T00:00:00Z' --to '2026-11-01T00:00:00Z'
-TZ=Asia/Jakarta bun run teams export --chat-label 'Project Alpha' --last 2d
+TZ=Asia/Jakarta bun run teams download --chat-label 'Project Alpha' --last 2d
 ```
 
-### Output folders and daily refresh
+### Output folders and saved history
 
-Exports default to `exports/<chat-label>/<date-or-period>/`. Labels are normalized into lowercase folder names; unavailable or generic labels use a short chat-ID hash. Renaming a chat can change its folder; old exports are not moved.
+`download` collects missing history, downloads pending images, then calls the same offline exporter used by `export`. Collection is always resumable: completed intervals are skipped. A later edit or deletion in a completed interval does not replace or remove saved messages. There is no history refresh or `--resume` flag.
 
-For a chat named Project Alpha:
-
-| Selection                        | Example directory under `exports/`                                          |
-| -------------------------------- | --------------------------------------------------------------------------- |
-| `--last 1d`                      | `project-alpha/2026-11-14`                                                  |
-| `--last 7d`                      | `project-alpha/last-7d--to-2026-11-14T03-00-00-000Z`                        |
-| `--since '2026-11-01T00:00:00Z'` | `project-alpha/since-2026-11-01T00-00-00-000Z--to-2026-11-14T03-00-00-000Z` |
-| Explicit bounds                  | `project-alpha/from-2026-11-01T00-00-00-000Z--to-2026-11-05T00-00-00-000Z`  |
-
-**Without `--out`, `--last 1d` refreshes the same local day's folder.** Each run fetches the whole day again and replaces JSON and Markdown; it does not append messages or keep previous revisions. A failed history request preserves the prior export. A new local date gets a new folder.
-
-Daily refresh refuses a saved archive with a different account, chat, start bound, or a newer end bound. Malformed archives and symlink destinations are rejected. `--no-markdown` removes the previous daily transcript after saving JSON. Old unreferenced image files remain on disk.
-
-Other windows create snapshots. An explicit `--out` always requires a new directory, including with `--last 1d`:
+Without `--out`, `--last Nd` writes one folder per local calendar day under `exports/<saved-chat-label>/<YYYY-MM-DD>/`. Reruns regenerate matching JSON and Markdown from SQLite. Raw IDs use an existing saved label or a hashed ID fallback; they do not trigger a name lookup. Other date modes create one timestamped snapshot. An explicit `--out` creates one combined bundle and refuses an existing directory.
 
 ```sh
-bun run teams export --chat-label 'Project Alpha' --last 7d --out exports/alpha-week
+teams download --chat-label 'Project Alpha' --last 7d
+teams download --chat-label 'Project Alpha' --last 7d --out exports/alpha-week
+teams export --chat-label 'Project Alpha' --last 7d
 ```
 
-Every bundle contains `chat.json`, a default `chat.md`, and a `media/` folder when supported images are saved. Keep the whole folder together. JSON preserves source fields; Markdown is a derived, readable transcript. JSON and Markdown are saved before image downloads. A later Markdown or media failure leaves published JSON available for recovery.
+Daily publication validates account, chat, start bound, and endpoint, refusing newer archives, symlinks, and unexpected types. JSON and Markdown are individually atomic. `--no-markdown` removes a stale daily transcript after JSON publication. Unreferenced media files remain on disk. Failed history retrieval preserves previously exported bundles and completed SQLite checkpoints. After a media failure, download attempts to export text and available images before returning failure; cancellation stops further publication.
 
-Direct exports hold the selected history in memory and cannot resume unfinished history pagination. Use collection for long downloads. Publication and locking details are in the [image and export reference](10-image-export.md#export-contract).
+### Default collections and command migration
 
-### Request pacing
+Online `download`, `collect`, and `images` use an account-specific database at `$XDG_STATE_HOME/teams-chat-download/collections/<account-SHA256>.sqlite`, falling back to `~/.local/state`. The account ID is hashed solely to form a safe filename. `--db` overrides this location and remains relative to the invoking directory when given a relative path. Existing custom databases are not relocated.
 
-History requests pause randomly for 1–2.5 seconds between pages by default. Collection also pauses between windows. The first request starts immediately; no pause follows the last page. Override the range if needed:
+Offline `export` never loads credentials. Without `--db` it discovers exactly one regular default account database; no candidate or several candidates requires an explicit `--db`. It never guesses an account from filenames or current credentials.
 
-```sh
-bun run teams export --chat '<raw-chat-id>' --last 7d --page-delay-min 3 --page-delay-max 8
-```
-
-Each value accepts 0–3600 seconds, including decimals; minimum must not exceed maximum. Equal values give a fixed delay; two zeroes disable it. These are client settings, not known Teams quotas. Retry delays are separate, and cancellation interrupts waits.
+Former online `export` invocations must use `download`. `export-db` and `media-db` remain compatibility aliases for `export` and `images`. `media --input` still operates on standalone JSON archives. `export --last Nd` cannot combine `--out` with daily mode; for a combined offline export use `--out` with optional paired bounds.
 
 ## Collect long histories
 
@@ -148,44 +133,44 @@ bun run teams collect --db exports/history.sqlite --chat '<raw-chat-id>' \
 
 Choose one selector and one date mode: `--all`, `--last Nd`, `--since`, or paired `--from`/`--to`. Explicit future ends are rejected. `--all` requests all history the endpoint exposes, working backward from now; it cannot recover deleted or unavailable messages.
 
-Rerun the command after interruption or credential refresh. Completed intervals are skipped; the unfinished interval is fetched again in full. A range ending at invocation time also collects the newly uncovered tail. `--credentials` and the page-delay options work as with direct exports.
+Rerun the command after interruption or credential refresh. Completed intervals are skipped; the unfinished interval is fetched again in full. A range ending at invocation time also collects the newly uncovered tail. `--credentials` and the page-delay options work as with downloads.
 
 **Collection is not ongoing synchronization:** completed intervals are not refreshed for later edits or deletions. Conflicting content for an already saved message fails the current interval rather than overwriting the saved record. See the [SQLite reference](11-sqlite-collection.md) for schema, migration, and checkpoint behavior.
 
 ### Download collected images
 
 ```sh
-bun run teams media-db --db exports/history.sqlite
-bun run teams media-db --db exports/history.sqlite --chat-label 'Project Alpha'
-bun run teams media-db --db exports/history.sqlite --chat '<raw-chat-id>'
-bun run teams media-db --db exports/history.sqlite --refresh-media
+bun run teams images --db exports/history.sqlite
+bun run teams images --db exports/history.sqlite --chat-label 'Project Alpha'
+bun run teams images --db exports/history.sqlite --chat '<raw-chat-id>'
+bun run teams images --db exports/history.sqlite --refresh-media
 ```
 
 The default handles every chat in the database, using credentials for its account. No JSON export is needed. Images are saved beside the database in `exports/history.sqlite.media/`; keep these together. Successfully downloaded images survive interruption and are checked before being skipped on rerun. Missing or corrupt files are repaired from the cache or downloaded again. Unsupported references remain placeholders.
 
-To limit downloads to one chat, use either `--chat <raw-id>` or `--chat-label <label>`; combining them fails. Labels use the same saved SQLite lookup as `export-db`: exact matching after trimming whitespace and ignoring case, without live directory/profile requests or name refresh. Missing, duplicate, or generic fallback labels fail before media requests. If no label was saved or several chats share it, use the raw ID. Image selection and unsupported counts are limited to the selected chat. Logs record the requested selector and resolved raw ID.
+To limit downloads to one chat, use either `--chat <raw-id>` or `--chat-label <label>`; combining them fails. Labels use the same saved SQLite lookup as `export`: exact matching after trimming whitespace and ignoring case, without live directory/profile requests or name refresh. Missing, duplicate, or generic fallback labels fail before media requests. If no label was saved or several chats share it, use the raw ID. Image selection and unsupported counts are limited to the selected chat. Logs record the requested selector and resolved raw ID.
 
 ### Export a collection offline
 
 Select exactly one of `--chat <raw-id>` or `--chat-label <label>`. Labels match the values saved in SQLite, exactly after trimming surrounding whitespace and ignoring case. Matching stays offline without profile/name refresh. Missing labels fail with database-specific guidance; duplicate matches list saved labels and raw IDs so you can select with `--chat`. Generic fallback labels cannot select a chat. If a chat was collected without a label, use its raw ID.
 
 ```sh
-bun run teams export-db --db exports/history.sqlite --chat-label 'Project Alpha' --last 3d
-bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' --out exports/full-history
-bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' \
+bun run teams export --db exports/history.sqlite --chat-label 'Project Alpha' --last 3d
+bun run teams export --db exports/history.sqlite --chat '<raw-chat-id>' --out exports/full-history
+bun run teams export --db exports/history.sqlite --chat '<raw-chat-id>' \
   --from '2026-09-01T00:00:00+07:00' --to '2026-10-01T00:00:00+07:00' --out exports/september
-bun run teams export-db --db exports/history.sqlite --chat '<raw-chat-id>' --out exports/text-only --no-media
+bun run teams export --db exports/history.sqlite --chat '<raw-chat-id>' --out exports/text-only --no-media
 ```
 
 No credentials or network are needed. In combined mode (`--out`), without bounds, export uses the full stored coverage span; any uncollected gap causes rejection. Bounds must be paired. The combined destination must be new. `--no-markdown` skips the transcript; `--no-media` uses image placeholders.
 
-For daily folders, use `--last Nd` without `--out` or explicit bounds. The last N local calendar days include today, using the same calendar rules as direct exports (including daylight saving changes). The saved database label names `exports/<normalized-chat-label>/<YYYY-MM-DD>/`; missing labels use the existing hashed chat-ID fallback. No directory/profile requests are made.
+For daily folders, use `--last Nd` without `--out` or explicit bounds. The last N local calendar days include today, using the same calendar rules as downloads (including daylight saving changes). The saved database label names `exports/<normalized-chat-label>/<YYYY-MM-DD>/`; missing labels use the existing hashed chat-ID fallback. No directory/profile requests are made.
 
 Export ends at the earlier of invocation time and the latest completed collection endpoint, whichever calendar day that falls on. The command prints that cutoff and reports the skipped uncollected tail; the final archive records the exact bound, even for a partial earlier day. Days after the cutoff are not exported. This uses completed coverage, not the latest message timestamp, and applies equally to weekdays and weekends. Full coverage is required from the requested start through the cutoff: internal gaps or no collected coverage in the requested range fail before writing daily folders. Fully covered empty days produce empty archives.
 
 Reruns replace matching daily archives and regenerate Markdown under the shared archive/media lock. Existing account, chat, start bound, and endpoint are checked before replacement; a newer archive is never shortened. Symlinks and unexpected output types are rejected. `--no-markdown` removes a previous daily transcript after JSON publication. Old unreferenced media files remain, while the manifest describes current references. Each day publishes independently; if a later day fails or the command is cancelled, already published days remain. JSON remains available after a Markdown failure. Daily export loads one day's messages at a time.
 
-Downloaded images are copied into the portable bundle. Pending images remain placeholders. A missing or corrupt image recorded as complete fails export before JSON publication: repair it with `media-db` or use `--no-media`. Markdown failure retains JSON. Very large exports may need smaller subranges because archive generation loads the selected messages into memory.
+Downloaded images are copied into the portable bundle. Pending images remain placeholders. A missing or corrupt image recorded as complete fails export before JSON publication: repair it with `images` or use `--no-media`. Markdown failure retains JSON. Very large exports may need smaller subranges because archive generation loads the selected messages into memory.
 
 ## Back up and restore collections
 
@@ -193,7 +178,7 @@ Collection creates automatic backups in `<database>.backups/` by default. Use `-
 
 Backups are attempted between completed intervals after an hour, and on successful completion if changes remain. A long interval delays the backup until it completes. A successful no-op collection also snapshots existing data. Backups include all chats and completed images; pending images remain pending. Failed or cancelled collection does not start a final backup.
 
-`media-db` does not trigger backups. After downloading images, repeat a completed fixed collection range to snapshot them without requesting history again.
+`images` does not trigger backups. After downloading images, repeat a completed fixed collection range to snapshot them without requesting history again.
 
 Each immutable snapshot contains `history.sqlite`, `history.sqlite.media/`, and `SHA256SUMS`. Backups are not automatically pruned and each is a full copy, so allow for storage growth. A backup failure warns and increments `backups.failed`; history collection may still exit successfully. Check that summary if you depend on backups.
 
@@ -209,10 +194,10 @@ Require every checksum to pass before using the restored database. Keep `history
 
 ## Download and retry images
 
-Direct exports download supported images by default. Save text first and download images later with:
+`download` downloads supported images by default. Save text first and download images later with:
 
 ```sh
-bun run teams export --chat '<raw-chat-id>' --last 7d --out exports/last-week --no-media
+bun run teams download --chat '<raw-chat-id>' --last 7d --out exports/last-week --no-media
 bun run teams media --input exports/last-week/chat.json
 ```
 
@@ -220,23 +205,23 @@ bun run teams media --input exports/last-week/chat.json
 
 Complete cached images are reused without HTTP. The cache defaults to `$XDG_CACHE_HOME/teams-chat-download/media/`, falling back to `~/.cache/teams-chat-download/media/`; empty or relative XDG values are ignored. Exported copies are independent of the cache.
 
-`--refresh-media` checks cached images with Teams again and is supported by `export`, `media`, and `media-db`. It cannot be combined with export's `--no-media`. A failed refresh preserves previously saved images.
+`--refresh-media` checks cached images with Teams again and is supported by `download`, `media`, and `images`. It cannot be combined with download's `--no-media`. A failed refresh preserves previously saved images.
 
 Supported inline images include JPEG, PNG, GIF, and WebP from specific Teams media sources, with a 50 MiB response limit. Other attachments, unsupported regions, signed links, and opaque references may remain placeholders. Unsupported references produce partial media coverage; actual download errors fail the command. A complete history export does not imply complete media coverage.
 
-If image download fails, saved text and completed images remain available. Refresh credentials with `login --wait-for-media` when needed, then retry `media` or `media-db`. See the [image reference](10-image-export.md) for supported URLs, regional translation, validation, and cache behavior.
+If image download fails, saved text and completed images remain available. Refresh credentials with `login --wait-for-media` when needed, then retry `media` or `images`. See the [image reference](10-image-export.md) for supported URLs, regional translation, validation, and cache behavior.
 
 ## Markdown and offline conversion
 
 Exports render Markdown by default beside `chat.json`. Add `--no-markdown` to skip rendering and save JSON only:
 
 ```sh
-bun run teams export --chat '<raw-chat-id>' --last 7d
-bun run teams export --chat '<raw-chat-id>' --last 7d --out exports/last-week
-bun run teams export --chat '<raw-chat-id>' --last 7d --no-markdown
+bun run teams download --chat '<raw-chat-id>' --last 7d
+bun run teams download --chat '<raw-chat-id>' --last 7d --out exports/last-week
+bun run teams download --chat '<raw-chat-id>' --last 7d --no-markdown
 ```
 
-Export `--out` selects the **export directory**. JSON is always named `chat.json`, with `chat.md` beside it (unless `--no-markdown` is passed). The second command saves `exports/last-week/chat.json` and `exports/last-week/chat.md`. Successful stdout includes the JSON path as `output` and the Markdown path as `markdown` (omitted with `--no-markdown`).
+Download `--out` selects the **export directory**. JSON is always named `chat.json`, with `chat.md` beside it (unless `--no-markdown` is passed). The second command saves `exports/last-week/chat.json` and `exports/last-week/chat.md`. Successful stdout includes the JSON path as `output` and the Markdown path as `markdown` (omitted with `--no-markdown`).
 
 Convert an existing export later without credentials, browser access, or Teams requests:
 
@@ -245,7 +230,7 @@ bun run teams convert --input exports/last-week/chat.json
 bun run teams convert --input exports/last-week/chat.json --format markdown --out exports/readable-chat.md
 ```
 
-`convert` defaults to Markdown beside the source JSON. Its stdout reports `input`, `output`, `format`, and `messages`. Snapshots, explicit `--out` exports, and offline conversion refuse existing destinations and publish private output files atomically; default daily exports refresh their existing folder, and the media phase explicitly updates the saved archive and generated sibling Markdown. If initial Markdown conversion fails after JSON was saved, the command exits unsuccessfully before downloading images and reports the saved JSON path. Keep that file and retry with `convert --out <new-path>`, or use `media` to download images and regenerate sibling Markdown; history does not need to be downloaded again.
+`convert` defaults to Markdown beside the source JSON. Its stdout reports `input`, `output`, `format`, and `messages`. Snapshots, explicit `--out` exports, and offline conversion refuse existing destinations and publish private output files atomically; default daily exports refresh their existing folder, and the media phase explicitly updates the saved archive and generated sibling Markdown. If Markdown conversion fails after JSON was saved, the command exits unsuccessfully and reports the saved JSON path. Keep that file and retry with `convert --out <new-path>`, or use `media` to download images and regenerate sibling Markdown; history does not need to be downloaded again.
 
 Convert all JSON exports that do not already have a sibling Markdown destination:
 
@@ -274,9 +259,9 @@ Commands print results, progress, and request summaries to stdout; warnings and 
 | Situation                             | Next step                                                                               |
 | ------------------------------------- | --------------------------------------------------------------------------------------- |
 | Credentials expired                   | Run `login`, then retry the original command.                                           |
-| Missing image credentials             | Run `login --wait-for-media`, then retry `media` or `media-db`.                         |
+| Missing image credentials             | Run `login --wait-for-media`, then retry `media` or `images`.                         |
 | Interrupted collection                | Rerun the collection command with the same database; completed intervals survive.       |
-| Direct history export failed          | Retry the export; unfinished direct history retrieval has no checkpoints.               |
+| History download failed          | Retry download; completed database intervals remain saved.               |
 | JSON saved but Markdown failed        | Use `convert --out <new-path>`, or `media` to regenerate the sibling transcript.        |
 | Output folder already exists          | Choose a new snapshot destination. Only default daily exports refresh existing folders. |
 | Collection export has coverage gaps   | Collect the missing period or export a fully covered subrange.                          |
@@ -288,10 +273,12 @@ Retry budgets and transport rules are documented in the [architecture reference]
 
 ### Collection execution logs
 
-`collect`, `media-db`, and `export-db` automatically write a private, timestamped log per invocation in `<database>.logs/` and print its path. Use `--no-log` to disable file logging. Logs include the requested range, already-collected duration and remaining gap count, fetched pages and checkpoints, profile warnings, backup outcomes, final results, and handled failures or cancellation. Fully covered ranges explicitly report that no history requests are needed. Skipped intervals are summarized rather than listed individually.
+`download`, `collect`, `images`, and `export` automatically write a private, timestamped log per invocation in `<database>.logs/` and print its path. Use `--no-log` to disable file logging. Logs include the requested range, already-collected duration and remaining gap count, fetched pages and checkpoints, profile warnings, backup outcomes, final results, and handled failures or cancellation. Fully covered ranges explicitly report that no history requests are needed. Skipped intervals are summarized rather than listed individually.
 
-Each log starts with the normalized command input, working directory, and resolved options, including defaults and ISO date bounds when available. Input uses parsed flags (including parser defaults), so shell quoting, flag order, launcher details, and ignored arguments after `--` are not preserved. Credential-file arguments are shown as `[REDACTED]`; only explicitly selected operational fields are recorded. The header is saved to the log file only, before credential or database access.
+Each log starts with the normalized command input, working directory, and resolved options, including defaults and ISO date bounds when available. Input uses parsed flags (including parser defaults), so shell quoting, flag order, launcher details, and ignored arguments after `--` are not preserved. Credential-file arguments are shown as `[REDACTED]`; only explicitly selected operational fields are recorded. The header is saved to the log file only, before database access. With explicit --db it also precedes credential access; default-path selection first needs the credential account ID.
 
 Logs contain operational metadata, including paths and account/chat identifiers, but no message bodies, credentials, or raw HTTP URLs. They are separate from SQLite checkpoints and backup snapshots; coverage in SQLite remains authoritative. Logging failures warn and collection continues. On Unix, files are mode 600 in a mode-700 log directory. Windows privacy depends on filesystem ACLs; the CLI does not validate or configure those ACLs. Database parent directories may be symlink aliases; the log directory itself must not be a symlink. Logs are not automatically pruned; remove old logs when no longer needed. Invalid command options fail before log creation. Hard crashes may leave a log without a final status, and logs are not fsynced per event.
 
-Collection workflow logs identify the command that ran. `media-db` records verified downloaded-image skips, pending work, refresh mode, per-image outcomes, and the final image summary even on handled download failure. `export-db` records the requested chat/range and media/Markdown options, coverage verification, copied-image progress, and JSON/Markdown publication. All three commands support `--no-log`. The export database remains read-only and offline; its diagnostic log is a separate sibling file. Standalone JSON commands (`export`, `media`, `convert`) do not write these database workflow logs.
+Collection workflow logs identify the command that ran. `images` records verified downloaded-image skips, pending work, refresh mode, per-image outcomes, and the final image summary even on handled download failure. `export` records the requested chat/range and media/Markdown options, coverage verification, copied-image progress, and JSON/Markdown publication. All four database workflow commands support `--no-log`. The export database remains read-only and offline; its diagnostic log is a separate sibling file. Standalone JSON commands (`media`, `convert`) do not write these database workflow logs.
+
+`download` uses the same per-invocation log for collection, images, and export. With a default database, credentials must be loaded before its account-specific log path can be resolved; credential failures at that point have no file log. Explicit `--db` logs start before credential access. Automatic collection backups precede image downloading; repeat a successful collection to include newly downloaded images in a backup.

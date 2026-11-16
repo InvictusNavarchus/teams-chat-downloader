@@ -99,7 +99,7 @@ async function fixture() {
   return { dir, defaultPath, fallback, explicit, credentials, run };
 }
 
-test("chats and export load user state without a flag from an unrelated cwd", async () => {
+test("chats and download load user state without a flag from an unrelated cwd", async () => {
   const f = await fixture();
   await f.credentials(f.defaultPath, "default");
   await f.credentials(f.fallback, "wrong-account");
@@ -107,7 +107,7 @@ test("chats and export load user state without a flag from an unrelated cwd", as
   expect(chats.code).toBe(0);
   expect(JSON.parse(chats.stdout.split("\nHTTP attempts:")[0]!)).toEqual([]);
   const exported = await f.run([
-    "export",
+    "download",
     "--chat",
     "fixture",
     "--last",

@@ -400,6 +400,16 @@ export class HistoryStore {
     }
   }
 
+  chatLabel(chat: string): string | undefined {
+    return (
+      this.db
+        .query<{ label: string | null }, [string]>(
+          "SELECT label FROM chats WHERE chat_id=?",
+        )
+        .get(chat)?.label ?? undefined
+    );
+  }
+
   chatIdForLabel(label: string): string {
     const chats = this.db
       .query<{ id: string; label: string }, []>(

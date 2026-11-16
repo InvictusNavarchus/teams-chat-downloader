@@ -51,7 +51,9 @@ teams-chat-download/
 │   ├── database-export.ts # Offline SQLite-to-JSON/Markdown bundle publication
 │   ├── database-media.ts # Independent SQLite image queue downloads and per-image checkpoints
 │   ├── errors.ts         # Domain error classes, validation errors, and sanitized formatters
-│   ├── export.ts         # Label selection and chat export orchestration (history + text + media)
+│   ├── export.ts         # Legacy internal archive helper; not a CLI download path
+│   ├── download.ts       # Unified resumable collection, images, and portable export
+│   ├── collection-path.ts # Per-account default database and offline discovery
 │   ├── export-path.ts    # Chat/period layout, stable daily dates, and kebab-case label sanitization
 │   ├── export-discovery.ts # Bounded legacy and grouped archive candidate discovery
 │   ├── http.ts           # Ky HTTP client wrapper, retry policy, backoff, and request accounting
@@ -115,12 +117,13 @@ When modifying or extending this codebase, agents **must** respect these domain 
    - Use direct, explicit file imports (e.g. `import { exportChat } from "./export.ts"`).
 6. **Zero Credential Leakage**:
    - Never print raw URLs containing auth tokens, cookies, or auth headers in logs, terminal summaries, or error messages.
-7. **Unambiguous Chat Selection**:
-   - Export requires exactly one of `--chat <raw-id>` or `--chat-label <label>`.
-   - Match resolved `label`, including profile-derived one-to-one names when `title` is null, exactly after trimming surrounding whitespace and ignoring case. Generic fallback labels cannot select chats.
-   - Resolve labels against the current directory with the existing profile cache. Missing or duplicate matches fail before history retrieval; duplicate errors list matching labels and raw IDs.
-   - Reuse the matched label for folder naming. Raw-ID exports with explicit `--out` skip directory/profile lookup; label selection requires lookup even with `--out`. Archives always store the resolved raw chat ID.
-   - Saved chat lists remain explicit `chats --out <file>` snapshots; selection does not read or automatically maintain them.
+7. **Unified Collection Commands**:
+   - `download` performs resumable collection, pending image downloads, and offline SQLite export. `collect` performs only collection. `export` is always offline; `images` handles saved image references. `export-db` and `media-db` remain aliases. Standalone `media --input` and conversion commands remain supported.
+   - `download` and `collect` require exactly one chat selector and one date mode (`--all`, `--last`, `--since`, or paired bounds). Completed intervals are skipped; there is no history refresh or `--resume` flag. Preserve saved messages and conflict rejection. Do not synchronize later edits/deletions implicitly.
+   - Online label selection uses the current directory and profile cache with exact trimmed case-insensitive matching and fallback/duplicate rejection. Raw IDs skip directory/profile lookup. Offline commands use saved labels only.
+   - `src/download.ts` orchestrates existing collection, image, and export functions. `src/collection-path.ts` owns default account-hashed database paths in user state and unambiguous offline discovery. `--db` overrides the default; existing custom databases are not migrated. Offline export must not load credentials.
+   - Download `--last Nd` without `--out` uses the same per-day folders as offline export. Explicit `--out` produces one new combined bundle; other date modes default to timestamped combined snapshots. Image failure attempts text publication and returns failure; cancellation stops publication. Failed history leaves old exports intact.
+
 8. **Bounded Live Verification**:
    - `bun run test:live` defaults to automatic fixture discovery and requires no selector. Accept at most one explicit override: `--fixture <chat.json>`, `--chat <id>`, or `--chat-label <label>`. It is explicitly opt-in and must never run as part of ordinary `bun test`. Both export and smoke label selection use `src/chat-selection.ts` for exact matching, generic fallback rejection, and duplicate diagnostics.
    - With no date arguments, default to the last two local calendar days including today, matching `export --last 2d`: yesterday at local midnight to one captured invocation time. `src/config.ts` owns `defaultLiveSmokeDays`; command validation shares the calendar-day calculation with exports. Explicit overrides require both timezone-qualified `--from` and `--to`; reject single bounds and future ends. Print the resolved window before requests; never widen it automatically to satisfy pagination/media coverage.
@@ -134,19 +137,17 @@ When modifying or extending this codebase, agents **must** respect these domain 
    - Validate cold download, zero-request local reuse, and conditional refresh when validators exist. Report missing coverage as `UNVERIFIED` and exit 1 if any required check fails or remains unverified. A conditional HTTP 200 passes refresh validation but must explicitly say that the HTTP 304 branch was not verified.
    - Keep normal caches, credentials, and exports unchanged. Never log credentials, source URLs, or message bodies. Live coverage is limited to the sampled participant family and media origin; it does not verify login capture or full history exhaustion.
 
-9. **Daily Export Refresh**:
-   - Default `--last 1d` exports use `exports/<normalized-chat-label>/<local-YYYY-MM-DD>/`; other windows are timestamped snapshots under the chat folder. Existing exports are not migrated. Raw-ID hash fallbacks remain supported.
-   - Re-fetch the whole local day through one captured invocation time; replace JSON and regenerate Markdown, without merging messages or retaining revisions. Explicit `--out` and all snapshot destinations retain no-overwrite protection.
-   - Before refreshing an existing daily folder, validate its version 1 archive, exact account ID, raw chat ID, and start bound; reject an endpoint newer than the requested invocation. Reject symlinks and unexpected types in the default directory components, archive, Markdown, and media directory.
-   - Hold `withArchiveLock` from `src/output.ts` across daily history retrieval, JSON/Markdown publication, and media work. Media commands share the existing `<input>.media.lock` path. `downloadLockedArchiveMedia` requires this reservation; ordinary media callers use `downloadArchiveMedia`.
-   - Failed history retrieval leaves the previous daily export intact. Failed new daily retrieval removes only empty directories created by that run. JSON and Markdown replacements are individually atomic; later Markdown/media failures retain published JSON. `--no-markdown` removes an old daily transcript after JSON publication; unreferenced old media files remain on disk, while the manifest describes current references.
-   - `src/export-discovery.ts` provides the bounded candidate layouts shared by default batch conversion and smoke discovery; callers lstat candidates and ignore symlinks. Arbitrary deeper conversion still requires `--recursive`.
+9. **Daily Export Regeneration**:
+   - `download --last Nd` and offline `export --last Nd` regenerate one folder per local day from SQLite. Regeneration does not re-fetch completed history. Explicit download `--out` produces a new combined bundle instead.
+   - Reuse `src/daily-export.ts` validation and `withArchiveLock` during per-day publication. Validate exact account/chat/start bounds and refuse newer endpoints, symlinks, and unexpected types. JSON and Markdown remain individually atomic; Markdown failure retains JSON.
+   - `--no-markdown` removes stale daily transcripts after JSON publication. Unreferenced old media remains on disk. Failed history retrieval leaves existing bundles intact. Standalone JSON media shares the archive reservation.
+   - `src/export-discovery.ts` remains the bounded discovery helper for conversion and smoke fixtures.
 
 ---
 
 ## SQLite collection invariants
 
-- `collect --db <file>` requires one chat selector and one date mode (`--all`, `--last`, `--since`, or paired `--from`/`--to`). `--all` uses `[1, invocation-time)`; explicit future ends fail. Resolve through `src/command-validation.ts`. `src/config.ts` owns `collectionWindowMs`.
+- `collect [--db <file>]` requires one chat selector and one date mode (`--all`, `--last`, `--since`, or paired `--from`/`--to`). `--all` uses `[1, invocation-time)`; explicit future ends fail. Resolve through `src/command-validation.ts`. `src/config.ts` owns `collectionWindowMs`.
 - `src/collect.ts` processes uncovered intervals newest first using `readHistory`. Start at seven elapsed days; double the span only after an exhausted empty interval and reset on data. Never infer exhaustion from a single empty week or from the oldest saved timestamp. Apply the page-delay range between windows too.
 - `src/history-store.ts` uses built-in `bun:sqlite` without an ORM or new dependency. One `collection_meta` row binds schema version 3 and exact credential account ID; reject other accounts before HTTP or migration. `chats`, `messages`, and `completed_windows` store labels, complete JSON payloads with indexed IDs/times, and coverage/provenance. `images` deduplicates validated original source identities across chats and tracks status/files; `message_images` links each source to messages. Do not normalize away unknown fields or persist request credentials/cursors. Writable opens transactionally migrate version 1 and backfill saved references without HTTP; read-only version 1 exports remain supported.
 - Commit messages and coverage in one synchronous SQLite transaction only after full window exhaustion. A failed/cancelled window is retried in full, with no partial coverage. Empty completed windows still count. Deduplicate identical IDs per chat; conflicting payloads fail and roll back instead of replacing content or selecting opaque revisions. Completed coverage is not an edit/deletion synchronization guarantee.
@@ -218,16 +219,20 @@ bun run format
 
 ### Collection execution logs
 
-`collect`, `media-db`, and `export-db` automatically write a private, timestamped log per invocation in `<database>.logs/` and print its path. Use `--no-log` to disable file logging. Logs include the requested range, already-collected duration and remaining gap count, fetched pages and checkpoints, profile warnings, backup outcomes, final results, and handled failures or cancellation. Fully covered ranges explicitly report that no history requests are needed. Skipped intervals are summarized rather than listed individually.
+`download`, `collect`, `images`, and `export` automatically write a private, timestamped log per invocation in `<database>.logs/` and print its path. Use `--no-log` to disable file logging. Logs include the requested range, already-collected duration and remaining gap count, fetched pages and checkpoints, profile warnings, backup outcomes, final results, and handled failures or cancellation. Fully covered ranges explicitly report that no history requests are needed. Skipped intervals are summarized rather than listed individually.
 
-Each log starts with the normalized command input, working directory, and resolved options, including defaults and ISO date bounds when available. Input uses parsed flags (including parser defaults), so shell quoting, flag order, launcher details, and ignored arguments after `--` are not preserved. Credential-file arguments are shown as `[REDACTED]`; only explicitly selected operational fields are recorded. The header is saved to the log file only, before credential or database access.
+Each log starts with the normalized command input, working directory, and resolved options, including defaults and ISO date bounds when available. Input uses parsed flags (including parser defaults), so shell quoting, flag order, launcher details, and ignored arguments after `--` are not preserved. Credential-file arguments are shown as `[REDACTED]`; only explicitly selected operational fields are recorded. The header is saved to the log file only, before database access. With explicit --db it also precedes credential access; default-path selection first needs the credential account ID.
 
 Logs contain operational metadata, including paths and account/chat identifiers, but no message bodies, credentials, or raw HTTP URLs. They are separate from SQLite checkpoints and backup snapshots; coverage in SQLite remains authoritative. Logging failures warn and collection continues. On Unix, files are mode 600 in a mode-700 log directory. Windows privacy depends on filesystem ACLs; the CLI does not validate or configure those ACLs. Database parent directories may be symlink aliases; the log directory itself must not be a symlink. Logs are not automatically pruned; remove old logs when no longer needed. Invalid command options fail before log creation. Hard crashes may leave a log without a final status, and logs are not fsynced per event.
 
 `src/collection-log.ts` owns private per-invocation event files; CLI output is mirrored without globally replacing console methods. `src/config.ts` owns the log default and suffix. Keep logging independent of collection success and never use logs to determine resumable coverage.
 
-Collection workflow logs identify the command that ran. `media-db` records verified downloaded-image skips, pending work, refresh mode, per-image outcomes, and the final image summary even on handled download failure. `export-db` records the requested chat/range and media/Markdown options, coverage verification, copied-image progress, and JSON/Markdown publication. All three commands support `--no-log`. The export database remains read-only and offline; its diagnostic log is a separate sibling file. Standalone JSON commands (`export`, `media`, `convert`) do not write these database workflow logs.
+Collection workflow logs identify the command that ran. `media-db` records verified downloaded-image skips, pending work, refresh mode, per-image outcomes, and the final image summary even on handled download failure. `export-db` records the requested chat/range and media/Markdown options, coverage verification, copied-image progress, and JSON/Markdown publication. All three commands support `--no-log`. The export database remains read-only and offline; its diagnostic log is a separate sibling file. Standalone JSON commands (`media`, `convert`) do not write these database workflow logs.
 
 ### Teams emoji classification
 
 `src/teams-emoji.ts` shares recognition between Markdown and media indexing: only images with exact `itemtype="http://schema.skype.com/Emoji"` and nonblank `alt` become escaped text. Exclude them from attachment counts and inline-attachment suppression of opaque references. Custom emoji, missing alt text, and ordinary images retain attachment handling. Writable opens migrate versions 1/2 to version 3 transactionally after account validation, recalculating unsupported counts from all saved payloads without changing coverage or image metadata. Read-only older databases retain stored counts until migrated.
+
+### Unified command lifecycle
+
+The public CLI has one history pipeline through SQLite. `download` never rewrites completed intervals. `src/export.ts` remains an internal compatibility helper for archive tests, without CLI registration. Default account paths hash the exact credential account ID under the XDG state collections directory; offline discovery accepts exactly one regular default database and never loads credentials. Explicit `--db` remains supported for every database workflow. Invalid options fail before default discovery or credential access. Resolve one invocation time for every stage. Default-path credential failures happen before a log path is known; explicit database logs start before credential access. Download collection backups precede its media phase, so newly downloaded media enters the next successful collection backup.

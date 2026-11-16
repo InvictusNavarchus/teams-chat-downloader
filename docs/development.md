@@ -1,3 +1,5 @@
+> Current command interface: `download` collects missing intervals, downloads images, and exports through SQLite; `collect` saves history only; `export` is offline; `images` downloads saved references. `export-db`/`media-db` are aliases. Repeated collection preserves saved history and does not synchronize edits or deletions. Default databases are account-scoped under user state; offline default discovery requires exactly one database. See the [user guide](user-guide.md#default-collections-and-command-migration).
+
 # Development and verification
 
 [Documentation index](README.md) · [Project overview](../README.md)
@@ -37,7 +39,7 @@ An automatically selected archive supplies the raw chat ID and known participant
 
 `--chat` overrides the history target without requiring directory lookup to succeed. `--chat-label` retains the same exact, case-insensitive label match as `export`, after trimming whitespace, including resolved participant names. Generic fallback labels cannot select chats; missing or duplicate matches prevent history retrieval, and duplicate errors list matching labels and raw IDs. Explicit label selection still requires a successful directory response and any needed profile names; archive filenames are never guessed into label mappings. In either case, automatic archive discovery can supply participant/image targets independently, even from another chat in the same account. The directory is fetched only once. For independent history checks during directory failures, use the default no-selector invocation, `--fixture`, or a raw `--chat` ID.
 
-With no date arguments, the window defaults to the last two local calendar days including today, matching `export --last 2d`: yesterday at local midnight through one captured invocation time. This also applies in fixture mode; the fixture's archived window does not replace the requested live window. Set `TZ` to override the machine's timezone. Supply both `--from` and `--to` to override this window; a single bound is rejected. Explicit timestamps require a timezone; the start is inclusive and the end exclusive, and the end cannot be in the future. The resolved window is printed before requests begin.
+With no date arguments, the window defaults to the last two local calendar days including today, matching `download --last 2d`: yesterday at local midnight through one captured invocation time. This also applies in fixture mode; the fixture's archived window does not replace the requested live window. Set `TZ` to override the machine's timezone. Supply both `--from` and `--to` to override this window; a single bound is rejected. Explicit timestamps require a timezone; the start is inclusive and the end exclusive, and the end cannot be in the future. The resolved window is printed before requests begin.
 
 Each service probe runs when its own inputs are available, even if another service fails:
 

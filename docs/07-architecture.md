@@ -1,3 +1,5 @@
+> Current command interface: `download` collects missing intervals, downloads images, and exports through SQLite; `collect` saves history only; `export` is offline; `images` downloads saved references. `export-db`/`media-db` are aliases. Repeated collection preserves saved history and does not synchronize edits or deletions. Default databases are account-scoped under user state; offline default discovery requires exactly one database. See the [user guide](user-guide.md#default-collections-and-command-migration).
+
 # CLI architecture plan
 
 Plan date: **2026-11-04**. Status: **HTTP CLI and supported image exports implemented**. The [project README](../README.md) documents actual commands and current limitations. The [image reference](10-image-export.md) supersedes the media proposals below where implementation choices are now recorded: per-key cache metadata, sequential downloads, explicit refresh, portable local copies, partial status for unsupported references, and text publication before media with later retries from the saved archive.
@@ -28,16 +30,19 @@ The upstream references are [S19–S22](06-sources.md#9-application-stack). Regi
 
 ```mermaid
 flowchart TD
-    CLI["CAC commands"] --> INPUT["Validate and resolve options"]
-    INPUT --> EXPORT["Export orchestration"]
-    CREDS["Credential access"] --> EXPORT
-    EXPORT --> TEAMS["Teams directory and history client"]
-    EXPORT --> MEDIA["Media adapter and cache"]
-    TEAMS --> HTTP["Ky request policy and accounting"]
-    MEDIA --> HTTP
-    EXPORT --> OUTPUT["Export files and completion metadata"]
-    LOGIN["Separate Playwright login helper"] --> CREDS
-    CLI --> LOGIN
+    CLI["CAC commands"] --> INPUT["Validate options and select collection"]
+    INPUT --> DOWNLOAD["Download orchestration"]
+    DOWNLOAD --> COLLECT["Collect missing history"]
+    COLLECT --> TEAMS["Teams HTTP client"]
+    COLLECT --> DB["SQLite checkpoints and complete payloads"]
+    DOWNLOAD --> MEDIA["Download saved image references"]
+    MEDIA --> DB
+    MEDIA --> HTTP["Ky HTTP and media cache"]
+    DOWNLOAD --> EXPORT["Offline export"]
+    DB --> EXPORT
+    EXPORT --> OUTPUT["JSON, Markdown, portable images"]
+    INPUT --> EXPORT
+    LOGIN["Interactive login"] --> CREDS["Credentials for online commands"]
 ```
 
 The diagram shows responsibilities, not separate processes or a mandatory file per box.
@@ -53,7 +58,7 @@ The diagram shows responsibilities, not separate processes or a mandatory file p
 | Output                      | Source records, derived values, local media references and completion metadata                                     | Do not acquire credentials or hide failed retrieval behind a complete export                        |
 | Credential access and login | Load typed credentials; acquire/refresh through the dedicated visible browser and verify before atomic publication | Dynamic import on `login` only; no browser on ordinary reads; unattended renewal remains unresolved |
 
-A raw-ID export with explicit `--out` goes straight to that chat's history without a directory/profile lookup. Automatic naming uses a directory lookup when credentials are available; label selection always requires one to resolve the raw ID before history retrieval. Listing remains a distinct operation. History pages are fetched sequentially because continuation state depends on the preceding response. The Teams client starts the first history request immediately, then waits a random 1–2.5 seconds before each valid continuation by default. Export flags `--page-delay-min` and `--page-delay-max` configure this range in seconds. The wait is cancellable, adds no HTTP attempts, and sits outside the HTTP operation's timeout and retry policy; there is no pause after exhaustion. This pacing reduces request frequency without establishing Teams quotas or simulating browser interaction.
+Raw-ID downloads and collection skip directory/profile lookup and use saved labels for automatic naming when available. Online label selection resolves through the live directory and profile cache. Offline export reads saved labels without credentials or HTTP. Listing remains a distinct operation. History pages are fetched sequentially because continuation state depends on the preceding response. The Teams client starts the first history request immediately, then waits a random 1–2.5 seconds before each valid continuation by default. Export flags `--page-delay-min` and `--page-delay-max` configure this range in seconds. The wait is cancellable, adds no HTTP attempts, and sits outside the HTTP operation's timeout and retry policy; there is no pause after exhaustion. This pacing reduces request frequency without establishing Teams quotas or simulating browser interaction.
 
 For tests, allow the request function and clock/wait behavior to be supplied where needed. These are small testing seams, not an abstraction over every library. Keep progress data structured until the CLI formats it. The CLI serves standalone terminal use: results, progress, save confirmations, and request/image summaries use `console.log()` on stdout; warnings use `console.warn()` and failures use `console.error()` on stderr. Stdout can mix JSON results with status text. Saved chat-list and export files provide JSON without terminal messages; exit codes indicate command success or failure.
 
@@ -185,7 +190,7 @@ The detailed behavior checks remain in [validation sections 9.1–9.5](05-valida
 
 At most one of `--fixture <chat.json>`, `--chat`, or `--chat-label` overrides automatic history-target selection. An explicit fixture bypasses discovery, must be a complete version 1 archive accepted by `readArchive`, and requires an exact `accountId` match; malformed or mismatched explicit fixtures fail before HTTP rather than silently falling back. A fixture supplies the raw chat ID, supported sender identity, and supported inline image reference independently of live discovery. The original archive and its media are never updated or counted as live responses. Without any fixture or selector, a successful live directory can supply its first chat as the history target; unavailable inputs remain unverified rather than preventing independent probes.
 
-Without date arguments, the live window defaults to the last two local calendar days including today, matching `export --last 2d`: yesterday at local midnight through one captured invocation time. This default is retained in fixture mode; the archived window is not substituted. `src/config.ts` owns `defaultLiveSmokeDays`; both smoke and export validation use the same calendar-day calculation, respecting the system timezone, `TZ`, and daylight-saving transitions. Both explicit `--from` and `--to` are required to override the default window; single bounds are rejected.
+Without date arguments, the live window defaults to the last two local calendar days including today, matching `download --last 2d`: yesterday at local midnight through one captured invocation time. This default is retained in fixture mode; the archived window is not substituted. `src/config.ts` owns `defaultLiveSmokeDays`; both smoke and export validation use the same calendar-day calculation, respecting the system timezone, `TZ`, and daylight-saving transitions. Both explicit `--from` and `--to` are required to override the default window; single bounds are rejected.
 
 `resolveLiveSmokeOptions` validates selector exclusivity, timezone-qualified millisecond-precision explicit bounds, ordering, and a non-future end before credentials are loaded. The runner prints the resolved inclusive start and exclusive end before making requests and never widens them automatically. A quiet default window can leave pagination or media unverified; an explicit busier historical window remains available. Normal credential lookup and the optional `--credentials` override are reused. There is no browser automation or automatic credential renewal.
 

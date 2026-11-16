@@ -46,7 +46,7 @@ export async function downloadDatabaseMedia(
     if (chat !== undefined)
       onProgress?.({
         phase: "summary",
-        message: `[media-db] Selected stored chat: ${JSON.stringify(chat)}.`,
+        message: `[images] Selected stored chat: ${JSON.stringify(chat)}.`,
       });
     const images = store.images(chat);
     const pending: Message[] = [];
@@ -89,13 +89,13 @@ export async function downloadDatabaseMedia(
     const unsupported = store.unsupportedImages(chat);
     onProgress?.({
       phase: "summary",
-      message: `[media-db] Images: ${images.length}; already downloaded: ${alreadyDownloaded}; to process: ${pending.length}; unsupported: ${unsupported}.`,
+      message: `[images] Images: ${images.length}; already downloaded: ${alreadyDownloaded}; to process: ${pending.length}; unsupported: ${unsupported}.`,
     });
     if (pending.length === 0)
       onProgress?.({
         phase: "summary",
         message:
-          "[media-db] No images need downloading; no media requests needed.",
+          "[images] No images need downloading; no media requests needed.",
       });
     try {
       const result = await downloadImages(
@@ -141,7 +141,7 @@ export async function downloadDatabaseMedia(
     }
   } catch (error) {
     throw new AppError(
-      `${signal?.aborted ? "Database media download cancelled." : errorMessage(error)} Completed image files and database records remain saved; rerun media-db to continue.`,
+      `${signal?.aborted ? "Database media download cancelled." : errorMessage(error)} Completed image files and database records remain saved; rerun images to continue.`,
     );
   } finally {
     store?.close();

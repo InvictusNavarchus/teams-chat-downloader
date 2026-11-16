@@ -32,7 +32,7 @@ export async function exportDatabase(
   let archive;
   try {
     const chat = options.chat ?? store.chatIdForLabel(options.chatLabel!);
-    onProgress?.(`[export-db] Selected stored chat: ${JSON.stringify(chat)}.`);
+    onProgress?.(`[export] Selected stored chat: ${JSON.stringify(chat)}.`);
     archive = store.archive(chat, options.window);
   } finally {
     store.close();
@@ -64,7 +64,7 @@ async function exportDailyDatabase(
   const store = await HistoryStore.open(options.db);
   try {
     const chat = options.chat ?? store.chatIdForLabel(options.chatLabel!);
-    onProgress?.(`[export-db] Selected stored chat: ${JSON.stringify(chat)}.`);
+    onProgress?.(`[export] Selected stored chat: ${JSON.stringify(chat)}.`);
     const requested = options.window!;
     const bounds = store.completedBounds(chat);
     const to = Math.min(requested.to, bounds.to);
@@ -77,11 +77,11 @@ async function exportDailyDatabase(
         "Requested daily range has uncollected gaps; run collect for that range before exporting.",
       );
     onProgress?.(
-      `[export-db] Daily range verified; collected cutoff: ${new Date(to).toISOString()}.`,
+      `[export] Daily range verified; collected cutoff: ${new Date(to).toISOString()}.`,
     );
     if (to < requested.to)
       onProgress?.(
-        `[export-db] Skipping uncollected tail: ${new Date(to).toISOString()} to ${new Date(requested.to).toISOString()}.`,
+        `[export] Skipping uncollected tail: ${new Date(to).toISOString()} to ${new Date(requested.to).toISOString()}.`,
       );
     const days = [];
     for (let from = requested.from; from < to; ) {
@@ -114,7 +114,7 @@ async function exportDailyDatabase(
                 window,
               );
             onProgress?.(
-              `[export-db] Exporting ${dayjs(from).format("YYYY-MM-DD")} to ${directory}.`,
+              `[export] Exporting ${dayjs(from).format("YYYY-MM-DD")} to ${directory}.`,
             );
             return publishDatabaseArchive(
               options,
@@ -165,7 +165,7 @@ async function publishDatabaseArchive(
   onPublished?: () => void,
 ) {
   onProgress?.(
-    `[export-db] Verified coverage; ${archive.messages.length} messages selected.`,
+    `[export] Verified coverage; ${archive.messages.length} messages selected.`,
   );
   let published = false;
   try {
@@ -181,7 +181,7 @@ async function publishDatabaseArchive(
         );
         if (!bytes)
           throw new AppError(
-            "A collected image file is missing or corrupt; run media-db to repair it, or export-db --no-media for text only.",
+            "A collected image file is missing or corrupt; run images to repair it, or export --no-media for text only.",
           );
         const media = join(directory, "media");
         await mkdir(media, { mode: 0o700, recursive: true });
@@ -201,7 +201,7 @@ async function publishDatabaseArchive(
           }
         }
         copied.add(image.path);
-        onProgress?.(`[export-db] Copied ${copied.size} image(s).`);
+        onProgress?.(`[export] Copied ${copied.size} image(s).`);
       }
     }
     const output = await (refresh ? updateExport : writeExport)(
@@ -211,7 +211,7 @@ async function publishDatabaseArchive(
     );
     published = true;
     onPublished?.();
-    onProgress?.("[export-db] Saved JSON archive.");
+    onProgress?.("[export] Saved JSON archive.");
     const markdown = options.markdown
       ? refresh
         ? await updateMarkdown(
@@ -228,7 +228,7 @@ async function publishDatabaseArchive(
           if (error.code !== "ENOENT") throw error;
         },
       );
-    if (markdown) onProgress?.("[export-db] Saved Markdown transcript.");
+    if (markdown) onProgress?.("[export] Saved Markdown transcript.");
     return {
       output,
       messages: archive.messages.length,

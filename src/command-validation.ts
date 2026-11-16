@@ -229,6 +229,34 @@ export function resolveCollectOptions(
   };
 }
 
+const downloadOptionsSchema = collectOptionsSchema.extend({
+  out: exportOptionsSchema.shape.out,
+  media: exportOptionsSchema.shape.media,
+  markdown: exportOptionsSchema.shape.markdown,
+  refreshMedia: exportOptionsSchema.shape.refreshMedia,
+});
+export type DownloadOptions = z.infer<typeof downloadOptionsSchema> & {
+  window: Window;
+};
+
+export function resolveDownloadOptions(
+  input: unknown,
+  now = Date.now(),
+): DownloadOptions {
+  const result = downloadOptionsSchema.safeParse(input);
+  if (!result.success) throw validationError("Download options", result.error);
+  const { out, media, markdown, refreshMedia, ...collection } = result.data;
+  if (!media && refreshMedia)
+    throw new AppError("--refresh-media cannot be combined with --no-media.");
+  return {
+    ...resolveCollectOptions(collection, now),
+    out,
+    media,
+    markdown,
+    refreshMedia,
+  };
+}
+
 const databaseExportOptionsSchema = z.strictObject({
   log: z.boolean().default(commandDefaults.log),
   db: z.string().min(1),

@@ -5,10 +5,10 @@ import {
   resolveBatchConvertOptions,
   resolveChatsOptions,
   resolveCollectOptions,
+  resolveDownloadOptions,
   resolveDatabaseExportOptions,
   resolveDatabaseMediaOptions,
   resolveConvertOptions,
-  resolveExportOptions,
   resolveLoginOptions,
   resolveMediaOptions,
 } from "./command-validation.ts";
@@ -21,17 +21,21 @@ import {
   defaultOutputFormat,
   defaultPageDelay,
   loginTimeout,
-  pageDelayLimits,
 } from "./config.ts";
 import { convertAllArchives } from "./convert-all.ts";
 import { convertArchive } from "./convert.ts";
 import { openCollectionLog, writeCommandContext } from "./collection-log.ts";
-import { collectHistory } from "./collect.ts";
+import {
+  defaultCollectionPath,
+  findDefaultCollection,
+} from "./collection-path.ts";
+import { downloadChat } from "./download.ts";
+import { collectHistory, type CollectionEvent } from "./collect.ts";
 import { exportDatabase } from "./database-export.ts";
 import { downloadDatabaseMedia } from "./database-media.ts";
 import { loadCredentials } from "./credentials.ts";
 import { AppError, errorMessage } from "./errors.ts";
-import { exportChat, type ExportProgressEvent } from "./export.ts";
+import type { ExportProgressEvent } from "./export.ts";
 import { createHttp, requestStats } from "./http.ts";
 import { writeChatList } from "./output.ts";
 import { historyProgress, listChats } from "./teams.ts";
@@ -102,6 +106,32 @@ export async function runCli(argv = process.argv): Promise<number> {
         break;
     }
   };
+  const reportCollection = (event: CollectionEvent) => {
+    if (event.type === "warning") warning(event.message);
+    else if (event.type === "coverage") {
+      output(
+        `[collect] Already collected: ${event.alreadyCollectedMilliseconds} ms; remaining intervals: ${event.remainingIntervals}.`,
+      );
+      if (event.remainingIntervals === 0)
+        output(
+          "[collect] Requested range already collected; no history requests needed.",
+        );
+    } else if (event.type === "window")
+      output(`[collect] ${event.from} to ${event.toExclusive} (exclusive)`);
+    else if (event.type === "history")
+      reportProgress({ type: "history", ...event.progress });
+    else if (event.type === "backup") {
+      if (event.status === "saved")
+        output(`[backup] Saved verified snapshot: ${event.path}`);
+      else
+        warning(
+          `[backup] Snapshot failed. ${event.reason} Existing backups kept; collection continues.`,
+        );
+    } else
+      output(
+        `[collect] Checkpoint saved: ${event.messages} messages (${event.added} new).`,
+      );
+  };
   cli
     .command("login", "Sign in in a visible browser and save fresh credentials")
     .option(
@@ -132,58 +162,6 @@ export async function runCli(argv = process.argv): Promise<number> {
         signal: controller.signal,
         progress: (message) => console.log(message),
       });
-      console.log(JSON.stringify(result));
-    });
-  cli
-    .command(
-      "export",
-      "Save chat history as JSON and render Markdown transcript",
-    )
-    .option("--chat <id>", "Raw chat ID")
-    .option(
-      "--chat-label <label>",
-      "Exact resolved chat label (case-insensitive)",
-    )
-    .option("--no-media", "Skip image downloading and use placeholders", {
-      default: commandDefaults.media,
-    })
-    .option("--no-markdown", "Skip rendering Markdown transcript beside JSON", {
-      default: commandDefaults.markdown,
-    })
-    .option("--refresh-media", "Revalidate cached images with Teams")
-    .option(
-      "--page-delay-min <seconds>",
-      `Minimum pause between history pages, ${pageDelayLimits.min}–${pageDelayLimits.max} seconds (default: ${defaultPageDelay.min})`,
-    )
-    .option(
-      "--page-delay-max <seconds>",
-      `Maximum pause between history pages, ${pageDelayLimits.min}–${pageDelayLimits.max} seconds (default: ${defaultPageDelay.max})`,
-    )
-    .option("--credentials <file>", "Override automatic credential file lookup")
-    .option(
-      "--out <directory>",
-      `New export directory (default: ${defaultExportRoot}/<chat-label>/<period>; --last 1d refreshes today's folder)`,
-    )
-    .option(
-      "--last <Nd>",
-      "Last N calendar days including today, through now (local timezone; TZ overrides)",
-    )
-    .option("--since <timestamp>", "Start timestamp through invocation time")
-    .option("--from <timestamp>", "Inclusive start timestamp with Z or offset")
-    .option("--to <timestamp>", "Exclusive end timestamp with Z or offset")
-    .action(async (raw: Record<string, unknown>) => {
-      const { "--": _trailing, ...input } = raw;
-      const options = resolveExportOptions(input);
-      const credentials = await loadCredentials(options.credentials);
-      const result = await exportChat(
-        options,
-        credentials,
-        http,
-        stats,
-        progress,
-        controller.signal,
-        reportProgress,
-      );
       console.log(JSON.stringify(result));
     });
   cli
@@ -282,10 +260,107 @@ export async function runCli(argv = process.argv): Promise<number> {
     });
   cli
     .command(
+      "download",
+      "Collect missing history and images, then export JSON and Markdown",
+    )
+    .option(
+      "--db <file>",
+      "Collection file (default: per-account user-state database)",
+    )
+    .option(
+      "--no-log",
+      `Disable automatic private logs in <database>${collectionLogSuffix}/`,
+      {
+        default: commandDefaults.log,
+      },
+    )
+    .option(
+      "--backup-dir <directory>",
+      `Override backup directory (default: <database>${collectionBackupSuffix}); snapshots every ${collectionBackupIntervalMs / 3600000} hour(s) and on completion; no automatic deletion`,
+    )
+    .option("--no-backup", "Disable automatic collection backups", {
+      default: commandDefaults.backup,
+    })
+    .option("--chat <id>", "Raw chat ID; skips directory/profile lookup")
+    .option(
+      "--chat-label <label>",
+      "Exact resolved chat label (case-insensitive)",
+    )
+    .option("--credentials <file>", "Override automatic credential file lookup")
+    .option(
+      "--all",
+      "Collect all accessible history from Unix millisecond 1 through now",
+    )
+    .option("--last <Nd>", "Last N calendar days including today")
+    .option(
+      "--since <timestamp>",
+      "Inclusive start timestamp through invocation time",
+    )
+    .option("--from <timestamp>", "Inclusive start timestamp with Z or offset")
+    .option("--to <timestamp>", "Exclusive end timestamp with Z or offset")
+    .option(
+      "--page-delay-min <seconds>",
+      `Minimum pause between pages and collection windows (default: ${defaultPageDelay.min})`,
+    )
+    .option(
+      "--page-delay-max <seconds>",
+      `Maximum pause between pages and collection windows (default: ${defaultPageDelay.max})`,
+    )
+    .option(
+      "--out <directory>",
+      "New combined export directory (default: daily folders for --last)",
+    )
+    .option("--no-media", "Skip images", { default: commandDefaults.media })
+    .option("--no-markdown", "Skip Markdown", {
+      default: commandDefaults.markdown,
+    })
+    .option(
+      "--refresh-media",
+      "Revalidate saved images; history remains resumable",
+    )
+    .action(async (raw: Record<string, unknown>) => {
+      const { "--": _trailing, ...input } = raw;
+      const now = Date.now();
+      let options = resolveDownloadOptions(
+        { ...input, db: input.db ?? "default.sqlite" },
+        now,
+      );
+      const defaultCredentials =
+        input.db === undefined
+          ? await loadCredentials(options.credentials)
+          : undefined;
+      if (defaultCredentials)
+        options = resolveDownloadOptions(
+          { ...input, db: defaultCollectionPath(defaultCredentials.accountId) },
+          now,
+        );
+      startLog("download", options, input);
+      output(
+        `[collect] Requested ${new Date(options.window.from).toISOString()} to ${new Date(options.window.to).toISOString()} (exclusive)`,
+      );
+      const credentials =
+        defaultCredentials ?? (await loadCredentials(options.credentials));
+      const result = await downloadChat(
+        options,
+        credentials,
+        http,
+        stats,
+        progress,
+        controller.signal,
+        output,
+        reportCollection,
+      );
+      output(JSON.stringify(result));
+    });
+  cli
+    .command(
       "collect",
       "Collect resumable chat history into SQLite (text and source image references)",
     )
-    .option("--db <file>", "SQLite collection file; one account per database")
+    .option(
+      "--db <file>",
+      "Collection file (default: per-account user-state database)",
+    )
     .option(
       "--no-log",
       `Disable automatic private logs in <database>${collectionLogSuffix}/`,
@@ -327,12 +402,26 @@ export async function runCli(argv = process.argv): Promise<number> {
     )
     .action(async (raw: Record<string, unknown>) => {
       const { "--": _trailing, ...input } = raw;
-      const options = resolveCollectOptions(input);
+      const now = Date.now();
+      let options = resolveCollectOptions(
+        { ...input, db: input.db ?? "default.sqlite" },
+        now,
+      );
+      const defaultCredentials =
+        input.db === undefined
+          ? await loadCredentials(options.credentials)
+          : undefined;
+      if (defaultCredentials)
+        options = resolveCollectOptions(
+          { ...input, db: defaultCollectionPath(defaultCredentials.accountId) },
+          now,
+        );
       startLog("collect", options, input);
       output(
         `[collect] Requested ${new Date(options.window.from).toISOString()} to ${new Date(options.window.to).toISOString()} (exclusive)`,
       );
-      const credentials = await loadCredentials(options.credentials);
+      const credentials =
+        defaultCredentials ?? (await loadCredentials(options.credentials));
       const result = await collectHistory(
         options,
         credentials,
@@ -340,43 +429,17 @@ export async function runCli(argv = process.argv): Promise<number> {
         stats,
         progress,
         controller.signal,
-        (event) => {
-          if (event.type === "warning") warning(event.message);
-          else if (event.type === "coverage") {
-            output(
-              `[collect] Already collected: ${event.alreadyCollectedMilliseconds} ms; remaining intervals: ${event.remainingIntervals}.`,
-            );
-            if (event.remainingIntervals === 0)
-              output(
-                "[collect] Requested range already collected; no history requests needed.",
-              );
-          } else if (event.type === "window")
-            output(
-              `[collect] ${event.from} to ${event.toExclusive} (exclusive)`,
-            );
-          else if (event.type === "history")
-            reportProgress({ type: "history", ...event.progress });
-          else if (event.type === "backup") {
-            if (event.status === "saved")
-              output(`[backup] Saved verified snapshot: ${event.path}`);
-            else
-              warning(
-                `[backup] Snapshot failed. ${event.reason} Existing backups kept; collection continues.`,
-              );
-          } else
-            output(
-              `[collect] Checkpoint saved: ${event.messages} messages (${event.added} new).`,
-            );
-        },
+        reportCollection,
       );
       output(JSON.stringify(result));
     });
   cli
-    .command(
-      "export-db",
-      "Export a fully collected SQLite range to JSON and Markdown, offline",
+    .command("export", "Export saved history to JSON and Markdown, offline")
+    .alias("export-db")
+    .option(
+      "--db <file>",
+      "Collection file (default: single saved account collection)",
     )
-    .option("--db <file>", "Existing SQLite collection file")
     .option(
       "--no-log",
       `Disable automatic private logs in <database>${collectionLogSuffix}/`,
@@ -405,10 +468,19 @@ export async function runCli(argv = process.argv): Promise<number> {
     })
     .action(async (raw: Record<string, unknown>) => {
       const { "--": _trailing, ...input } = raw;
-      const options = resolveDatabaseExportOptions(input);
-      startLog("export-db", options, input);
+      const now = Date.now();
+      let options = resolveDatabaseExportOptions(
+        { ...input, db: input.db ?? "default.sqlite" },
+        now,
+      );
+      if (input.db === undefined)
+        options = resolveDatabaseExportOptions(
+          { ...input, db: await findDefaultCollection() },
+          now,
+        );
+      startLog(cli.matchedCommandName ?? "export", options, input);
       output(
-        `[export-db] Requested chat: ${JSON.stringify(options.chat ?? options.chatLabel)}; range: ${options.window ? new Date(options.window.from).toISOString() : "stored coverage"} to ${options.window ? new Date(options.window.to).toISOString() : "stored coverage"}; media: ${options.media}; markdown: ${options.markdown}; destination: ${options.out ?? "daily folders"}`,
+        `[export] Requested chat: ${JSON.stringify(options.chat ?? options.chatLabel)}; range: ${options.window ? new Date(options.window.from).toISOString() : "stored coverage"} to ${options.window ? new Date(options.window.to).toISOString() : "stored coverage"}; media: ${options.media}; markdown: ${options.markdown}; destination: ${options.out ?? "daily folders"}`,
       );
       output(
         JSON.stringify(
@@ -417,11 +489,12 @@ export async function runCli(argv = process.argv): Promise<number> {
       );
     });
   cli
-    .command(
-      "media-db",
-      "Download pending SQLite image references without a JSON export",
+    .command("images", "Download pending images for saved history")
+    .alias("media-db")
+    .option(
+      "--db <file>",
+      "Collection file (default: per-account user-state database)",
     )
-    .option("--db <file>", "Existing SQLite collection file")
     .option(
       "--no-log",
       `Disable automatic private logs in <database>${collectionLogSuffix}/`,
@@ -442,12 +515,25 @@ export async function runCli(argv = process.argv): Promise<number> {
     )
     .action(async (raw: Record<string, unknown>) => {
       const { "--": _trailing, ...input } = raw;
-      const options = resolveDatabaseMediaOptions(input);
-      startLog("media-db", options, input);
+      let options = resolveDatabaseMediaOptions({
+        ...input,
+        db: input.db ?? "default.sqlite",
+      });
+      const defaultCredentials =
+        input.db === undefined
+          ? await loadCredentials(options.credentials)
+          : undefined;
+      if (defaultCredentials)
+        options = resolveDatabaseMediaOptions({
+          ...input,
+          db: defaultCollectionPath(defaultCredentials.accountId),
+        });
+      startLog(cli.matchedCommandName ?? "images", options, input);
+      const credentials =
+        defaultCredentials ?? (await loadCredentials(options.credentials));
       output(
-        `[media-db] Requested chat: ${JSON.stringify(options.chat ?? options.chatLabel ?? "all chats")}; refresh: ${options.refreshMedia}`,
+        `[images] Requested chat: ${JSON.stringify(options.chat ?? options.chatLabel ?? "all chats")}; refresh: ${options.refreshMedia}`,
       );
-      const credentials = await loadCredentials(options.credentials);
       output(
         JSON.stringify(
           await downloadDatabaseMedia(
