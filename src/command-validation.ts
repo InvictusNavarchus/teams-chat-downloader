@@ -293,6 +293,7 @@ const databaseMediaOptionsSchema = z.strictObject({
   log: z.boolean().default(commandDefaults.log),
   db: z.string().min(1),
   chat: z.string().min(1).optional(),
+  chatLabel: z.string().trim().min(1).optional(),
   credentials: z.string().min(1).optional(),
   refreshMedia: z.boolean().default(commandDefaults.refreshMedia),
 });
@@ -303,6 +304,10 @@ export function resolveDatabaseMediaOptions(
   const result = databaseMediaOptionsSchema.safeParse(input);
   if (!result.success)
     throw validationError("Database media options", result.error);
+  if (result.data.chat !== undefined && result.data.chatLabel !== undefined)
+    throw new AppError(
+      "Choose at most one of --chat <id> or --chat-label <label>.",
+    );
   return { ...result.data, db: resolve(result.data.db) };
 }
 

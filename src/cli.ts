@@ -427,6 +427,10 @@ export async function runCli(argv = process.argv): Promise<number> {
       "--chat <id>",
       "Limit to one raw chat ID (default: all collected chats)",
     )
+    .option(
+      "--chat-label <label>",
+      "Exact saved SQLite chat label (case-insensitive; offline lookup)",
+    )
     .option("--credentials <file>", "Override automatic credential file lookup")
     .option(
       "--refresh-media",
@@ -437,7 +441,7 @@ export async function runCli(argv = process.argv): Promise<number> {
       const options = resolveDatabaseMediaOptions(input);
       startLog("media-db", options);
       output(
-        `[media-db] Requested chat: ${options.chat ?? "all chats"}; refresh: ${options.refreshMedia}`,
+        `[media-db] Requested chat: ${JSON.stringify(options.chat ?? options.chatLabel ?? "all chats")}; refresh: ${options.refreshMedia}`,
       );
       const credentials = await loadCredentials(options.credentials);
       output(

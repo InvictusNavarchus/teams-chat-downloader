@@ -67,7 +67,7 @@ See the [user guide](docs/user-guide.md#choose-dates-and-export-history) for dat
 bun run teams collect --db exports/history.sqlite --chat-label 'Project Alpha' --all
 
 # Download its supported images:
-bun run teams media-db --db exports/history.sqlite
+bun run teams media-db --db exports/history.sqlite --chat-label 'Project Alpha'
 
 # Create a portable export offline using the label saved during collection:
 bun run teams export-db --db exports/history.sqlite --chat-label 'Project Alpha' --out exports/alpha-history
@@ -76,7 +76,9 @@ bun run teams export-db --db exports/history.sqlite --chat-label 'Project Alpha'
 bun run teams export-db --db exports/history.sqlite --chat-label 'Project Alpha' --last 3d
 ```
 
-`export-db` accepts exactly one of `--chat <raw-id>` or `--chat-label <label>`. Labels match saved SQLite labels exactly after trimming whitespace and ignoring case; missing or duplicate matches fail. Label lookup stays offline and does not refresh names.
+`media-db` accepts either `--chat <raw-id>` or `--chat-label <label>` to limit downloads to one chat; omit both to handle every chat in the database. Combining the selectors fails.
+
+`export-db` accepts exactly one of `--chat <raw-id>` or `--chat-label <label>`. Both database commands match labels saved in SQLite exactly after trimming whitespace and ignoring case; missing, duplicate, or generic fallback labels fail. Label lookup stays offline and does not refresh names.
 
 `export-db --last Nd` writes `exports/<saved-chat-label>/<YYYY-MM-DD>/chat.json` and a sibling Markdown transcript for each collected day in the requested range. Reruns safely refresh matching daily folders. Export stops at the verified collection cutoff (printed by the command), even if it falls on an earlier day. The final day can be partial; later uncollected days are skipped and reported. Coverage gaps before the cutoff still fail, and fully collected empty days are exported. Use `--no-markdown --no-media` for JSON only. Daily mode cannot be combined with `--out` or explicit bounds.
 

@@ -38,7 +38,17 @@ export async function downloadDatabaseMedia(
   let store: HistoryStore | undefined;
   try {
     store = await HistoryStore.open(options.db, credentials.accountId);
-    const images = store.images(options.chat);
+    const chat =
+      options.chat ??
+      (options.chatLabel === undefined
+        ? undefined
+        : store.chatIdForLabel(options.chatLabel));
+    if (chat !== undefined)
+      onProgress?.({
+        phase: "summary",
+        message: `[media-db] Selected stored chat: ${JSON.stringify(chat)}.`,
+      });
+    const images = store.images(chat);
     const pending: Message[] = [];
     const directory = collectionMediaDirectory(options.db);
     try {
@@ -76,7 +86,7 @@ export async function downloadDatabaseMedia(
       });
     }
     const completed = new Set<string>();
-    const unsupported = store.unsupportedImages(options.chat);
+    const unsupported = store.unsupportedImages(chat);
     onProgress?.({
       phase: "summary",
       message: `[media-db] Images: ${images.length}; already downloaded: ${alreadyDownloaded}; to process: ${pending.length}; unsupported: ${unsupported}.`,

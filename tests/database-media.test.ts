@@ -70,11 +70,89 @@ async function fixture() {
   const options = resolveDatabaseMediaOptions({ db });
   return { dir, db, cacheRoot, credentials, options };
 }
-async function seed(db: string, messages: Message[], chat = "group") {
+async function seed(
+  db: string,
+  messages: Message[],
+  chat = "group",
+  label?: string,
+) {
   const store = await HistoryStore.open(db, "account");
-  store.commit(chat, undefined, { from, to }, messages, counts, requestStats());
+  store.commit(chat, label, { from, to }, messages, counts, requestStats());
   store.close();
 }
+
+test("saved labels scope image downloads and unsupported counts to one chat", async () => {
+  const f = await fixture();
+  await seed(f.db, [message()], "group", "Project Alpha");
+  await seed(
+    f.db,
+    [
+      message(
+        "other",
+        `<img src="${imageUrl("other")}"><img src="https://unsupported.invalid/x">`,
+      ),
+    ],
+    "other",
+    "Project Beta",
+  );
+  const stats = requestStats();
+  const events: string[] = [];
+  const result = await downloadDatabaseMedia(
+    resolveDatabaseMediaOptions({ db: f.db, chatLabel: "  PROJECT alpha  " }),
+    f.credentials,
+    createHttp({
+      stats,
+      fetch: async (request) => {
+        expect(request.url).toBe(imageUrl());
+        return response();
+      },
+    }),
+    undefined,
+    (event) => {
+      if (event.phase === "summary") events.push(event.message);
+    },
+    f.cacheRoot,
+  );
+  expect(result).toMatchObject({ saved: 1, images: 1, unsupported: 0 });
+  expect(stats.total).toBe(1);
+  expect(events).toContain('[media-db] Selected stored chat: "group".');
+  const store = await HistoryStore.open(f.db);
+  expect(store.images("group")[0]!.status).toBe("complete");
+  expect(store.images("other")[0]!.status).toBe("pending");
+  store.close();
+});
+
+test("invalid saved labels fail before HTTP and release the collection reservation", async () => {
+  const f = await fixture();
+  await seed(f.db, [message()], "group", "Project Alpha");
+  await seed(f.db, [message()], "other", "project alpha");
+  const stats = requestStats();
+  const http = createHttp({
+    stats,
+    fetch: async () => {
+      throw new Error("No HTTP expected");
+    },
+  });
+  for (const [chatLabel, expected] of [
+    ["Missing", "No saved chat matches"],
+    ["Untitled chat", "Generic fallback labels"],
+    ["Unresolved one-to-one chat", "Generic fallback labels"],
+    ["Project Alpha", "Multiple chats match"],
+  ]) {
+    await expect(
+      downloadDatabaseMedia(
+        resolveDatabaseMediaOptions({ db: f.db, chatLabel }),
+        f.credentials,
+        http,
+      ),
+    ).rejects.toThrow(expected);
+    expect((await readdir(f.dir)).some((name) => name.endsWith(".lock"))).toBe(
+      false,
+    );
+  }
+  expect(stats.total).toBe(0);
+  expect(await readdir(f.dir)).not.toContain("history.sqlite.media");
+});
 
 test("references are committed with messages, deduplicated across chats, and rolled back on message conflicts", async () => {
   const f = await fixture();
@@ -581,7 +659,7 @@ test("a failed version 1 backfill rolls back schema migration", async () => {
 
 test("media-db CLI downloads without JSON and export-db links its saved images offline", async () => {
   const f = await fixture();
-  await seed(f.db, [message()]);
+  await seed(f.db, [message()], "group", "Project Alpha");
   const credentialsPath = join(f.dir, "credentials.json");
   await writeFile(credentialsPath, JSON.stringify(f.credentials), {
     mode: 0o600,
@@ -620,14 +698,19 @@ test("media-db CLI downloads without JSON and export-db links its saved images o
     "media-db",
     "--db",
     f.db,
-    "--chat",
-    "group",
+    "--chat-label",
+    "  PROJECT alpha  ",
     "--credentials",
     credentialsPath,
   ];
+  const conflicting = await cli([...args, "--chat", "group"], true);
+  expect(conflicting.exit).toBe(1);
+  expect(conflicting.stderr).toContain("Choose at most one");
+  expect(await readdir(f.dir)).not.toContain("history.sqlite.logs");
   const first = await cli(args);
   expect(first.exit).toBe(0);
   expect(first.stdout).toContain('"saved":1');
+  expect(first.stdout).toContain('Selected stored chat: "group"');
   expect(
     (await readdir(f.dir)).some(
       (name) => name.endsWith(".json") && name !== "credentials.json",
@@ -643,6 +726,8 @@ test("media-db CLI downloads without JSON and export-db links its saved images o
   for (const file of mediaLogs) {
     const log = await readFile(join(`${f.db}.logs`, file), "utf8");
     expect(log).toContain("[media-db] Completed successfully.");
+    expect(log).toContain('Requested chat: "PROJECT alpha"');
+    expect(log).toContain('Selected stored chat: "group"');
     expect(log).toContain("Images:");
     expect(log).not.toContain(imageUrl());
     expect(log).not.toContain(f.credentials.historyAuthentication);

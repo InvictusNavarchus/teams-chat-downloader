@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 import {
   resolveConvertOptions,
+  resolveDatabaseMediaOptions,
   resolveExportOptions,
   resolveMediaOptions,
 } from "../src/command-validation.ts";
@@ -13,6 +14,42 @@ const base = {
   out: "export.json",
 };
 const now = Date.parse("2026-11-04T12:00:00Z");
+
+describe("database media chat selection", () => {
+  test("allows all chats, a raw ID, or a trimmed label", () => {
+    expect(
+      resolveDatabaseMediaOptions({ db: "history.sqlite" }).chat,
+    ).toBeUndefined();
+    expect(
+      resolveDatabaseMediaOptions({ db: "history.sqlite", chat: "group" }).chat,
+    ).toBe("group");
+    expect(
+      resolveDatabaseMediaOptions({
+        db: "history.sqlite",
+        chatLabel: "  Project Alpha  ",
+      }).chatLabel,
+    ).toBe("Project Alpha");
+  });
+
+  test("rejects combined selectors", () => {
+    expect(() =>
+      resolveDatabaseMediaOptions({
+        db: "history.sqlite",
+        chat: "group",
+        chatLabel: "Project Alpha",
+      }),
+    ).toThrow("Choose at most one");
+  });
+
+  test.each(["", "   ", true, 3])(
+    "rejects an invalid label: %s",
+    (chatLabel) => {
+      expect(() =>
+        resolveDatabaseMediaOptions({ db: "history.sqlite", chatLabel }),
+      ).toThrow("Database media options");
+    },
+  );
+});
 
 describe("chat selection", () => {
   test("accepts a label without a raw ID and trims surrounding whitespace", () => {

@@ -156,11 +156,14 @@ Rerun the command after interruption or credential refresh. Completed intervals 
 
 ```sh
 bun run teams media-db --db exports/history.sqlite
+bun run teams media-db --db exports/history.sqlite --chat-label 'Project Alpha'
 bun run teams media-db --db exports/history.sqlite --chat '<raw-chat-id>'
 bun run teams media-db --db exports/history.sqlite --refresh-media
 ```
 
 The default handles every chat in the database, using credentials for its account. No JSON export is needed. Images are saved beside the database in `exports/history.sqlite.media/`; keep these together. Successfully downloaded images survive interruption and are checked before being skipped on rerun. Missing or corrupt files are repaired from the cache or downloaded again. Unsupported references remain placeholders.
+
+To limit downloads to one chat, use either `--chat <raw-id>` or `--chat-label <label>`; combining them fails. Labels use the same saved SQLite lookup as `export-db`: exact matching after trimming whitespace and ignoring case, without live directory/profile requests or name refresh. Missing, duplicate, or generic fallback labels fail before media requests. If no label was saved or several chats share it, use the raw ID. Image selection and unsupported counts are limited to the selected chat. Logs record the requested selector and resolved raw ID.
 
 ### Export a collection offline
 
