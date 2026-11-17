@@ -279,6 +279,41 @@ describe("bounded history", () => {
     );
   });
 
+  test("skips an older message whose version falls inside the window", async () => {
+    const http = createHttp({
+      stats: requestStats(),
+      fetch: async () =>
+        page([
+          {
+            ...message("old", new Date(window.from - 60_000).toISOString()),
+            version: String(window.from + 60_000),
+          },
+          message("new", "2026-08-03T00:00:00Z"),
+        ]),
+    });
+    expect(
+      (await readHistory(http, credentials, chat, window)).map(
+        (item) => item.id,
+      ),
+    ).toEqual(["new"]);
+  });
+
+  test("rejects an older message without an in-window version", async () => {
+    const http = createHttp({
+      stats: requestStats(),
+      fetch: async () =>
+        page([
+          {
+            ...message("old", new Date(window.from - 60_000).toISOString()),
+            version: String(window.from - 1),
+          },
+        ]),
+    });
+    await expect(readHistory(http, credentials, chat, window)).rejects.toThrow(
+      "outside",
+    );
+  });
+
   test("includes the exact start and last millisecond", async () => {
     const http = createHttp({
       stats: requestStats(),

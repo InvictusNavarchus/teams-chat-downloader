@@ -142,6 +142,8 @@ export async function* readHistoryPages(
     const added: Message[] = [];
     for (const message of page.messages) {
       const time = Date.parse(message.originalarrivaltime);
+      // Teams includes older messages whose version bumped into the window (e.g. reactions/edits).
+      if (time < window.from && hasInWindowVersion(message, window)) continue;
       if (time < window.from || time >= window.to)
         throw new AppError(
           "History returned a message outside the fixed date window; export stopped.",
@@ -272,4 +274,15 @@ export async function listChats(
     ),
     options,
   );
+}
+
+function hasInWindowVersion(message: Message, window: Window): boolean {
+  const raw = message.version;
+  const ms =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string" && /^\d+$/.test(raw)
+        ? Number(raw)
+        : Number.NaN;
+  return Number.isSafeInteger(ms) && ms >= window.from && ms < window.to;
 }
