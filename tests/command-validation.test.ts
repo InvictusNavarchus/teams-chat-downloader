@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 import {
   resolveConvertOptions,
+  resolveCollectOptions,
   resolveDatabaseMediaOptions,
+  resolveDownloadOptions,
   resolveExportOptions,
   resolveMediaOptions,
 } from "../src/command-validation.ts";
@@ -14,6 +16,57 @@ const base = {
   out: "export.json",
 };
 const now = Date.parse("2026-11-04T12:00:00Z");
+
+describe("saved chat collection selection", () => {
+  test("accepts all saved chats with all history or a bounded window", () => {
+    expect(
+      resolveCollectOptions(
+        { db: "history.sqlite", allChats: true, all: true },
+        now,
+      ),
+    ).toMatchObject({ allChats: true, window: { from: 1, to: now } });
+    expect(
+      resolveCollectOptions(
+        { db: "history.sqlite", allChats: true, since: "2026-11-01T00:00:00Z" },
+        now,
+      ).window,
+    ).toEqual({ from: Date.parse("2026-11-01T00:00:00Z"), to: now });
+  });
+
+  test.each([
+    { chat: "a" },
+    { chatLabel: "Alpha" },
+    { chat: "a", chatLabel: "Alpha" },
+  ])("rejects combining --all-chats with a single selector: %j", (selector) => {
+    expect(() =>
+      resolveCollectOptions(
+        { db: "h", all: true, allChats: true, ...selector },
+        now,
+      ),
+    ).toThrow("--all-chats cannot be combined");
+  });
+
+  test.each([
+    { allChats: false, all: true },
+    { allChats: true },
+    { allChats: true, all: true, last: "1d" },
+    { allChats: "true", all: true },
+  ])(
+    "rejects missing selectors, missing/combined date modes and invalid flags: %j",
+    (input) => {
+      expect(() => resolveCollectOptions({ db: "h", ...input }, now)).toThrow();
+    },
+  );
+
+  test("download retains single-chat selection", () => {
+    expect(() =>
+      resolveDownloadOptions({ db: "h", allChats: true, all: true }, now),
+    ).toThrow("Download options");
+    expect(() => resolveDownloadOptions({ db: "h", all: true }, now)).toThrow(
+      "Choose exactly one",
+    );
+  });
+});
 
 describe("database media chat selection", () => {
   test("allows all chats, a raw ID, or a trimmed label", () => {

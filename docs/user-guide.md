@@ -131,9 +131,21 @@ bun run teams collect --db exports/history.sqlite --chat '<raw-chat-id>' \
   --from '2024-11-01T00:00:00+07:00' --to '2026-11-01T00:00:00+07:00'
 ```
 
-Choose one selector and one date mode: `--all`, `--last Nd`, `--since`, or paired `--from`/`--to`. Explicit future ends are rejected. `--all` requests all history the endpoint exposes, working backward from now; it cannot recover deleted or unavailable messages.
+Choose one selector (`--chat`, `--chat-label`, or collect-only `--all-chats`) and one date mode: `--all`, `--last Nd`, `--since`, or paired `--from`/`--to`. Explicit future ends are rejected. `--all` requests all history the endpoint exposes, working backward from now; it cannot recover deleted or unavailable messages.
 
 Rerun the command after interruption or credential refresh. Completed intervals are skipped; the unfinished interval is fetched again in full. A range ending at invocation time also collects the newly uncovered tail. `--credentials` and the page-delay options work as with downloads.
+
+Catch up every saved chat with no per-chat selectors or day count:
+
+```sh
+teams collect --all-chats --all
+# For a custom database, reuse its original path:
+teams collect --db exports/history.sqlite --all-chats --all
+```
+
+`--all-chats` reads IDs already present in the account's database, including chats without labels or with duplicate labels. It does not discover new chats, refresh labels, or request the directory/profiles. It cannot be combined with `--chat` or `--chat-label`, and an empty database fails with guidance to collect a chat first. `download` remains single-chat.
+
+Chats run sequentially in raw-ID order with one captured endpoint, one collection reservation, shared backup scheduling, and normal pacing between windows even across chat boundaries. Each chat skips its own completed coverage, so `--all` catches up all missed days and also fills any older gaps. Per-chat progress and a final result with per-chat and aggregate counts appear in the terminal and automatic log; `--no-log` disables the log. Failure or cancellation stops the batch, retains earlier checkpoints, and does not start a final backup. Rerun the same command to resume. For images afterward, `teams images` handles all saved chats; pass the same `--db` for a custom database.
 
 **Collection is not ongoing synchronization:** completed intervals are not refreshed for later edits or deletions. Conflicting content for an already saved message fails the current interval rather than overwriting the saved record. See the [SQLite reference](11-sqlite-collection.md) for schema, migration, and checkpoint behavior.
 

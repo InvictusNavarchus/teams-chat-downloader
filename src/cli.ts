@@ -30,7 +30,11 @@ import {
   findDefaultCollection,
 } from "./collection-path.ts";
 import { downloadChat } from "./download.ts";
-import { collectHistory, type CollectionEvent } from "./collect.ts";
+import {
+  collectChats,
+  collectHistory,
+  type CollectionEvent,
+} from "./collect.ts";
 import { exportDatabase } from "./database-export.ts";
 import { downloadDatabaseMedia } from "./database-media.ts";
 import { loadCredentials } from "./credentials.ts";
@@ -108,6 +112,14 @@ export async function runCli(argv = process.argv): Promise<number> {
   };
   const reportCollection = (event: CollectionEvent) => {
     if (event.type === "warning") warning(event.message);
+    else if (event.type === "chat")
+      output(
+        `[collect] Chat ${event.current}/${event.total}: ${JSON.stringify(event.chatId)}`,
+      );
+    else if (event.type === "chat-complete")
+      output(
+        `[collect] Chat ${JSON.stringify(event.chatId)} complete: ${event.addedMessages} new messages; ${event.completedWindows} windows saved.`,
+      );
     else if (event.type === "coverage") {
       output(
         `[collect] Already collected: ${event.alreadyCollectedMilliseconds} ms; remaining intervals: ${event.remainingIntervals}.`,
@@ -377,6 +389,10 @@ export async function runCli(argv = process.argv): Promise<number> {
     })
     .option("--chat <id>", "Raw chat ID; skips directory/profile lookup")
     .option(
+      "--all-chats",
+      "Collect every chat already saved in the database; skips directory/profile lookup",
+    )
+    .option(
       "--chat-label <label>",
       "Exact resolved chat label (case-insensitive)",
     )
@@ -422,7 +438,7 @@ export async function runCli(argv = process.argv): Promise<number> {
       );
       const credentials =
         defaultCredentials ?? (await loadCredentials(options.credentials));
-      const result = await collectHistory(
+      const result = await (options.allChats ? collectChats : collectHistory)(
         options,
         credentials,
         http,

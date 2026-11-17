@@ -400,6 +400,15 @@ export class HistoryStore {
     }
   }
 
+  savedChatIds(): string[] {
+    return this.db
+      .query<{ id: string }, []>(
+        "SELECT chat_id AS id FROM chats ORDER BY chat_id",
+      )
+      .all()
+      .map((chat) => chat.id);
+  }
+
   chatLabel(chat: string): string | undefined {
     return (
       this.db

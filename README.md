@@ -72,6 +72,15 @@ teams export --chat-label 'Project Alpha' --out exports/alpha-history
 
 `collect` saves text and image references; `images` downloads the files. Omit the selector on `images` to handle all chats. `export` uses exactly one saved label or raw ID, requires no credentials, and never contacts Teams. Daily export stops at the verified collection cutoff and reports the skipped uncollected tail; internal coverage gaps fail. Combined export requires `--out` and optionally paired date bounds.
 
+To catch up every chat already saved in the database, without tracking how many days have passed:
+
+```sh
+teams collect --all-chats --all
+teams images
+```
+
+Reuse `--db <file>` on both commands if you originally chose a custom database. `--all-chats` uses saved chat IDs without directory/profile lookup; it does not discover new chats. `--all` fetches only missing intervals, including any older gaps. Chats run sequentially and stop on failure or cancellation; rerun to resume from saved checkpoints. This selector is available on `collect`; `download` still requires one chat.
+
 Collection makes automatic verified backups in `<database>.backups/`, hourly between completed intervals and on clean completion. Use `--backup-dir` to change the location or `--no-backup` to disable them. Backups are full snapshots and are not automatically pruned. The collection phase finishes its backup before image downloading; newly downloaded images enter a backup on a subsequent successful collection. Keep the live database and adjacent `<database>.media/` directory together. See [backup and restoration](docs/user-guide.md#back-up-and-restore-collections).
 
 ## Use your exported files

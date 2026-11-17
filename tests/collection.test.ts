@@ -13,14 +13,22 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readArchive } from "../src/archive.ts";
-import { collectHistory } from "../src/collect.ts";
+import {
+  collectChats,
+  collectHistory,
+  type CollectionEvent,
+} from "../src/collect.ts";
 import {
   resolveCollectOptions,
   resolveDatabaseExportOptions,
 } from "../src/command-validation.ts";
 import { collectionWindowMs } from "../src/config.ts";
 import { exportDatabase } from "../src/database-export.ts";
-import { HistoryStore, uncovered } from "../src/history-store.ts";
+import {
+  HistoryStore,
+  reserveCollection,
+  uncovered,
+} from "../src/history-store.ts";
 import { createHttp, requestStats } from "../src/http.ts";
 import { historyProgress } from "../src/teams.ts";
 
@@ -58,6 +66,354 @@ const message = (id: string, time: number) => ({
   properties: { unknown: [1, { nested: true }] },
 });
 const counters = { pages: 1, records: 1, duplicates: 0 };
+
+test("all saved chats catch up only missing tails, preserve labels, share the lock and backup, and rerun without HTTP", async () => {
+  const f = await fixture();
+  const cutoffs = new Map([
+    ["a", f.to - 10000],
+    ["b", f.to - 5000],
+    ["c", f.to],
+  ]);
+  const store = await HistoryStore.open(f.db, "account");
+  for (const [chat, to] of [...cutoffs].reverse())
+    store.commit(
+      chat,
+      chat === "c" ? undefined : "Same label",
+      { from: 1, to },
+      [message("old", 100)],
+      counters,
+      requestStats(),
+    );
+  store.close();
+  const options = resolveCollectOptions(
+    { db: f.db, allChats: true, all: true, pageDelayMin: 0, pageDelayMax: 0 },
+    f.to,
+  );
+  const stats = requestStats();
+  const requested: string[] = [];
+  const events: CollectionEvent[] = [];
+  const http = createHttp({
+    stats,
+    fetch: async (request) => {
+      const url = new URL(request.url);
+      expect(url.pathname.endsWith("/messages")).toBe(true);
+      const chat = decodeURIComponent(url.pathname.split("/").at(-2)!);
+      expect(Number(url.searchParams.get("startTime"))).toBe(
+        cutoffs.get(chat)!,
+      );
+      expect(Number(url.searchParams.get("endTime"))).toBe(f.to - 1);
+      requested.push(chat);
+      await expect(reserveCollection(f.db)).rejects.toThrow("already running");
+      return Response.json({
+        messages: [message("new", cutoffs.get(chat)!)],
+        _metadata: {},
+      });
+    },
+  });
+  const result = await collectChats(
+    options,
+    f.credentials,
+    http,
+    stats,
+    historyProgress(),
+    undefined,
+    (event) => events.push(event),
+  );
+  expect(requested).toEqual(["a", "b"]);
+  expect(result).toMatchObject({
+    status: "complete",
+    completedWindows: 2,
+    addedMessages: 2,
+    backups: { saved: 1, failed: 0 },
+  });
+  expect(result.chats.map((chat) => [chat.chatId, chat.addedMessages])).toEqual(
+    [
+      ["a", 1],
+      ["b", 1],
+      ["c", 0],
+    ],
+  );
+  expect(events.filter((event) => event.type === "chat")).toEqual([
+    { type: "chat", chatId: "a", current: 1, total: 3 },
+    { type: "chat", chatId: "b", current: 2, total: 3 },
+    { type: "chat", chatId: "c", current: 3, total: 3 },
+  ]);
+  const saved = await HistoryStore.open(f.db);
+  expect(saved.savedChatIds()).toEqual(["a", "b", "c"]);
+  for (const chat of saved.savedChatIds()) {
+    expect(saved.missing(chat, options.window)).toEqual([]);
+    expect(saved.chatLabel(chat)).toBe(chat === "c" ? undefined : "Same label");
+  }
+  saved.close();
+  const noHttp = createHttp({
+    stats,
+    fetch: async () => {
+      throw new Error("No HTTP expected");
+    },
+  });
+  const skipped = await collectChats(
+    options,
+    f.credentials,
+    noHttp,
+    stats,
+    historyProgress(),
+  );
+  expect(skipped.completedWindows).toBe(0);
+  expect(skipped.addedMessages).toBe(0);
+  expect(skipped.backups?.saved).toBe(1);
+  expect(await readdir(`${f.db}.backups`)).toHaveLength(2);
+  const release = await reserveCollection(f.db);
+  await release();
+});
+
+test.each(["failure", "cancellation"])(
+  "batch %s stops later chats, preserves completed chats, and resumes unfinished work",
+  async (mode) => {
+    const f = await fixture();
+    const store = await HistoryStore.open(f.db, "account");
+    for (const chat of ["a", "b", "c"])
+      store.commit(
+        chat,
+        undefined,
+        { from: 1, to: f.to - 1000 },
+        [],
+        counters,
+        requestStats(),
+      );
+    store.close();
+    const options = resolveCollectOptions(
+      { db: f.db, allChats: true, all: true, pageDelayMin: 0, pageDelayMax: 0 },
+      f.to,
+    );
+    const controller = new AbortController();
+    const requested: string[] = [];
+    let fail = true;
+    const stats = requestStats();
+    const http = createHttp({
+      stats,
+      fetch: async (request) => {
+        const chat = decodeURIComponent(
+          new URL(request.url).pathname.split("/").at(-2)!,
+        );
+        requested.push(chat);
+        if (chat === "b" && fail) {
+          if (mode === "cancellation") controller.abort();
+          return Response.json({}, { status: 401 });
+        }
+        return Response.json({ messages: [], _metadata: {} });
+      },
+    });
+    await expect(
+      collectChats(
+        options,
+        f.credentials,
+        http,
+        stats,
+        historyProgress(),
+        controller.signal,
+      ),
+    ).rejects.toThrow('Active chat: "b"');
+    expect(requested).toEqual(["a", "b"]);
+    const saved = await HistoryStore.open(f.db);
+    expect(saved.missing("a", options.window)).toEqual([]);
+    for (const chat of ["b", "c"])
+      expect(saved.missing(chat, options.window)).toEqual([
+        { from: f.to - 1000, to: f.to },
+      ]);
+    saved.close();
+    expect(await readdir(f.dir)).not.toContain(
+      "history.sqlite.collection.lock",
+    );
+    expect(await readdir(f.dir)).not.toContain("history.sqlite.backups");
+    fail = false;
+    requested.length = 0;
+    const resumed = await collectChats(
+      options,
+      f.credentials,
+      http,
+      stats,
+      historyProgress(),
+    );
+    expect(requested).toEqual(["b", "c"]);
+    expect(resumed.completedWindows).toBe(2);
+  },
+);
+
+test("batch collection rejects empty databases and account mismatch before HTTP", async () => {
+  const f = await fixture();
+  const options = resolveCollectOptions(
+    { db: f.db, allChats: true, all: true, backup: false },
+    f.to,
+  );
+  const stats = requestStats();
+  const http = createHttp({
+    stats,
+    fetch: async () => {
+      throw new Error("No HTTP expected");
+    },
+  });
+  await expect(
+    collectChats(options, f.credentials, http, stats, historyProgress()),
+  ).rejects.toThrow("No saved chats");
+  await expect(
+    collectChats(
+      options,
+      { ...f.credentials, accountId: "other-account" },
+      http,
+      stats,
+      historyProgress(),
+    ),
+  ).rejects.toThrow("different account");
+  expect(stats.total).toBe(0);
+  expect(await readdir(f.dir)).toEqual(["history.sqlite"]);
+});
+
+test("batch pacing also applies between chats", async () => {
+  const f = await fixture();
+  const store = await HistoryStore.open(f.db, "account");
+  for (const chat of ["a", "b"])
+    store.commit(
+      chat,
+      undefined,
+      { from: 1, to: f.to - 1000 },
+      [],
+      counters,
+      requestStats(),
+    );
+  store.close();
+  const options = resolveCollectOptions(
+    {
+      db: f.db,
+      allChats: true,
+      all: true,
+      backup: false,
+      pageDelayMin: 0.03,
+      pageDelayMax: 0.03,
+    },
+    f.to,
+  );
+  const times: number[] = [];
+  const stats = requestStats();
+  const http = createHttp({
+    stats,
+    fetch: async () => {
+      times.push(performance.now());
+      return Response.json({ messages: [], _metadata: {} });
+    },
+  });
+  await collectChats(options, f.credentials, http, stats, historyProgress());
+  expect(times).toHaveLength(2);
+  expect(times[1]! - times[0]!).toBeGreaterThanOrEqual(25);
+});
+
+test("CLI all-chats catches up saved IDs and records per-chat progress with optional logging", async () => {
+  const f = await fixture();
+  const cutoff = Date.now() - 1000;
+  const store = await HistoryStore.open(f.db, "account");
+  for (const chat of ["a", "b"])
+    store.commit(
+      chat,
+      undefined,
+      { from: 1, to: cutoff },
+      [],
+      counters,
+      requestStats(),
+    );
+  store.close();
+  const credentialsPath = join(f.dir, "credentials.json");
+  await Bun.write(credentialsPath, JSON.stringify(f.credentials));
+  await chmod(credentialsPath, 0o600);
+  const preload = join(f.dir, "preload.ts");
+  await Bun.write(
+    preload,
+    `globalThis.fetch = async request => {
+    const url = new URL(request.url);
+    if (!url.pathname.endsWith("/messages")) throw new Error("Unexpected endpoint");
+    if (url.searchParams.get("startTime") !== "${cutoff}") throw new Error("Unexpected range");
+    return Response.json({messages: [], _metadata: {}});
+  };`,
+  );
+  const cli = async (args: string[]) => {
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        "--preload",
+        preload,
+        "src/cli.ts",
+        "collect",
+        "--db",
+        f.db,
+        ...args,
+      ],
+      {
+        cwd: join(import.meta.dir, ".."),
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    return { stdout, stderr, code };
+  };
+  const args = [
+    "--all-chats",
+    "--all",
+    "--no-backup",
+    "--credentials",
+    credentialsPath,
+    "--page-delay-min",
+    "0",
+    "--page-delay-max",
+    "0",
+  ];
+  const result = await cli(args);
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain('Chat 1/2: "a"');
+  expect(result.stdout).toContain('Chat 2/2: "b"');
+  expect(result.stdout).toContain(
+    'Chat "b" complete: 0 new messages; 1 windows saved.',
+  );
+  const summary = JSON.parse(
+    result.stdout.split("\n").find((line) => line.startsWith("{"))!,
+  );
+  expect(summary.chats.map((chat: { chatId: string }) => chat.chatId)).toEqual([
+    "a",
+    "b",
+  ]);
+  expect(summary.completedWindows).toBe(2);
+  const logs = await readdir(`${f.db}.logs`);
+  expect(logs).toHaveLength(1);
+  const log = await readFile(join(`${f.db}.logs`, logs[0]!), "utf8");
+  expect(log).toContain("--all-chats");
+  expect(log).toContain('"allChats":true');
+  expect(log).toContain('Chat 1/2: "a"');
+  expect(log).toContain('Chat "b" complete:');
+  expect(log).toContain("Completed successfully.");
+  expect(log).not.toContain("secret-history");
+  expect(log).not.toContain(credentialsPath);
+  const noOp = await cli([
+    "--all-chats",
+    "--from",
+    new Date(1).toISOString(),
+    "--to",
+    summary.window.toExclusive,
+    "--no-backup",
+    "--no-log",
+    "--credentials",
+    credentialsPath,
+  ]);
+  expect(noOp.code).toBe(0);
+  expect(noOp.stdout).toContain('"completedWindows":0');
+  expect(noOp.stdout).not.toContain("Collection log:");
+  expect(await readdir(`${f.db}.logs`)).toHaveLength(1);
+  const invalid = await cli([...args, "--chat", "a"]);
+  expect(invalid.code).toBe(1);
+  expect(invalid.stderr).toContain("--all-chats cannot be combined");
+  expect(await readdir(`${f.db}.logs`)).toHaveLength(1);
+});
 
 test("coverage subtraction merges overlap, preserves holes, and clips to requested bounds", () => {
   expect(

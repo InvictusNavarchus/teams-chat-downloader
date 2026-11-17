@@ -16,6 +16,13 @@ import {
 } from "./teams.ts";
 
 export type CollectionEvent =
+  | { type: "chat"; chatId: string; current: number; total: number }
+  | {
+      type: "chat-complete";
+      chatId: string;
+      addedMessages: number;
+      completedWindows: number;
+    }
   | {
       type: "coverage";
       alreadyCollectedMilliseconds: number;
@@ -36,9 +43,33 @@ export async function collectHistory(
   signal?: AbortSignal,
   onProgress?: (event: CollectionEvent) => void,
 ) {
+  if (options.allChats)
+    throw new AppError("Use collectChats for --all-chats collection.");
+  const { chats, ...result } = await collectChats(
+    options,
+    credentials,
+    http,
+    stats,
+    progress,
+    signal,
+    onProgress,
+  );
+  return { ...result, ...chats[0]! };
+}
+
+export async function collectChats(
+  options: CollectOptions,
+  credentials: Credentials,
+  http: Http,
+  stats: RequestStats,
+  progress: HistoryProgress,
+  signal?: AbortSignal,
+  onProgress?: (event: CollectionEvent) => void,
+) {
   signal?.throwIfAborted();
   const release = await reserveCollection(options.db);
   let store: HistoryStore | undefined;
+  let activeChat: string | undefined;
   try {
     store = await HistoryStore.open(options.db, credentials.accountId);
     const backups =
@@ -47,7 +78,7 @@ export async function collectHistory(
         : new CollectionBackups(options.db, options.backupDir, onProgress);
     let chat = options.chat;
     let label: string | undefined;
-    if (options.chatLabel !== undefined) {
+    if (!options.allChats && options.chatLabel !== undefined) {
       const selected = selectChatByLabel(
         await listChats(http, credentials, {
           signal,
@@ -61,104 +92,146 @@ export async function collectHistory(
       chat = selected.id;
       label = selected.label;
     }
-    if (!chat)
+    const selected = options.allChats
+      ? store.savedChatIds()
+      : chat
+        ? [chat]
+        : [];
+    if (selected.length === 0)
       throw new AppError(
-        "Choose exactly one of --chat <id> or --chat-label <label>.",
+        options.allChats
+          ? "No saved chats in this database. Collect a chat with --chat or --chat-label first."
+          : "Choose exactly one of --chat <id> or --chat-label <label>.",
       );
-    const gaps = store.missing(chat, options.window);
-    const missingMs = gaps.reduce((sum, gap) => sum + gap.to - gap.from, 0);
-    onProgress?.({
-      type: "coverage",
-      alreadyCollectedMilliseconds:
-        options.window.to - options.window.from - missingMs,
-      remainingIntervals: gaps.length,
-    });
-    let completedWindows = 0;
-    let addedMessages = 0;
-    for (const gap of gaps.reverse()) {
-      let to = gap.to;
-      let span = collectionWindowMs;
-      while (to > gap.from) {
-        signal?.throwIfAborted();
-        if (completedWindows > 0) {
-          const delay =
-            (options.pageDelayMin +
-              Math.random() * (options.pageDelayMax - options.pageDelayMin)) *
-            1000;
-          await wait(Math.round(delay), undefined, { signal });
-        }
-        const window = { from: Math.max(gap.from, to - span), to };
+    const chats: {
+      chatId: string;
+      completedWindows: number;
+      addedMessages: number;
+      alreadyCollectedMilliseconds: number;
+    }[] = [];
+    let totalCompletedWindows = 0;
+    for (const chat of selected) {
+      signal?.throwIfAborted();
+      activeChat = chat;
+      if (options.allChats)
         onProgress?.({
-          type: "window",
-          from: new Date(window.from).toISOString(),
-          toExclusive: new Date(to).toISOString(),
+          type: "chat",
+          chatId: chat,
+          current: chats.length + 1,
+          total: selected.length,
         });
-        const windowProgress = historyProgress();
-        const before = { ...stats };
-        let messages;
-        try {
-          messages = await readHistory(
-            http,
-            credentials,
+      const gaps = store.missing(chat, options.window);
+      const missingMs = gaps.reduce((sum, gap) => sum + gap.to - gap.from, 0);
+      onProgress?.({
+        type: "coverage",
+        alreadyCollectedMilliseconds:
+          options.window.to - options.window.from - missingMs,
+        remainingIntervals: gaps.length,
+      });
+      let completedWindows = 0;
+      let addedMessages = 0;
+      for (const gap of gaps.reverse()) {
+        let to = gap.to;
+        let span = collectionWindowMs;
+        while (to > gap.from) {
+          signal?.throwIfAborted();
+          if (totalCompletedWindows > 0) {
+            const delay =
+              (options.pageDelayMin +
+                Math.random() * (options.pageDelayMax - options.pageDelayMin)) *
+              1000;
+            await wait(Math.round(delay), undefined, { signal });
+          }
+          const window = { from: Math.max(gap.from, to - span), to };
+          onProgress?.({
+            type: "window",
+            from: new Date(window.from).toISOString(),
+            toExclusive: new Date(to).toISOString(),
+          });
+          const windowProgress = historyProgress();
+          const before = { ...stats };
+          let messages;
+          try {
+            messages = await readHistory(
+              http,
+              credentials,
+              chat,
+              window,
+              windowProgress,
+              (event) => onProgress?.({ type: "history", progress: event }),
+              {
+                pageDelayMin: options.pageDelayMin,
+                pageDelayMax: options.pageDelayMax,
+                signal,
+              },
+            );
+          } finally {
+            progress.pages += windowProgress.pages;
+            progress.records += windowProgress.records;
+            progress.duplicates += windowProgress.duplicates;
+          }
+          signal?.throwIfAborted();
+          const requests = { ...stats };
+          for (const key of Object.keys(requests) as (keyof RequestStats)[])
+            requests[key] -= before[key];
+          const added = store.commit(
             chat,
+            label,
             window,
+            messages,
             windowProgress,
-            (event) => onProgress?.({ type: "history", progress: event }),
-            {
-              pageDelayMin: options.pageDelayMin,
-              pageDelayMax: options.pageDelayMax,
-              signal,
-            },
+            requests,
           );
-        } finally {
-          progress.pages += windowProgress.pages;
-          progress.records += windowProgress.records;
-          progress.duplicates += windowProgress.duplicates;
+          addedMessages += added;
+          completedWindows++;
+          totalCompletedWindows++;
+          onProgress?.({
+            type: "checkpoint",
+            messages: messages.length,
+            added,
+          });
+          await backups?.checkpoint(store, signal);
+          to = window.from;
+          // All-history collection can span decades of emptiness before the chat
+          // existed. Only exhausted empty intervals expand; data resets the week.
+          span =
+            messages.length === 0
+              ? Math.min(span * 2, options.window.to - options.window.from)
+              : collectionWindowMs;
         }
-        signal?.throwIfAborted();
-        const requests = { ...stats };
-        for (const key of Object.keys(requests) as (keyof RequestStats)[])
-          requests[key] -= before[key];
-        const added = store.commit(
-          chat,
-          label,
-          window,
-          messages,
-          windowProgress,
-          requests,
-        );
-        addedMessages += added;
-        completedWindows++;
-        onProgress?.({ type: "checkpoint", messages: messages.length, added });
-        await backups?.checkpoint(store, signal);
-        to = window.from;
-        // All-history collection can span decades of emptiness before the chat
-        // existed. Only exhausted empty intervals expand; data resets the week.
-        span =
-          messages.length === 0
-            ? Math.min(span * 2, options.window.to - options.window.from)
-            : collectionWindowMs;
       }
+      const result = {
+        chatId: chat,
+        completedWindows,
+        addedMessages,
+        alreadyCollectedMilliseconds:
+          options.window.to - options.window.from - missingMs,
+      };
+      chats.push(result);
+      if (options.allChats) onProgress?.({ type: "chat-complete", ...result });
     }
+    signal?.throwIfAborted();
     await backups?.finish(store, signal);
     return {
       database: options.db,
       accountId: credentials.accountId,
-      chatId: chat,
+      chats,
       window: {
         from: new Date(options.window.from).toISOString(),
         toExclusive: new Date(options.window.to).toISOString(),
       },
       status: "complete",
-      completedWindows,
-      addedMessages,
+      completedWindows: totalCompletedWindows,
+      addedMessages: chats.reduce((sum, chat) => sum + chat.addedMessages, 0),
       ...(backups ? { backups: backups.summary } : {}),
-      alreadyCollectedMilliseconds:
-        options.window.to - options.window.from - missingMs,
+      alreadyCollectedMilliseconds: chats.reduce(
+        (sum, chat) => sum + chat.alreadyCollectedMilliseconds,
+        0,
+      ),
     };
   } catch (error) {
     throw new AppError(
-      `${signal?.aborted ? "Collection cancelled." : errorMessage(error)} Completed database checkpoints remain saved; rerun the same collection after resolving the error.`,
+      `${signal?.aborted ? "Collection cancelled." : errorMessage(error)}${options.allChats && activeChat ? ` Active chat: ${JSON.stringify(activeChat)}.` : ""} Completed database checkpoints remain saved; rerun the same collection after resolving the error.`,
     );
   } finally {
     store?.close();

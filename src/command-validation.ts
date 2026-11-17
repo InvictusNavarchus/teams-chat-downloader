@@ -155,10 +155,20 @@ export function resolveExportOptions(
   if (!result.success) throw validationError("Export options", result.error);
   const options = result.data;
   assertChatSelection(options);
-  if (options.pageDelayMin > options.pageDelayMax)
-    throw new AppError("--page-delay-min must not exceed --page-delay-max.");
   if (!options.media && options.refreshMedia)
     throw new AppError("--refresh-media cannot be combined with --no-media.");
+  return { ...options, window: resolveHistoryWindow(options, now) };
+}
+
+function resolveHistoryWindow(
+  options: Pick<
+    z.infer<typeof exportOptionsSchema>,
+    "from" | "to" | "since" | "last" | "pageDelayMin" | "pageDelayMax"
+  >,
+  now: number,
+): Window {
+  if (options.pageDelayMin > options.pageDelayMax)
+    throw new AppError("--page-delay-min must not exceed --page-delay-max.");
   const modes =
     Number(options.last !== undefined) +
     Number(options.since !== undefined) +
@@ -179,7 +189,7 @@ export function resolveExportOptions(
       ? calendarDayStart(to, Number(options.last.slice(0, -1)))
       : Date.parse(options.since ?? options.from ?? "");
   assertWindow({ from, to });
-  return { ...options, window: { from, to } };
+  return { from, to };
 }
 
 const collectOptionsSchema = exportOptionsSchema
@@ -187,6 +197,7 @@ const collectOptionsSchema = exportOptionsSchema
   .extend({
     db: z.string().min(1),
     all: z.boolean().default(false),
+    allChats: z.boolean().default(false),
     log: z.boolean().default(commandDefaults.log),
     backup: z.boolean().default(commandDefaults.backup),
     backupDir: z.string().min(1).optional(),
@@ -203,7 +214,21 @@ export function resolveCollectOptions(
   const result = collectOptionsSchema.safeParse(input);
   if (!result.success)
     throw validationError("Collection options", result.error);
-  const { db, all, backup, backupDir, log: _log, ...options } = result.data;
+  const {
+    db,
+    all,
+    allChats,
+    backup,
+    backupDir,
+    log: _log,
+    ...options
+  } = result.data;
+  if (allChats) {
+    if (options.chat !== undefined || options.chatLabel !== undefined)
+      throw new AppError(
+        "--all-chats cannot be combined with --chat or --chat-label.",
+      );
+  } else assertChatSelection(options);
   if (!backup && backupDir !== undefined)
     throw new AppError("--no-backup cannot be combined with --backup-dir.");
   if (
@@ -213,15 +238,15 @@ export function resolveCollectOptions(
     )
   )
     throw new AppError("--all cannot be combined with date options.");
-  const resolved = resolveExportOptions(
+  const window = resolveHistoryWindow(
     all ? { ...options, since: new Date(1).toISOString() } : options,
     now,
   );
-  if (resolved.window.to > now)
+  if (window.to > now)
     throw new AppError("Collection end cannot be in the future.");
   return {
     ...result.data,
-    window: resolved.window,
+    window,
     db: resolve(db),
     backupDir: backup
       ? resolve(backupDir ?? `${db}${collectionBackupSuffix}`)
@@ -229,14 +254,17 @@ export function resolveCollectOptions(
   };
 }
 
-const downloadOptionsSchema = collectOptionsSchema.extend({
-  out: exportOptionsSchema.shape.out,
-  media: exportOptionsSchema.shape.media,
-  markdown: exportOptionsSchema.shape.markdown,
-  refreshMedia: exportOptionsSchema.shape.refreshMedia,
-});
+const downloadOptionsSchema = collectOptionsSchema
+  .omit({ allChats: true })
+  .extend({
+    out: exportOptionsSchema.shape.out,
+    media: exportOptionsSchema.shape.media,
+    markdown: exportOptionsSchema.shape.markdown,
+    refreshMedia: exportOptionsSchema.shape.refreshMedia,
+  });
 export type DownloadOptions = z.infer<typeof downloadOptionsSchema> & {
   window: Window;
+  allChats: false;
 };
 
 export function resolveDownloadOptions(
@@ -250,6 +278,7 @@ export function resolveDownloadOptions(
     throw new AppError("--refresh-media cannot be combined with --no-media.");
   return {
     ...resolveCollectOptions(collection, now),
+    allChats: false,
     out,
     media,
     markdown,

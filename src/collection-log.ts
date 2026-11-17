@@ -18,6 +18,7 @@ const loggedOptions = [
   "chat",
   "chatLabel",
   "all",
+  "allChats",
   "last",
   "since",
   "from",
