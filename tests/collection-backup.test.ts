@@ -109,7 +109,7 @@ async function verifyManifest(snapshot: string) {
   return manifest;
 }
 
-test("snapshot restores all chats, coverage, payloads and images without the live database or cache", async () => {
+test("snapshot restores all chats, coverage, and payloads without copying media", async () => {
   const f = await fixture();
   const release = await reserveCollection(f.db);
   try {
@@ -122,17 +122,17 @@ test("snapshot restores all chats, coverage, payloads and images without the liv
       requestStats(),
     );
     const { media, name } = await addImage(f);
-    await writeFile(join(media, "unreferenced.bin"), "not part of a backup");
     const snapshot = await backupLockedCollection(f.store, f.db, f.destination);
     const manifest = await verifyManifest(snapshot);
-    expect(manifest.trim().split("\n")).toHaveLength(2);
+    expect(manifest.trim().split("\n")).toHaveLength(1);
     expect((await stat(snapshot)).mode & 0o777).toBe(0o700);
     expect((await stat(join(snapshot, "history.sqlite"))).mode & 0o777).toBe(
       0o600,
     );
-    expect(
-      await readdir(collectionMediaDirectory(join(snapshot, "history.sqlite"))),
-    ).toEqual([name]);
+    expect((await readdir(snapshot)).sort()).toEqual([
+      "SHA256SUMS",
+      "history.sqlite",
+    ]);
     expect(
       (await readdir(f.dir)).some((name) =>
         name.startsWith(".teams-backup-staging-"),
@@ -141,8 +141,8 @@ test("snapshot restores all chats, coverage, payloads and images without the liv
     // Restore a copy: published snapshots must remain immutable for rclone.
     const restored = join(f.dir, "restored");
     await cp(snapshot, restored, { recursive: true });
-    await rm(media, { recursive: true });
     const db = join(restored, "history.sqlite");
+    await cp(media, collectionMediaDirectory(db), { recursive: true });
     const store = await HistoryStore.open(db);
     try {
       expect(store.archive("chat").messages).toEqual([message]);
@@ -187,7 +187,6 @@ test("snapshot includes committed WAL data and contains no live journal sidecars
     expect((await readdir(snapshot)).sort()).toEqual([
       "SHA256SUMS",
       "history.sqlite",
-      "history.sqlite.media",
     ]);
     await verifyManifest(snapshot);
   } finally {
@@ -201,13 +200,17 @@ test("failed or cancelled snapshots never publish partial folders or replace ear
   try {
     const good = await backupLockedCollection(f.store, f.db, f.destination);
     const manifest = await verifyManifest(good);
-    const { media, name } = await addImage(f);
-    await writeFile(join(media, name), "corrupt");
-    await expect(
-      backupLockedCollection(f.store, f.db, f.destination),
-    ).rejects.toThrow("missing or corrupt");
+    const failSpy = spyOn(f.store, "snapshotTo").mockImplementation(() => {
+      throw new Error("snapshot write failed");
+    });
+    try {
+      await expect(
+        backupLockedCollection(f.store, f.db, f.destination),
+      ).rejects.toThrow("snapshot write failed");
+    } finally {
+      failSpy.mockRestore();
+    }
     expect(await readdir(f.destination)).toHaveLength(1);
-    await writeFile(join(media, name), png);
     const controller = new AbortController();
     const original = f.store.snapshotTo.bind(f.store);
     const spy = spyOn(f.store, "snapshotTo").mockImplementation((path) => {
@@ -326,7 +329,6 @@ test("rclone source sees only finished snapshots, and failed later history retai
     const event = events.find((item) => item.status === "saved");
     if (!event || event.status !== "saved")
       throw new Error("Expected a saved backup");
-    expect(event.images).toBe(0);
     const saved = await HistoryStore.open(join(event.path, "history.sqlite"));
     try {
       expect(saved.missing("new-chat", options.window)).toEqual([{ from, to }]);

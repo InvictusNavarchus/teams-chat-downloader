@@ -188,21 +188,21 @@ Downloaded images are copied into the portable bundle. Pending images remain pla
 
 Collection creates automatic backups in `<database>.backups/` by default. Use `--backup-dir backups/teams` to change the destination or `--no-backup` to disable backups for that invocation; these options cannot be combined. Disabling backups preserves checkpoints and existing snapshots.
 
-Backups are attempted between completed intervals after an hour, and on successful completion if changes remain. A long interval delays the backup until it completes. A successful no-op collection also snapshots existing data. Backups include all chats and completed images; pending images remain pending. Failed or cancelled collection does not start a final backup.
+Backups are attempted between completed intervals after an hour, and on successful completion if changes remain. A long interval delays the backup until it completes. A successful no-op collection also snapshots the existing database. Backups include all chats, coverage, and image metadata; `<database>.media/` is **not** copied into each snapshot. Failed or cancelled collection does not start a final backup.
 
-`images` does not trigger backups. After downloading images, repeat a completed fixed collection range to snapshot them without requesting history again.
+`images` does not trigger backups. Because files in `<database>.media/` are immutable and content-addressed, back up `<database>.media/` separately (for example, with `rclone copy`, excluding `*.tmp` if `images` is running).
 
-Each immutable snapshot contains `history.sqlite`, `history.sqlite.media/`, and `SHA256SUMS`. Backups are not automatically pruned and each is a full copy, so allow for storage growth. A backup failure warns and increments `backups.failed`; history collection may still exit successfully. Check that summary if you depend on backups.
+Each immutable snapshot contains `history.sqlite` and `SHA256SUMS`. Backups are not automatically pruned, so remove old snapshots manually when no longer needed. A backup failure warns and increments `backups.failed`; history collection may still exit successfully. Check that summary if you depend on backups.
 
 For an independent uploader such as `rclone copy`, upload exactly the backup root (for example, `exports/history.sqlite.backups/`), excluding sibling staging directories. Remote uploads may be incomplete even when their checksum manifest is present. Coordinate cleanup with your uploader.
 
-Restore by copying or downloading one entire snapshot into a **new working directory**, then run inside that directory:
+Restore by copying or downloading one snapshot into a **new working directory**, then run inside that directory:
 
 ```sh
 sha256sum -c SHA256SUMS
 ```
 
-Require every checksum to pass before using the restored database. Keep `history.sqlite.media/` beside it and work on the restored copy, not the published snapshot. Credentials are not included. For manual backups of live data, stop updaters and copy the database and its adjacent media directory together. Storage constraints, integrity checks, and publication mechanics are in the [backup reference](11-sqlite-collection.md#automatic-collection-backups).
+Require the checksum to pass before using the restored database. Pair the restored database with its `<database>.media/` directory (next to the restored database file) and work on the restored copy, not the published snapshot. Credentials are not included. Storage constraints, integrity checks, and publication mechanics are in the [backup reference](11-sqlite-collection.md#automatic-collection-backups).
 
 ## Download and retry images
 

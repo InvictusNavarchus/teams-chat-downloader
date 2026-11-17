@@ -81,7 +81,7 @@ teams images
 
 Reuse `--db <file>` on both commands if you originally chose a custom database. `--all-chats` uses saved chat IDs without directory/profile lookup; it does not discover new chats. `--all` fetches only missing intervals, including any older gaps. Chats run sequentially and stop on failure or cancellation; rerun to resume from saved checkpoints. This selector is available on `collect`; `download` still requires one chat.
 
-Collection makes automatic verified backups in `<database>.backups/`, hourly between completed intervals and on clean completion. Use `--backup-dir` to change the location or `--no-backup` to disable them. Backups are full snapshots and are not automatically pruned. The collection phase finishes its backup before image downloading; newly downloaded images enter a backup on a subsequent successful collection. Keep the live database and adjacent `<database>.media/` directory together. See [backup and restoration](docs/user-guide.md#back-up-and-restore-collections).
+Collection makes automatic verified database backups in `<database>.backups/`, hourly between completed intervals and on clean completion. Use `--backup-dir` to change the location or `--no-backup` to disable them. Backups snapshot only `history.sqlite` (not `<database>.media/`) and are not automatically pruned. Keep the live database and adjacent `<database>.media/` directory together, and back up `<database>.media/` separately. See [backup and restoration](docs/user-guide.md#back-up-and-restore-collections).
 
 ## Use your exported files
 

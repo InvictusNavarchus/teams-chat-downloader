@@ -10,23 +10,10 @@ import {
   rename,
   rm,
 } from "node:fs/promises";
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-  sep,
-} from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { collectionBackupIntervalMs } from "./config.ts";
 import { AppError } from "./errors.ts";
-import {
-  HistoryStore,
-  collectionMediaDirectory,
-  storedImageDescriptor,
-} from "./history-store.ts";
-import { readStoredImage } from "./media.ts";
+import { HistoryStore, collectionMediaDirectory } from "./history-store.ts";
 
 async function privateDirectory(path: string): Promise<void> {
   const parent = dirname(path);
@@ -76,7 +63,7 @@ function contains(directory: string, path: string) {
 }
 
 // The caller must hold reserveCollection across this entire operation. Backups
-// pause collection between commits, so the database and image files agree.
+// pause collection between commits, so the snapshot captures a consistent database.
 export async function backupLockedCollection(
   store: HistoryStore,
   database: string,
@@ -100,7 +87,7 @@ async function createVerifiedBackup(
   backupDirectory: string,
   signal?: AbortSignal,
   onProgress?: (event: BackupEvent) => void,
-): Promise<{ path: string; images: number; durationMs: number }> {
+): Promise<{ path: string; durationMs: number }> {
   signal?.throwIfAborted();
   const startedAt = Date.now();
   const destination = resolve(backupDirectory);
@@ -137,57 +124,9 @@ async function createVerifiedBackup(
     } finally {
       check.close();
     }
-    const saved = await HistoryStore.open(snapshot);
-    let images;
-    try {
-      images = saved.images().filter((image) => image.status === "complete");
-    } finally {
-      saved.close();
-    }
     const sums = [`${await checksum(snapshot, signal)}  history.sqlite`];
-    const copied = new Set<string>();
-    const mediaDestination = collectionMediaDirectory(snapshot);
-    await mkdir(mediaDestination, { mode: 0o700 });
-    if (images.length > 0)
-      onProgress?.({ type: "backup", status: "media", total: images.length });
-    let processed = 0;
-    let lastReport = Date.now();
-    for (const image of images) {
-      signal?.throwIfAborted();
-      const descriptor = storedImageDescriptor(image);
-      // Validate every descriptor, even when two sources share one file.
-      const bytes = await readStoredImage(mediaSource, descriptor);
-      if (!bytes)
-        throw new AppError(
-          "A completed image is missing or corrupt; repair it with media-db before backing up.",
-        );
-      const name = basename(descriptor.path);
-      if (!copied.has(name)) {
-        const target = join(mediaDestination, name);
-        await writeSynced(target, bytes);
-        const digest = await checksum(target, signal);
-        if (digest !== descriptor.sha256)
-          throw new AppError("Backup image checksum verification failed.");
-        sums.push(`${digest}  history.sqlite.media/${name}`);
-        copied.add(name);
-      }
-      processed++;
-      if (
-        processed < images.length &&
-        (processed % 100 === 0 || Date.now() - lastReport >= 2000)
-      ) {
-        onProgress?.({
-          type: "backup",
-          status: "media-progress",
-          current: processed,
-          total: images.length,
-        });
-        lastReport = Date.now();
-      }
-    }
     onProgress?.({ type: "backup", status: "finalizing" });
     await writeSynced(join(staging, "SHA256SUMS"), `${sums.join("\n")}\n`);
-    await syncDirectory(mediaDestination);
     await syncDirectory(staging);
     signal?.throwIfAborted();
     const name = `${new Date().toISOString().replaceAll(":", "-")}-${crypto.randomUUID()}`;
@@ -198,7 +137,6 @@ async function createVerifiedBackup(
     await syncDirectory(dirname(destination));
     return {
       path: output,
-      images: copied.size,
       durationMs: Math.max(0, Date.now() - startedAt),
     };
   } finally {
@@ -208,14 +146,11 @@ async function createVerifiedBackup(
 
 export type BackupEvent =
   | { type: "backup"; status: "database" }
-  | { type: "backup"; status: "media"; total: number }
-  | { type: "backup"; status: "media-progress"; current: number; total: number }
   | { type: "backup"; status: "finalizing" }
   | {
       type: "backup";
       status: "saved";
       path: string;
-      images: number;
       durationMs: number;
     }
   | { type: "backup"; status: "failed"; reason: string };
@@ -255,7 +190,7 @@ export class CollectionBackups {
       return;
     signal?.throwIfAborted();
     this.lastAttempt = Date.now();
-    let result: { path: string; images: number; durationMs: number };
+    let result: { path: string; durationMs: number };
     try {
       result = await createVerifiedBackup(
         store,
@@ -284,7 +219,6 @@ export class CollectionBackups {
       type: "backup",
       status: "saved",
       path: result.path,
-      images: result.images,
       durationMs: result.durationMs,
     });
   }
