@@ -133,8 +133,18 @@ export async function runCli(argv = process.argv): Promise<number> {
     else if (event.type === "history")
       reportProgress({ type: "history", ...event.progress });
     else if (event.type === "backup") {
-      if (event.status === "saved")
-        output(`[backup] Saved verified snapshot: ${event.path}`);
+      if (event.status === "database")
+        output("[backup] Snapshotting and verifying database...");
+      else if (event.status === "media")
+        output(`[backup] Copying and verifying ${event.total} image(s)...`);
+      else if (event.status === "media-progress")
+        output(`[backup] Verified ${event.current}/${event.total} image(s)...`);
+      else if (event.status === "finalizing")
+        output("[backup] Writing manifest and syncing snapshot...");
+      else if (event.status === "saved")
+        output(
+          `[backup] Saved verified snapshot: ${event.path} (${event.images} image(s), ${(event.durationMs / 1000).toFixed(1)}s)`,
+        );
       else
         warning(
           `[backup] Snapshot failed. ${event.reason} Existing backups kept; collection continues.`,

@@ -890,6 +890,12 @@ test("CLI collection resumes without HTTP and exports offline without credential
   const first = await cli(args);
   expect(first.exit).toBe(0);
   expect(first.stdout).toContain('"completedWindows":2');
+  expect(first.stdout).toContain(
+    "[backup] Snapshotting and verifying database...",
+  );
+  expect(first.stdout).toContain(
+    "[backup] Writing manifest and syncing snapshot...",
+  );
   expect(first.stdout).toContain("[backup] Saved verified snapshot:");
   expect(first.stdout).toContain('"saved":1,"failed":0');
   const second = await cli(args, true);

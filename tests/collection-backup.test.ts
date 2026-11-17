@@ -318,10 +318,15 @@ test("rclone source sees only finished snapshots, and failed later history retai
         },
       ),
     ).rejects.toThrow("HTTP 401");
-    expect(events).toHaveLength(1);
-    const event = events[0]!;
-    expect(event.status).toBe("saved");
-    if (event.status !== "saved") throw new Error("Expected a saved backup");
+    expect(events.map((event) => event.status)).toEqual([
+      "database",
+      "finalizing",
+      "saved",
+    ]);
+    const event = events.find((item) => item.status === "saved");
+    if (!event || event.status !== "saved")
+      throw new Error("Expected a saved backup");
+    expect(event.images).toBe(0);
     const saved = await HistoryStore.open(join(event.path, "history.sqlite"));
     try {
       expect(saved.missing("new-chat", options.window)).toEqual([{ from, to }]);
