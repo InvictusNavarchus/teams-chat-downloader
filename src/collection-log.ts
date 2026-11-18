@@ -17,7 +17,7 @@ const loggedOptions = [
   "db",
   "chat",
   "chatLabel",
-  "all",
+  "allHistory",
   "allChats",
   "last",
   "since",
@@ -67,6 +67,8 @@ export function writeCommandContext(
       from: new Date(window.from).toISOString(),
       toExclusive: new Date(window.to).toISOString(),
     };
+  else if (typeof resolved.invocationTime === "number")
+    settings.catchUpTo = new Date(resolved.invocationTime).toISOString();
   log.write(`[${command}] Resolved options: ${JSON.stringify(settings)}`);
 }
 

@@ -122,6 +122,9 @@ export async function runCli(argv = process.argv): Promise<number> {
       );
     else if (event.type === "coverage") {
       output(
+        `[collect] Resolved range: ${event.from} to ${event.toExclusive} (exclusive)`,
+      );
+      output(
         `[collect] Already collected: ${event.alreadyCollectedMilliseconds} ms; remaining intervals: ${event.remainingIntervals}.`,
       );
       if (event.remainingIntervals === 0)
@@ -306,7 +309,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     )
     .option("--credentials <file>", "Override automatic credential file lookup")
     .option(
-      "--all",
+      "--all-history",
       "Collect all accessible history from Unix millisecond 1 through now",
     )
     .option("--last <Nd>", "Last N calendar days including today")
@@ -373,7 +376,7 @@ export async function runCli(argv = process.argv): Promise<number> {
   cli
     .command(
       "collect",
-      "Collect resumable chat history into SQLite (text and source image references)",
+      "Catch up saved chat history into SQLite (default: existing coverage through now)",
     )
     .option(
       "--db <file>",
@@ -396,7 +399,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option("--chat <id>", "Raw chat ID; skips directory/profile lookup")
     .option(
       "--all-chats",
-      "Collect every chat already saved in the database; skips directory/profile lookup",
+      "Catch up every saved chat by default; skips directory/profile lookup",
     )
     .option(
       "--chat-label <label>",
@@ -404,7 +407,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     )
     .option("--credentials <file>", "Override automatic credential file lookup")
     .option(
-      "--all",
+      "--all-history",
       "Collect all accessible history from Unix millisecond 1 through now",
     )
     .option("--last <Nd>", "Last N calendar days including today")
@@ -440,7 +443,9 @@ export async function runCli(argv = process.argv): Promise<number> {
         );
       startLog("collect", options, input);
       output(
-        `[collect] Requested ${new Date(options.window.from).toISOString()} to ${new Date(options.window.to).toISOString()} (exclusive)`,
+        options.window
+          ? `[collect] Requested ${new Date(options.window.from).toISOString()} to ${new Date(options.window.to).toISOString()} (exclusive)`
+          : `[collect] Catch up saved history through ${new Date(options.invocationTime).toISOString()} (exclusive); resolving each chat's saved start.`,
       );
       const credentials =
         defaultCredentials ?? (await loadCredentials(options.credentials));

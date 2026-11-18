@@ -18,10 +18,26 @@ const base = {
 const now = Date.parse("2026-11-04T12:00:00Z");
 
 describe("saved chat collection selection", () => {
+  test("defaults to catch-up without inventing a global start date", () => {
+    for (const selector of [
+      { allChats: true },
+      { chat: "a" },
+      { chatLabel: "Alpha" },
+    ]) {
+      const options = resolveCollectOptions({ db: "h", ...selector }, now);
+      expect(options.window).toBeUndefined();
+      expect(options.invocationTime).toBe(now);
+      expect(options.allHistory).toBe(false);
+    }
+    expect(() => resolveDownloadOptions({ db: "h", chat: "a" }, now)).toThrow(
+      "use collect to catch up",
+    );
+  });
+
   test("accepts all saved chats with all history or a bounded window", () => {
     expect(
       resolveCollectOptions(
-        { db: "history.sqlite", allChats: true, all: true },
+        { db: "history.sqlite", allChats: true, allHistory: true },
         now,
       ),
     ).toMatchObject({ allChats: true, window: { from: 1, to: now } });
@@ -40,19 +56,19 @@ describe("saved chat collection selection", () => {
   ])("rejects combining --all-chats with a single selector: %j", (selector) => {
     expect(() =>
       resolveCollectOptions(
-        { db: "h", all: true, allChats: true, ...selector },
+        { db: "h", allHistory: true, allChats: true, ...selector },
         now,
       ),
     ).toThrow("--all-chats cannot be combined");
   });
 
   test.each([
-    { allChats: false, all: true },
-    { allChats: true },
-    { allChats: true, all: true, last: "1d" },
-    { allChats: "true", all: true },
+    { allChats: false, allHistory: true },
+    { allChats: true, all: true },
+    { allChats: true, allHistory: true, last: "1d" },
+    { allChats: "true", allHistory: true },
   ])(
-    "rejects missing selectors, missing/combined date modes and invalid flags: %j",
+    "rejects missing selectors, combined date modes and invalid flags: %j",
     (input) => {
       expect(() => resolveCollectOptions({ db: "h", ...input }, now)).toThrow();
     },
@@ -60,11 +76,14 @@ describe("saved chat collection selection", () => {
 
   test("download retains single-chat selection", () => {
     expect(() =>
-      resolveDownloadOptions({ db: "h", allChats: true, all: true }, now),
+      resolveDownloadOptions(
+        { db: "h", allChats: true, allHistory: true },
+        now,
+      ),
     ).toThrow("Download options");
-    expect(() => resolveDownloadOptions({ db: "h", all: true }, now)).toThrow(
-      "Choose exactly one",
-    );
+    expect(() =>
+      resolveDownloadOptions({ db: "h", allHistory: true }, now),
+    ).toThrow("Choose exactly one");
   });
 });
 

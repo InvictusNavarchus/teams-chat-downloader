@@ -267,7 +267,8 @@ test("download rejects selectors, date conflicts and incompatible media flags be
   const f = await fixture();
   for (const args of [
     ["--chat", "fixture", "--chat-label", "A", "--last", "1d"],
-    ["--all", "--last", "1d"],
+    ["--all-history", "--last", "1d"],
+    ["--all"],
     ["--last", "1d", "--no-media", "--refresh-media"],
   ]) {
     const result = await f.run(args);

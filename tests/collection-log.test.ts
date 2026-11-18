@@ -66,7 +66,7 @@ test("unsafe log destinations warn without failing collection", () => {
 });
 
 test("collection file logging defaults on and supports opt out", () => {
-  const options = { db: "history.sqlite", chat: "chat", all: true };
+  const options = { db: "history.sqlite", chat: "chat", allHistory: true };
   expect(resolveCollectOptions(options).log).toBe(true);
   expect(resolveCollectOptions({ ...options, log: false }).log).toBe(false);
 });
@@ -206,7 +206,7 @@ test("CLI persists credential failures and honors --no-log", async () => {
           db,
           "--chat",
           "test",
-          "--all",
+          "--all-history",
           "--credentials",
           join(dir, "missing.json"),
           ...(enabled ? [] : ["--no-log"]),

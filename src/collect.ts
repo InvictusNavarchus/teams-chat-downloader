@@ -4,6 +4,7 @@ import { CollectionBackups, type BackupEvent } from "./collection-backup.ts";
 import type { CollectOptions } from "./command-validation.ts";
 import { collectionWindowMs } from "./config.ts";
 import type { Credentials } from "./credentials.ts";
+import { assertWindow } from "./date-window.ts";
 import { AppError, errorMessage } from "./errors.ts";
 import { HistoryStore, reserveCollection } from "./history-store.ts";
 import type { Http, RequestStats } from "./http.ts";
@@ -25,6 +26,8 @@ export type CollectionEvent =
     }
   | {
       type: "coverage";
+      from: string;
+      toExclusive: string;
       alreadyCollectedMilliseconds: number;
       remainingIntervals: number;
     }
@@ -105,12 +108,31 @@ export async function collectChats(
       );
     const chats: {
       chatId: string;
+      window: { from: string; toExclusive: string };
       completedWindows: number;
       addedMessages: number;
       alreadyCollectedMilliseconds: number;
     }[] = [];
+    // Resolve every default range before history HTTP; never backfill a new chat implicitly.
+    const targets = selected.map((chatId) => {
+      let window = options.window;
+      if (!window) {
+        let from: number;
+        try {
+          from = store!.completedBounds(chatId).from;
+        } catch (error) {
+          if (!(error instanceof AppError)) throw error;
+          throw new AppError(
+            `No completed history for chat ${JSON.stringify(chatId)}. Choose --all-history or an explicit date range for its initial collection.`,
+          );
+        }
+        window = { from, to: options.invocationTime };
+        assertWindow(window);
+      }
+      return { chatId, window };
+    });
     let totalCompletedWindows = 0;
-    for (const chat of selected) {
+    for (const { chatId: chat, window: requestedWindow } of targets) {
       signal?.throwIfAborted();
       activeChat = chat;
       if (options.allChats)
@@ -120,12 +142,14 @@ export async function collectChats(
           current: chats.length + 1,
           total: selected.length,
         });
-      const gaps = store.missing(chat, options.window);
+      const gaps = store.missing(chat, requestedWindow);
       const missingMs = gaps.reduce((sum, gap) => sum + gap.to - gap.from, 0);
       onProgress?.({
         type: "coverage",
+        from: new Date(requestedWindow.from).toISOString(),
+        toExclusive: new Date(requestedWindow.to).toISOString(),
         alreadyCollectedMilliseconds:
-          options.window.to - options.window.from - missingMs,
+          requestedWindow.to - requestedWindow.from - missingMs,
         remainingIntervals: gaps.length,
       });
       let completedWindows = 0;
@@ -196,16 +220,20 @@ export async function collectChats(
           // existed. Only exhausted empty intervals expand; data resets the week.
           span =
             messages.length === 0
-              ? Math.min(span * 2, options.window.to - options.window.from)
+              ? Math.min(span * 2, requestedWindow.to - requestedWindow.from)
               : collectionWindowMs;
         }
       }
       const result = {
         chatId: chat,
+        window: {
+          from: new Date(requestedWindow.from).toISOString(),
+          toExclusive: new Date(requestedWindow.to).toISOString(),
+        },
         completedWindows,
         addedMessages,
         alreadyCollectedMilliseconds:
-          options.window.to - options.window.from - missingMs,
+          requestedWindow.to - requestedWindow.from - missingMs,
       };
       chats.push(result);
       if (options.allChats) onProgress?.({ type: "chat-complete", ...result });
@@ -216,10 +244,12 @@ export async function collectChats(
       database: options.db,
       accountId: credentials.accountId,
       chats,
-      window: {
-        from: new Date(options.window.from).toISOString(),
-        toExclusive: new Date(options.window.to).toISOString(),
-      },
+      window: options.window
+        ? {
+            from: new Date(options.window.from).toISOString(),
+            toExclusive: new Date(options.window.to).toISOString(),
+          }
+        : undefined,
       status: "complete",
       completedWindows: totalCompletedWindows,
       addedMessages: chats.reduce((sum, chat) => sum + chat.addedMessages, 0),

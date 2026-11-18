@@ -67,6 +67,111 @@ const message = (id: string, time: number) => ({
 });
 const counters = { pages: 1, records: 1, duplicates: 0 };
 
+test("default catch-up repairs holes and new tails from each chat's earliest completed interval without older backfill", async () => {
+  const f = await fixture();
+  const store = await HistoryStore.open(f.db, "account");
+  store.commit(
+    "a",
+    undefined,
+    { from: f.to - 10000, to: f.to - 8000 },
+    [],
+    counters,
+    requestStats(),
+  );
+  store.commit(
+    "a",
+    undefined,
+    { from: f.to - 6000, to: f.to - 4000 },
+    [],
+    counters,
+    requestStats(),
+  );
+  store.commit(
+    "b",
+    undefined,
+    { from: f.to - 3000, to: f.to - 1000 },
+    [],
+    counters,
+    requestStats(),
+  );
+  store.close();
+  const options = resolveCollectOptions(
+    {
+      db: f.db,
+      allChats: true,
+      backup: false,
+      pageDelayMin: 0,
+      pageDelayMax: 0,
+    },
+    f.to,
+  );
+  const requested: [string, number, number][] = [];
+  const stats = requestStats();
+  const http = createHttp({
+    stats,
+    fetch: async (request) => {
+      const url = new URL(request.url);
+      requested.push([
+        decodeURIComponent(url.pathname.split("/").at(-2)!),
+        Number(url.searchParams.get("startTime")),
+        Number(url.searchParams.get("endTime")) + 1,
+      ]);
+      return Response.json({ messages: [], _metadata: {} });
+    },
+  });
+  const result = await collectChats(
+    options,
+    f.credentials,
+    http,
+    stats,
+    historyProgress(),
+  );
+  expect(requested).toEqual([
+    ["a", f.to - 4000, f.to],
+    ["a", f.to - 8000, f.to - 6000],
+    ["b", f.to - 1000, f.to],
+  ]);
+  expect(result.chats.map((chat) => chat.window.from)).toEqual([
+    new Date(f.to - 10000).toISOString(),
+    new Date(f.to - 3000).toISOString(),
+  ]);
+  requested.length = 0;
+  expect(
+    (await collectChats(options, f.credentials, http, stats, historyProgress()))
+      .completedWindows,
+  ).toBe(0);
+  expect(requested).toEqual([]);
+  const single = await collectHistory(
+    resolveCollectOptions({ db: f.db, chat: "a", backup: false }, f.to),
+    f.credentials,
+    http,
+    stats,
+    historyProgress(),
+  );
+  expect(single.window).toEqual(result.chats[0]!.window);
+});
+
+test("default catch-up of a new chat fails before history HTTP with explicit initial-range guidance", async () => {
+  const f = await fixture();
+  const stats = requestStats();
+  const http = createHttp({
+    stats,
+    fetch: async () => {
+      throw new Error("No HTTP expected");
+    },
+  });
+  await expect(
+    collectHistory(
+      resolveCollectOptions({ db: f.db, chat: "new", backup: false }, f.to),
+      f.credentials,
+      http,
+      stats,
+      historyProgress(),
+    ),
+  ).rejects.toThrow("Choose --all-history or an explicit date range");
+  expect(stats.total).toBe(0);
+});
+
 test("all saved chats catch up only missing tails, preserve labels, share the lock and backup, and rerun without HTTP", async () => {
   const f = await fixture();
   const cutoffs = new Map([
@@ -86,7 +191,13 @@ test("all saved chats catch up only missing tails, preserve labels, share the lo
     );
   store.close();
   const options = resolveCollectOptions(
-    { db: f.db, allChats: true, all: true, pageDelayMin: 0, pageDelayMax: 0 },
+    {
+      db: f.db,
+      allChats: true,
+      allHistory: true,
+      pageDelayMin: 0,
+      pageDelayMax: 0,
+    },
     f.to,
   );
   const stats = requestStats();
@@ -141,7 +252,7 @@ test("all saved chats catch up only missing tails, preserve labels, share the lo
   const saved = await HistoryStore.open(f.db);
   expect(saved.savedChatIds()).toEqual(["a", "b", "c"]);
   for (const chat of saved.savedChatIds()) {
-    expect(saved.missing(chat, options.window)).toEqual([]);
+    expect(saved.missing(chat, options.window!)).toEqual([]);
     expect(saved.chatLabel(chat)).toBe(chat === "c" ? undefined : "Same label");
   }
   saved.close();
@@ -182,7 +293,13 @@ test.each(["failure", "cancellation"])(
       );
     store.close();
     const options = resolveCollectOptions(
-      { db: f.db, allChats: true, all: true, pageDelayMin: 0, pageDelayMax: 0 },
+      {
+        db: f.db,
+        allChats: true,
+        allHistory: true,
+        pageDelayMin: 0,
+        pageDelayMax: 0,
+      },
       f.to,
     );
     const controller = new AbortController();
@@ -215,9 +332,9 @@ test.each(["failure", "cancellation"])(
     ).rejects.toThrow('Active chat: "b"');
     expect(requested).toEqual(["a", "b"]);
     const saved = await HistoryStore.open(f.db);
-    expect(saved.missing("a", options.window)).toEqual([]);
+    expect(saved.missing("a", options.window!)).toEqual([]);
     for (const chat of ["b", "c"])
-      expect(saved.missing(chat, options.window)).toEqual([
+      expect(saved.missing(chat, options.window!)).toEqual([
         { from: f.to - 1000, to: f.to },
       ]);
     saved.close();
@@ -242,7 +359,7 @@ test.each(["failure", "cancellation"])(
 test("batch collection rejects empty databases and account mismatch before HTTP", async () => {
   const f = await fixture();
   const options = resolveCollectOptions(
-    { db: f.db, allChats: true, all: true, backup: false },
+    { db: f.db, allChats: true, allHistory: true, backup: false },
     f.to,
   );
   const stats = requestStats();
@@ -285,7 +402,7 @@ test("batch pacing also applies between chats", async () => {
     {
       db: f.db,
       allChats: true,
-      all: true,
+      allHistory: true,
       backup: false,
       pageDelayMin: 0.03,
       pageDelayMax: 0.03,
@@ -360,7 +477,6 @@ test("CLI all-chats catches up saved IDs and records per-chat progress with opti
   };
   const args = [
     "--all-chats",
-    "--all",
     "--no-backup",
     "--credentials",
     credentialsPath,
@@ -389,6 +505,8 @@ test("CLI all-chats catches up saved IDs and records per-chat progress with opti
   const log = await readFile(join(`${f.db}.logs`, logs[0]!), "utf8");
   expect(log).toContain("--all-chats");
   expect(log).toContain('"allChats":true');
+  expect(log).toContain('"catchUpTo":');
+  expect(log).toContain("Resolved range:");
   expect(log).toContain('Chat 1/2: "a"');
   expect(log).toContain('Chat "b" complete:');
   expect(log).toContain("Completed successfully.");
@@ -399,7 +517,7 @@ test("CLI all-chats catches up saved IDs and records per-chat progress with opti
     "--from",
     new Date(1).toISOString(),
     "--to",
-    summary.window.toExclusive,
+    summary.chats[0].window.toExclusive,
     "--no-backup",
     "--no-log",
     "--credentials",
@@ -451,10 +569,10 @@ test("a failed older window leaves the completed newer checkpoint; restart fetch
     collectHistory(f.options, f.credentials, http, stats, historyProgress()),
   ).rejects.toThrow("HTTP 401");
   let store = await HistoryStore.open(f.db);
-  expect(store.missing("group", f.options.window)).toEqual([
+  expect(store.missing("group", f.options.window!)).toEqual([
     { from: f.from, to: f.from + collectionWindowMs },
   ]);
-  expect(() => store.archive("group", f.options.window)).toThrow(
+  expect(() => store.archive("group", f.options.window!)).toThrow(
     "uncollected gaps",
   );
   store.close();
@@ -531,7 +649,7 @@ test("continuation failure commits neither partial messages nor coverage, then r
     collectHistory(options, f.credentials, http, stats, historyProgress()),
   ).rejects.toThrow("HTTP 401");
   let store = await HistoryStore.open(f.db);
-  expect(store.missing("group", options.window)).toEqual([options.window]);
+  expect(store.missing("group", options.window!)).toEqual([options.window]);
   expect(() => store.archive("group")).toThrow("No completed");
   store.close();
   const sql = new Database(f.db, { readonly: true });
@@ -582,7 +700,7 @@ test("transaction rolls back new messages and coverage on conflicting IDs; unkno
       requestStats(),
     ),
   ).toThrow("conflicting record");
-  expect(store.missing("group", f.options.window)).toEqual([
+  expect(store.missing("group", f.options.window!)).toEqual([
     { from: f.from + 11, to: f.to },
   ]);
   expect(store.archive("group").messages).toEqual([original]);
@@ -602,7 +720,13 @@ test("empty all-history intervals expand to epoch without assuming that the firs
   const f = await fixture();
   const now = 8 * collectionWindowMs + 1;
   const options = resolveCollectOptions(
-    { db: f.db, chat: "group", all: true, pageDelayMin: 0, pageDelayMax: 0 },
+    {
+      db: f.db,
+      chat: "group",
+      allHistory: true,
+      pageDelayMin: 0,
+      pageDelayMax: 0,
+    },
     now,
   );
   const windows: { from: number; to: number }[] = [];
@@ -625,7 +749,7 @@ test("empty all-history intervals expand to epoch without assuming that the firs
   expect(windows[2]!.to - windows[2]!.from).toBe(collectionWindowMs);
   expect(windows.at(-1)!.from).toBe(1);
   const store = await HistoryStore.open(f.db);
-  expect(store.missing("group", options.window)).toEqual([]);
+  expect(store.missing("group", options.window!)).toEqual([]);
   expect(store.archive("group").messages).toHaveLength(1);
   store.close();
 });
@@ -662,7 +786,7 @@ test("cancellation preserves completed coverage and releases the collector reser
     ),
   ).rejects.toThrow("checkpoints remain saved");
   const store = await HistoryStore.open(f.db);
-  expect(store.missing("group", f.options.window)).toEqual([
+  expect(store.missing("group", f.options.window!)).toEqual([
     { from: f.from, to: f.from + collectionWindowMs },
   ]);
   store.close();
@@ -714,7 +838,7 @@ test("offline exports require complete coverage, preserve payloads, sort ties, a
   store.commit(
     "group",
     "Group",
-    f.options.window,
+    f.options.window!,
     msgs,
     counters,
     requestStats(),
@@ -754,15 +878,14 @@ test("collection validation enforces selectors, date modes, nonfuture windows an
   const now = Date.parse("2026-11-11T00:00:00Z");
   expect(
     resolveCollectOptions(
-      { db: "history.sqlite", chat: "group", all: true },
+      { db: "history.sqlite", chat: "group", allHistory: true },
       now,
     ).window,
   ).toEqual({ from: 1, to: now });
   for (const input of [
-    { db: "history.sqlite", all: true },
-    { db: "history.sqlite", chat: "a", chatLabel: "b", all: true },
-    { db: "history.sqlite", chat: "a", all: true, last: "7d" },
-    { db: "history.sqlite", chat: "a" },
+    { db: "history.sqlite", allHistory: true },
+    { db: "history.sqlite", chat: "a", chatLabel: "b", allHistory: true },
+    { db: "history.sqlite", chat: "a", allHistory: true, last: "7d" },
     {
       db: "history.sqlite",
       chat: "a",

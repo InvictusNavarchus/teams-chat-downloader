@@ -57,14 +57,14 @@ teams download --chat-label 'Project Alpha' \
 teams download --db exports/history.sqlite --chat-label 'Project Alpha' --last 7d
 ```
 
-Choose one date mode: `--last Nd`, `--since <timestamp>`, paired `--from`/`--to`, or `--all`. Timestamps require a timezone, start is included and end excluded, and future ends are refused. Use `--chat '<raw-chat-id>'` when labels are duplicated. Raw-ID downloads skip name lookup and use saved labels or a hashed ID for automatic folders.
+Choose one date mode: `--last Nd`, `--since <timestamp>`, paired `--from`/`--to`, or `--all-history`. Timestamps require a timezone, start is included and end excluded, and future ends are refused. Use `--chat '<raw-chat-id>'` when labels are duplicated. Raw-ID downloads skip name lookup and use saved labels or a hashed ID for automatic folders.
 
 Without `--out`, `--last Nd` regenerates one folder per day. Other date modes create a combined timestamped snapshot. Explicit `--out` always requires a new directory. `--no-media` skips images; `--no-markdown` omits Markdown.
 
 ### Collect now, export later
 
 ```sh
-teams collect --chat-label 'Project Alpha' --all
+teams collect --chat-label 'Project Alpha' --all-history
 teams images --chat-label 'Project Alpha'
 teams export --chat-label 'Project Alpha' --last 3d
 teams export --chat-label 'Project Alpha' --out exports/alpha-history
@@ -75,11 +75,11 @@ teams export --chat-label 'Project Alpha' --out exports/alpha-history
 To catch up every chat already saved in the database, without tracking how many days have passed:
 
 ```sh
-teams collect --all-chats --all
+teams collect --all-chats
 teams images
 ```
 
-Reuse `--db <file>` on both commands if you originally chose a custom database. `--all-chats` uses saved chat IDs without directory/profile lookup; it does not discover new chats. `--all` fetches only missing intervals, including any older gaps. Chats run sequentially and stop on failure or cancellation; rerun to resume from saved checkpoints. This selector is available on `collect`; `download` still requires one chat.
+Reuse `--db <file>` on both commands if you originally chose a custom database. `--all-chats` uses saved chat IDs without directory/profile lookup; it does not discover new chats. With no date flags, `collect` catches up from each chat’s earliest completed interval through now, retrying gaps within that range. Use `--all-history` to also backfill older history. A chat without completed coverage requires `--all-history` or an explicit date range for its initial collection. The old `--all` flag has been replaced by `--all-history` on both `collect` and `download`. Chats run sequentially and stop on failure or cancellation; rerun to resume from saved checkpoints. This selector is available on `collect`; `download` still requires one chat.
 
 Collection makes automatic verified database backups in `<database>.backups/`, hourly between completed intervals and on clean completion. Use `--backup-dir` to change the location or `--no-backup` to disable them. Backups snapshot only `history.sqlite` (not `<database>.media/`) and are not automatically pruned. Keep the live database and adjacent `<database>.media/` directory together, and back up `<database>.media/` separately. See [backup and restoration](docs/user-guide.md#back-up-and-restore-collections).
 

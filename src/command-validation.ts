@@ -196,7 +196,7 @@ const collectOptionsSchema = exportOptionsSchema
   .omit({ out: true, markdown: true, media: true, refreshMedia: true })
   .extend({
     db: z.string().min(1),
-    all: z.boolean().default(false),
+    allHistory: z.boolean().default(false),
     allChats: z.boolean().default(false),
     log: z.boolean().default(commandDefaults.log),
     backup: z.boolean().default(commandDefaults.backup),
@@ -204,7 +204,8 @@ const collectOptionsSchema = exportOptionsSchema
   });
 
 export type CollectOptions = z.infer<typeof collectOptionsSchema> & {
-  window: Window;
+  window?: Window;
+  invocationTime: number;
 };
 
 export function resolveCollectOptions(
@@ -216,7 +217,7 @@ export function resolveCollectOptions(
     throw validationError("Collection options", result.error);
   const {
     db,
-    all,
+    allHistory,
     allChats,
     backup,
     backupDir,
@@ -232,21 +233,35 @@ export function resolveCollectOptions(
   if (!backup && backupDir !== undefined)
     throw new AppError("--no-backup cannot be combined with --backup-dir.");
   if (
-    all &&
+    allHistory &&
     [options.last, options.since, options.from, options.to].some(
       (v) => v !== undefined,
     )
   )
-    throw new AppError("--all cannot be combined with date options.");
-  const window = resolveHistoryWindow(
-    all ? { ...options, since: new Date(1).toISOString() } : options,
-    now,
-  );
-  if (window.to > now)
+    throw new AppError("--all-history cannot be combined with date options.");
+  if (options.pageDelayMin > options.pageDelayMax)
+    throw new AppError("--page-delay-min must not exceed --page-delay-max.");
+  const explicitDates = [
+    options.last,
+    options.since,
+    options.from,
+    options.to,
+  ].some((value) => value !== undefined);
+  const window =
+    allHistory || explicitDates
+      ? resolveHistoryWindow(
+          allHistory
+            ? { ...options, since: new Date(1).toISOString() }
+            : options,
+          now,
+        )
+      : undefined;
+  if (window && window.to > now)
     throw new AppError("Collection end cannot be in the future.");
   return {
     ...result.data,
     window,
+    invocationTime: now,
     db: resolve(db),
     backupDir: backup
       ? resolve(backupDir ?? `${db}${collectionBackupSuffix}`)
@@ -265,6 +280,7 @@ const downloadOptionsSchema = collectOptionsSchema
 export type DownloadOptions = z.infer<typeof downloadOptionsSchema> & {
   window: Window;
   allChats: false;
+  invocationTime: number;
 };
 
 export function resolveDownloadOptions(
@@ -276,8 +292,14 @@ export function resolveDownloadOptions(
   const { out, media, markdown, refreshMedia, ...collection } = result.data;
   if (!media && refreshMedia)
     throw new AppError("--refresh-media cannot be combined with --no-media.");
+  const resolved = resolveCollectOptions(collection, now);
+  if (!resolved.window)
+    throw new AppError(
+      "Choose --all-history or a date range for download; use collect to catch up saved history.",
+    );
   return {
-    ...resolveCollectOptions(collection, now),
+    ...resolved,
+    window: resolved.window,
     allChats: false,
     out,
     media,

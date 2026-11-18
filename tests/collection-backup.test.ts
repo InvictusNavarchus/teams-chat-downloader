@@ -331,7 +331,9 @@ test("rclone source sees only finished snapshots, and failed later history retai
       throw new Error("Expected a saved backup");
     const saved = await HistoryStore.open(join(event.path, "history.sqlite"));
     try {
-      expect(saved.missing("new-chat", options.window)).toEqual([{ from, to }]);
+      expect(saved.missing("new-chat", options.window!)).toEqual([
+        { from, to },
+      ]);
       expect(saved.archive("new-chat").messages).toHaveLength(1);
     } finally {
       saved.close();
