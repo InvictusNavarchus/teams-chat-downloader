@@ -41,6 +41,7 @@ import { loadCredentials } from "./credentials.ts";
 import { AppError, errorMessage } from "./errors.ts";
 import type { ExportProgressEvent } from "./export.ts";
 import { createHttp, requestStats } from "./http.ts";
+import type { MediaProgress } from "./media.ts";
 import { writeChatList } from "./output.ts";
 import { historyProgress, listChats } from "./teams.ts";
 
@@ -109,6 +110,20 @@ export async function runCli(argv = process.argv): Promise<number> {
         output("[convert] Converted to Markdown.");
         break;
     }
+  };
+  const reportDatabaseMedia = (
+    event: MediaProgress | { phase: "summary"; message: string },
+  ) => {
+    if (event.phase === "summary") output(event.message);
+    else if (event.phase === "start")
+      reportProgress({ type: "media-start", total: event.total });
+    else
+      reportProgress({
+        type: "media-progress",
+        current: event.current,
+        total: event.total,
+        outcome: event.outcome,
+      });
   };
   const reportCollection = (event: CollectionEvent) => {
     if (event.type === "warning") warning(event.message);
@@ -376,7 +391,7 @@ export async function runCli(argv = process.argv): Promise<number> {
   cli
     .command(
       "collect",
-      "Catch up saved chat history into SQLite (default: existing coverage through now)",
+      "Catch up saved chat history into SQLite, optionally download images (no export)",
     )
     .option(
       "--db <file>",
@@ -400,6 +415,11 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option(
       "--all-chats",
       "Catch up every saved chat by default; skips directory/profile lookup",
+    )
+    .option(
+      "--images",
+      "Download pending images for selected chats after history collection; no export",
+      { default: commandDefaults.images },
     )
     .option(
       "--chat-label <label>",
@@ -458,7 +478,33 @@ export async function runCli(argv = process.argv): Promise<number> {
         controller.signal,
         reportCollection,
       );
-      output(JSON.stringify(result));
+      if (options.images) {
+        output(
+          "[collect] History collection complete; downloading pending images.",
+        );
+        const selected = "chats" in result ? result.chats : [result];
+        const images = [];
+        for (const [index, chat] of selected.entries()) {
+          controller.signal.throwIfAborted();
+          output(
+            `[images] Chat ${index + 1}/${selected.length}: ${JSON.stringify(chat.chatId)}`,
+          );
+          const media = await downloadDatabaseMedia(
+            {
+              db: options.db,
+              chat: chat.chatId,
+              log: options.log,
+              refreshMedia: false,
+            },
+            credentials,
+            http,
+            controller.signal,
+            reportDatabaseMedia,
+          );
+          images.push({ chatId: chat.chatId, ...media });
+        }
+        output(JSON.stringify({ ...result, images }));
+      } else output(JSON.stringify(result));
     });
   cli
     .command("export", "Export saved history to JSON and Markdown, offline")
@@ -568,18 +614,7 @@ export async function runCli(argv = process.argv): Promise<number> {
             credentials,
             http,
             controller.signal,
-            (event) => {
-              if (event.phase === "summary") output(event.message);
-              else if (event.phase === "start")
-                reportProgress({ type: "media-start", total: event.total });
-              else
-                reportProgress({
-                  type: "media-progress",
-                  current: event.current,
-                  total: event.total,
-                  outcome: event.outcome,
-                });
-            },
+            reportDatabaseMedia,
           ),
         ),
       );

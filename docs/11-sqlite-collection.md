@@ -1,4 +1,4 @@
-> Current command interface: `download` collects missing intervals, downloads images, and exports through SQLite; `collect` saves history only; `export` is offline; `images` downloads saved references. `export-db`/`media-db` are aliases. Repeated collection preserves saved history and does not synchronize edits or deletions. Default databases are account-scoped under user state; offline default discovery requires exactly one database. See the [user guide](user-guide.md#default-collections-and-command-migration).
+> Current command interface: `download` collects missing intervals, downloads images, and exports through SQLite; `collect` saves history and optionally downloads images with `--images`, without exporting; `export` is offline; `images` downloads saved references. `export-db`/`media-db` are aliases. Repeated collection preserves saved history and does not synchronize edits or deletions. Default databases are account-scoped under user state; offline default discovery requires exactly one database. See the [user guide](user-guide.md#default-collections-and-command-migration).
 
 # Resumable SQLite collection
 
@@ -72,6 +72,12 @@ Published backups are never modified or deleted automatically. This intentionall
 Backup failures emit a warning and increment the final result's `backups.failed`; they do not turn successful history collection into a nonzero exit. The result also reports `backups.saved` and, when present, `backups.lastSnapshot`. Cancellation still follows normal collection cancellation semantics. An hourly successful snapshot followed by a later HTTP failure remains available alongside live database checkpoints.
 
 Implementation reference: [SQLite VACUUM INTO](https://www.sqlite.org/lang_vacuum.html#vacuum_with_an_into_clause) documents consistent live snapshots and synchronization of completed output with FULL/NORMAL synchronous settings; [rclone copy](https://rclone.org/commands/rclone_copy/) documents its non-deleting transfer semantics.
+
+## Collection with images
+
+`collect --images` is CLI orchestration: finish `collectHistory`/`collectChats` first, including database backups, then call `downloadDatabaseMedia` once per selected result chat ID. Reuse resolved raw IDs even for a label selector, without a second directory/profile lookup. Batch image selection is limited to the IDs chosen by the history phase. Process all pending references saved for each selected chat, irrespective of the history date window; verify and reuse shared completed files. Each phase uses its existing reservation rather than nesting locks. `commandDefaults.images` is false; `download` retains its separate media/export defaults and rejects this collect-only flag.
+
+Mirror image progress through the same CLI log/output helpers used by standalone `images`. Only print a successful final result after all image phases complete; include an `images` array with per-chat results. On image failure/cancellation, retain history and already published image files/rows, stop later chats, and preserve existing media recovery diagnostics. Failed/cancelled history never starts media work. Do not call the exporter or publish JSON/Markdown from collection. Collection backups remain database-only and precede media work.
 
 ## Independent image collection
 

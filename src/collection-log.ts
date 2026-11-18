@@ -19,6 +19,7 @@ const loggedOptions = [
   "chatLabel",
   "allHistory",
   "allChats",
+  "images",
   "last",
   "since",
   "from",

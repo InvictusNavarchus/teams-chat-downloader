@@ -18,6 +18,31 @@ const base = {
 const now = Date.parse("2026-11-04T12:00:00Z");
 
 describe("saved chat collection selection", () => {
+  test("collection images are opt-in and do not enable download's export workflow", () => {
+    expect(resolveCollectOptions({ db: "h", allChats: true }, now).images).toBe(
+      false,
+    );
+    expect(
+      resolveCollectOptions({ db: "h", allChats: true, images: true }, now)
+        .images,
+    ).toBe(true);
+    expect(
+      resolveCollectOptions(
+        { db: "h", chat: "a", images: true, last: "1d" },
+        now,
+      ).images,
+    ).toBe(true);
+    expect(() =>
+      resolveCollectOptions({ db: "h", allChats: true, images: "true" }, now),
+    ).toThrow();
+    expect(() =>
+      resolveDownloadOptions(
+        { db: "h", chat: "a", last: "1d", images: true },
+        now,
+      ),
+    ).toThrow("Download options");
+  });
+
   test("defaults to catch-up without inventing a global start date", () => {
     for (const selector of [
       { allChats: true },

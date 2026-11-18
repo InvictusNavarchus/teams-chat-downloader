@@ -198,6 +198,7 @@ const collectOptionsSchema = exportOptionsSchema
     db: z.string().min(1),
     allHistory: z.boolean().default(false),
     allChats: z.boolean().default(false),
+    images: z.boolean().default(commandDefaults.images),
     log: z.boolean().default(commandDefaults.log),
     backup: z.boolean().default(commandDefaults.backup),
     backupDir: z.string().min(1).optional(),
@@ -270,7 +271,7 @@ export function resolveCollectOptions(
 }
 
 const downloadOptionsSchema = collectOptionsSchema
-  .omit({ allChats: true })
+  .omit({ allChats: true, images: true })
   .extend({
     out: exportOptionsSchema.shape.out,
     media: exportOptionsSchema.shape.media,
@@ -280,6 +281,7 @@ const downloadOptionsSchema = collectOptionsSchema
 export type DownloadOptions = z.infer<typeof downloadOptionsSchema> & {
   window: Window;
   allChats: false;
+  images: false;
   invocationTime: number;
 };
 
@@ -301,6 +303,7 @@ export function resolveDownloadOptions(
     ...resolved,
     window: resolved.window,
     allChats: false,
+    images: false,
     out,
     media,
     markdown,

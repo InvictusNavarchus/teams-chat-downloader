@@ -15,6 +15,7 @@ export const commandDefaults = {
   log: true,
   markdown: true,
   media: true,
+  images: false,
   refreshMedia: false,
   recursive: false,
   waitForMedia: false,

@@ -80,13 +80,15 @@ async function fixture({
         url.searchParams.set("fixturePage", String(index + 1));
         return Response.json({ messages, _metadata: next ? { backwardLink: url.href } : {} }, { status: fixtures.historyStatus });
       }
-      if (url.origin === "https://us-api.asm.skype.com" && url.pathname === "/v1/objects/fixture-image/views/imgo") {
-        if (fixtures.imageStatus === 304) {
+      if (url.origin === "https://us-api.asm.skype.com" && ["/v1/objects/fixture-image/views/imgo", "/v1/objects/second-image/views/imgo"].includes(url.pathname)) {
+        if (fixtures.cancelImage) process.emit("SIGINT");
+        const status = fixtures.imageStatuses?.[url.pathname.split("/")[3]] ?? fixtures.imageStatus;
+        if (status === 304) {
           if (input.headers.get("if-none-match") !== '"fixture-image"') throw new Error("Expected conditional image request");
           return new Response(null, { status: 304 });
         }
         return new Response(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1sAAAAASUVORK5CYII=", "base64"), {
-          status: fixtures.imageStatus,
+          status,
           headers: { "content-type": "image/png", etag: '"fixture-image"' },
         });
       }
@@ -111,11 +113,13 @@ async function fixture({
       messages = [],
       historyPages,
       imageStatus = 200,
+      imageStatuses,
       command = "download",
       expectedChat = "fixture",
       now = Date.parse("2026-11-11T03:00:00Z"),
       historyGate,
       cancelHistory = false,
+      cancelImage = false,
     }: {
       chats?: unknown[];
       directoryStatus?: number;
@@ -123,11 +127,13 @@ async function fixture({
       messages?: unknown[];
       historyPages?: unknown[][];
       imageStatus?: number;
+      imageStatuses?: Record<string, number>;
       command?: "download" | "export" | "collect" | "images" | "media";
       expectedChat?: string;
       now?: number;
       historyGate?: string;
       cancelHistory?: boolean;
+      cancelImage?: boolean;
     } = {},
   ) {
     await writeFile(
@@ -142,10 +148,12 @@ async function fixture({
         messages,
         historyPages,
         imageStatus,
+        imageStatuses,
         expectedChat,
         now,
         historyGate,
         cancelHistory,
+        cancelImage,
       }),
     );
     const child = Bun.spawn(
@@ -194,6 +202,191 @@ const message = (id: string, content = "saved") => ({
   content,
   originalarrivaltime: "2026-11-11T01:00:00Z",
   messagetype: "Text",
+});
+
+const imageMessage = (id: string, object = "fixture-image") => ({
+  ...message(
+    id,
+    `<img src="https://us-api.asm.skype.com/v1/objects/${object}/views/imgo">`,
+  ),
+  messagetype: "RichText/Html",
+});
+
+test("collect --images saves history and images without exporting, then offline export reuses them", async () => {
+  const f = await fixture({ media: true });
+  const collected = await f.run(
+    ["--chat-label", "Café / Project Alpha", "--last", "1d", "--images"],
+    {
+      command: "collect",
+      messages: [imageMessage("image")],
+    },
+  );
+  expect(collected.code).toBe(0);
+  const result = readSummary(collected.stdout);
+  expect(result.images).toMatchObject([
+    { chatId: "fixture", saved: 1, downloaded: 1 },
+  ]);
+  expect(collected.stdout).toContain(
+    "History collection complete; downloading pending images.",
+  );
+  expect(await readdir(f.dir)).not.toContain("exports");
+  const logs = await readdir(`${result.database}.logs`);
+  expect(logs).toHaveLength(1);
+  const log = await readFile(join(`${result.database}.logs`, logs[0]!), "utf8");
+  expect(log).toContain('"images":true');
+  expect(log).toContain("[media] Image 1/1");
+  expect(log).toContain("[collect] Completed successfully.");
+  for (const secret of [
+    "fixture-history",
+    "fixture-media",
+    "<img",
+    "https://us-api.asm.skype.com",
+  ])
+    expect(log).not.toContain(secret);
+  const exported = await f.run(["--chat", "fixture", "--out", "portable"], {
+    command: "export",
+  });
+  expect(exported.code).toBe(0);
+  expect(exported.stdout).not.toContain("HTTP attempts:");
+  expect(await Bun.file(join(f.dir, "portable", "chat.md")).text()).toContain(
+    "media/",
+  );
+  expect(
+    (await Bun.file(join(f.dir, "portable", "chat.json")).json()).media.status,
+  ).toBe("complete");
+});
+
+test("all-chat catch-up images include only saved chats and reuse a shared image without history HTTP", async () => {
+  const f = await fixture({ media: true });
+  for (const chat of ["a", "b"]) {
+    const seeded = await f.run(["--chat", chat, "--last", "1d"], {
+      command: "collect",
+      expectedChat: chat,
+      messages: [imageMessage("shared")],
+    });
+    expect(seeded.code).toBe(0);
+    expect(seeded.stdout).not.toContain("[images]");
+  }
+  const result = await f.run(["--all-chats", "--images"], {
+    command: "collect",
+    historyStatus: 401,
+    directoryStatus: 401,
+  });
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain('Chat 1/2: "a"');
+  expect(result.stdout).toContain('Chat 2/2: "b"');
+  const summary = readSummary(result.stdout);
+  expect(summary.completedWindows).toBe(0);
+  expect(summary.images).toMatchObject([
+    { chatId: "a", downloaded: 1, alreadyDownloaded: 0 },
+    { chatId: "b", downloaded: 0, alreadyDownloaded: 1 },
+  ]);
+  const rerun = await f.run(["--all-chats", "--images", "--no-log"], {
+    command: "collect",
+    historyStatus: 401,
+    directoryStatus: 401,
+    imageStatus: 401,
+  });
+  expect(rerun.code).toBe(0);
+  expect(rerun.stdout).not.toContain("HTTP attempts:");
+  expect(rerun.stdout).not.toContain("Collection log:");
+  expect(await readdir(f.dir)).not.toContain("exports");
+});
+
+test("single-chat image collection excludes other saved chats", async () => {
+  const f = await fixture({ media: true });
+  let database = "";
+  for (const [chat, object] of [
+    ["a", "fixture-image"],
+    ["b", "second-image"],
+  ]) {
+    const seeded = await f.run(["--chat", chat!, "--last", "1d"], {
+      command: "collect",
+      expectedChat: chat,
+      messages: [imageMessage("image", object)],
+    });
+    expect(seeded.code).toBe(0);
+    database = readSummary(seeded.stdout).database;
+  }
+  const result = await f.run(["--db", database, "--chat", "a", "--images"], {
+    command: "collect",
+    historyStatus: 401,
+    imageStatuses: { "second-image": 401 },
+  });
+  expect(result.code).toBe(0);
+  expect(readSummary(result.stdout).images).toMatchObject([
+    { chatId: "a", saved: 1 },
+  ]);
+  const other = await f.run(["--db", database, "--chat", "b"], {
+    command: "images",
+    imageStatus: 401,
+  });
+  expect(other.code).toBe(1);
+});
+
+test.each(["failure", "cancellation"])(
+  "collect image %s keeps completed history and images for retry without exporting",
+  async (mode) => {
+    const f = await fixture({ media: true });
+    // Separate chats make the successful first image independent of which image keys sort first.
+    for (const [chat, object] of [
+      ["a", "fixture-image"],
+      ["b", "second-image"],
+    ]) {
+      const seeded = await f.run(["--chat", chat!, "--last", "1d"], {
+        command: "collect",
+        expectedChat: chat,
+        messages: [imageMessage("image", object)],
+      });
+      expect(seeded.code).toBe(0);
+    }
+    const first = await f.run(["--chat", "a", "--images"], {
+      command: "collect",
+    });
+    expect(first.code).toBe(0);
+    const failed = await f.run(["--all-chats", "--images"], {
+      command: "collect",
+      historyStatus: 401,
+      imageStatus: mode === "failure" ? 401 : 200,
+      cancelImage: mode === "cancellation",
+    });
+    expect(failed.code).toBe(mode === "failure" ? 1 : 130);
+    const database = readSummary(first.stdout).database;
+    const logs = await readdir(`${database}.logs`);
+    const text = (
+      await Promise.all(
+        logs.map((file) => readFile(join(`${database}.logs`, file), "utf8")),
+      )
+    ).find((log) =>
+      log.includes(
+        mode === "failure" ? "[collect] Failed:" : "[collect] Cancelled:",
+      ),
+    );
+    expect(text).toBeDefined();
+    expect(text).toContain("History collection complete");
+    expect(text).not.toContain("[collect] Completed successfully.");
+    const retried = await f.run(["--all-chats", "--images"], {
+      command: "collect",
+      historyStatus: 401,
+    });
+    expect(retried.code).toBe(0);
+    expect(readSummary(retried.stdout).images).toMatchObject([
+      { chatId: "a", alreadyDownloaded: 1, saved: 0 },
+      { chatId: "b", saved: 1 },
+    ]);
+    expect(await readdir(f.dir)).not.toContain("exports");
+  },
+);
+
+test("failed history collection does not start the requested image phase", async () => {
+  const f = await fixture({ media: true });
+  const failed = await f.run(
+    ["--chat", "fixture", "--last", "1d", "--images"],
+    { command: "collect", historyStatus: 401 },
+  );
+  expect(failed.code).toBe(1);
+  expect(failed.stdout).not.toContain("[images]");
+  expect(failed.stdout).not.toContain("History collection complete");
 });
 
 test("download collects, downloads and exports; repeat runs preserve saved edits and deletions", async () => {
