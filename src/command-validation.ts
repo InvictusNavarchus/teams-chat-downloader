@@ -316,6 +316,7 @@ const databaseExportOptionsSchema = z.strictObject({
   db: z.string().min(1),
   chat: z.string().min(1).optional(),
   chatLabel: exportOptionsSchema.shape.chatLabel,
+  allChats: z.boolean().default(false),
   out: z.string().min(1).optional(),
   last: exportOptionsSchema.shape.last,
   from: timestampSchema.optional(),
@@ -335,7 +336,16 @@ export function resolveDatabaseExportOptions(
   if (!result.success)
     throw validationError("Database export options", result.error);
   const options = result.data;
-  assertChatSelection(options);
+  if (options.allChats) {
+    if (options.chat !== undefined || options.chatLabel !== undefined)
+      throw new AppError(
+        "--all-chats cannot be combined with --chat or --chat-label.",
+      );
+    if (options.last === undefined)
+      throw new AppError(
+        "Use --all-chats with --last Nd for daily exports; combined --out exports require one chat.",
+      );
+  } else assertChatSelection(options);
   if (options.chatLabel !== undefined)
     assertSelectableChatLabel(options.chatLabel);
   if (

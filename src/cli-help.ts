@@ -18,6 +18,10 @@ const examples: Record<string, [string, string][]> = {
   ],
   export: [
     [
+      "Export all saved chats, including saved images",
+      "export --all-chats --last 5d",
+    ],
+    [
       "Export daily JSON and Markdown folders offline",
       'export --chat-label "Chat name" --last 7d',
     ],
@@ -42,7 +46,7 @@ const behavior: Record<string, string> = {
   collect:
     "Without date flags, catch up from each chat's saved coverage through now.\nNew chats need --all-history or a date range. Completed intervals are skipped.\nImages are opt-in with --images. Export JSON/Markdown separately with export.",
   export:
-    "Offline: reads saved messages and images without credentials or HTTP.\nChoose --last Nd for daily folders, or --out for one new combined bundle.\nJSON and Markdown include saved images by default.",
+    "Offline: reads saved messages and images without credentials or HTTP.\nUse --all-chats --last Nd for every saved chat, or select one chat.\nChoose --last Nd for daily folders, or --out for one chat's combined bundle.\nJSON and Markdown include saved images by default; no image downloads occur.",
   images:
     "With no chat selector, process all saved chats. Verified images are skipped.\nDownloads files beside the database; does not export JSON or Markdown.",
   download:

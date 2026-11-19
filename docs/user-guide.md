@@ -131,7 +131,7 @@ bun run teams collect --db exports/history.sqlite --chat '<raw-chat-id>' \
   --from '2024-11-01T00:00:00+07:00' --to '2026-11-01T00:00:00+07:00'
 ```
 
-Choose one selector (`--chat`, `--chat-label`, or collect-only `--all-chats`) and optionally one date mode: `--all-history`, `--last Nd`, `--since`, or paired `--from`/`--to`. Explicit future ends are rejected. `--all-history` requests all history the endpoint exposes, working backward from now; it cannot recover deleted or unavailable messages.
+Choose one selector (`--chat`, `--chat-label`, or `--all-chats`) and optionally one date mode: `--all-history`, `--last Nd`, `--since`, or paired `--from`/`--to`. Explicit future ends are rejected. `--all-history` requests all history the endpoint exposes, working backward from now; it cannot recover deleted or unavailable messages.
 
 Rerun the command after interruption or credential refresh. Completed intervals are skipped; the unfinished interval is fetched again in full. A range ending at invocation time also collects the newly uncovered tail. `--credentials` and the page-delay options work as with downloads.
 
@@ -175,15 +175,20 @@ To limit downloads to one chat, use either `--chat <raw-id>` or `--chat-label <l
 
 ### Export a collection offline
 
-Select exactly one of `--chat <raw-id>` or `--chat-label <label>`. Labels match the values saved in SQLite, exactly after trimming surrounding whitespace and ignoring case. Matching stays offline without profile/name refresh. Missing labels fail with database-specific guidance; duplicate matches list saved labels and raw IDs so you can select with `--chat`. Generic fallback labels cannot select a chat. If a chat was collected without a label, use its raw ID.
+Select one chat with `--chat <raw-id>` or `--chat-label <label>`, or all saved chats with `--all-chats --last Nd`. Combined `--out` exports still require one chat. Labels match the values saved in SQLite, exactly after trimming surrounding whitespace and ignoring case. Matching stays offline without profile/name refresh. Missing labels fail with database-specific guidance; duplicate matches list saved labels and raw IDs so you can select with `--chat`. Generic fallback labels cannot select a chat. If a chat was collected without a label, use its raw ID.
 
 ```sh
+bun run teams export --db exports/history.sqlite --all-chats --last 5d
 bun run teams export --db exports/history.sqlite --chat-label 'Project Alpha' --last 3d
 bun run teams export --db exports/history.sqlite --chat '<raw-chat-id>' --out exports/full-history
 bun run teams export --db exports/history.sqlite --chat '<raw-chat-id>' \
   --from '2026-09-01T00:00:00+07:00' --to '2026-10-01T00:00:00+07:00' --out exports/september
 bun run teams export --db exports/history.sqlite --chat '<raw-chat-id>' --out exports/text-only --no-media
 ```
+
+`export --all-chats --last 5d` selects every saved raw ID in database order, without credentials or name lookup. Saved images and Markdown are included by default; export never downloads missing images. Use `teams collect --all-chats --images` or `teams images` first if needed, passing the same `--db` for a custom collection. `--all-chats` requires `--last Nd` and cannot combine with a single selector, `--out`, or explicit bounds. The same batch behavior is available through the `export-db` alias.
+
+Batch export checks every chat’s coverage and normalized output folder before publishing any day. An empty database, any chat with no overlapping coverage or an internal gap, or two chats mapping to the same folder fails before publication. For colliding names, export those chats individually with raw IDs and different combined `--out` directories. Each chat uses its own collected cutoff; covered empty days are included. One log records per-chat progress, cutoffs, image copies, and final per-chat/aggregate counts. `--no-log`, `--no-markdown`, and `--no-media` apply to the whole batch. A later filesystem/media/Markdown failure or cancellation stops remaining chats and keeps previously published outputs; rerun to regenerate matching folders. This is not an atomic multi-chat publication.
 
 No credentials or network are needed. In combined mode (`--out`), without bounds, export uses the full stored coverage span; any uncollected gap causes rejection. Bounds must be paired. The combined destination must be new. `--no-markdown` skips the transcript; `--no-media` uses image placeholders.
 

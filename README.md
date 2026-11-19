@@ -73,17 +73,21 @@ teams export --chat-label 'Project Alpha' --last 3d
 teams export --chat-label 'Project Alpha' --out exports/alpha-history
 ```
 
-`collect` saves text and image references; add `--images` to also download the files before finishing. Omit it for history only, or use the standalone `images` command later. Omit the selector on `images` to handle all chats. `export` uses exactly one saved label or raw ID, requires no credentials, and never contacts Teams. Daily export stops at the verified collection cutoff and reports the skipped uncollected tail; internal coverage gaps fail. Combined export requires `--out` and optionally paired date bounds.
+`collect` saves text and image references; add `--images` to also download the files before finishing. Omit it for history only, or use the standalone `images` command later. Omit the selector on `images` to handle all chats. `export` selects one saved label/raw ID, or every saved chat with `--all-chats --last Nd`. It requires no credentials and never contacts Teams. Daily export stops at the verified collection cutoff and reports the skipped uncollected tail; internal coverage gaps fail. Combined export requires `--out` and optionally paired date bounds.
 
 To catch up every chat already saved in the database, without tracking how many days have passed:
 
 ```sh
 teams collect --all-chats --images
+# Export the past five local calendar days, including saved images:
+teams export --all-chats --last 5d
 ```
 
-Reuse `--db <file>` on collection, image, and export commands if you originally chose a custom database. `--all-chats` uses saved chat IDs without directory/profile lookup; it does not discover new chats. With no date flags, `collect` catches up from each chat’s earliest completed interval through now, retrying gaps within that range. Use `--all-history` to also backfill older history. A chat without completed coverage requires `--all-history` or an explicit date range for its initial collection. The old `--all` flag has been replaced by `--all-history` on both `collect` and `download`. Chats run sequentially and stop on failure or cancellation; rerun to resume from saved checkpoints. This selector is available on `collect`; `download` still requires one chat.
+Reuse `--db <file>` on collection, image, and export commands if you originally chose a custom database. `--all-chats` uses saved chat IDs without directory/profile lookup; it does not discover new chats. With no date flags, `collect` catches up from each chat’s earliest completed interval through now, retrying gaps within that range. Use `--all-history` to also backfill older history. A chat without completed coverage requires `--all-history` or an explicit date range for its initial collection. The old `--all` flag has been replaced by `--all-history` on both `collect` and `download`. Chats run sequentially and stop on failure or cancellation; rerun to resume from saved checkpoints. This selector is available on `collect` and daily `export`; `download` and combined `export --out` still require one chat.
 
 `collect --images` downloads pending images across the selected chats’ saved history, including older pending references. Verified files are skipped. History failure stops before images; image failure or cancellation preserves completed history and image files for retry. Collection never creates JSON or Markdown bundles.
+
+`export --all-chats --last 5d` writes JSON, Markdown, and saved images to each chat’s daily folders. It checks all chats’ coverage and folder-name conflicts before publishing. To download missing images first, use `collect --all-chats --images` or `images`; export itself stays offline.
 
 Collection makes automatic verified database backups in `<database>.backups/`, hourly between completed intervals and on clean completion. Use `--backup-dir` to change the location or `--no-backup` to disable them. Backups snapshot only `history.sqlite` (not `<database>.media/`) and are not automatically pruned. Keep the live database and adjacent `<database>.media/` directory together, and back up `<database>.media/` separately. See [backup and restoration](docs/user-guide.md#back-up-and-restore-collections).
 

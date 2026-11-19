@@ -35,7 +35,7 @@ import {
   collectHistory,
   type CollectionEvent,
 } from "./collect.ts";
-import { exportDatabase } from "./database-export.ts";
+import { exportDatabase, exportSavedChats } from "./database-export.ts";
 import { downloadDatabaseMedia } from "./database-media.ts";
 import { loadCredentials } from "./credentials.ts";
 import { AppError, errorMessage } from "./errors.ts";
@@ -495,6 +495,7 @@ export async function runCli(argv = process.argv): Promise<number> {
   cli
     .command("export", "Write JSON and Markdown from saved history, offline")
     .alias("export-db")
+    .option("--all-chats", "Every saved chat (requires --last Nd)")
     .option(
       "--db <file>",
       "Database file (default: single saved account collection)",
@@ -539,11 +540,15 @@ export async function runCli(argv = process.argv): Promise<number> {
         );
       startLog(cli.matchedCommandName ?? "export", options, input);
       output(
-        `[export] Requested chat: ${JSON.stringify(options.chat ?? options.chatLabel)}; range: ${options.window ? new Date(options.window.from).toISOString() : "stored coverage"} to ${options.window ? new Date(options.window.to).toISOString() : "stored coverage"}; media: ${options.media}; markdown: ${options.markdown}; destination: ${options.out ?? "daily folders"}`,
+        `[export] Requested chat: ${JSON.stringify(options.allChats ? "all saved chats" : (options.chat ?? options.chatLabel))}; range: ${options.window ? new Date(options.window.from).toISOString() : "stored coverage"} to ${options.window ? new Date(options.window.to).toISOString() : "stored coverage"}; media: ${options.media}; markdown: ${options.markdown}; destination: ${options.out ?? "daily folders"}`,
       );
       output(
         JSON.stringify(
-          await exportDatabase(options, controller.signal, output),
+          await (options.allChats ? exportSavedChats : exportDatabase)(
+            options,
+            controller.signal,
+            output,
+          ),
         ),
       );
     });

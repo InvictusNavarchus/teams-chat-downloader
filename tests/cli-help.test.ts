@@ -59,7 +59,7 @@ test("top-level and no-argument help put common workflows before the complete co
   expect(stdout).toContain(
     'teams collect --chat-label "Chat name" --all-history --images',
   );
-  expect(stdout).toContain('teams export --chat-label "Chat name" --last 7d');
+  expect(stdout).toContain("teams export --all-chats --last 5d");
   expect(stdout.indexOf("Common workflows:")).toBeLessThan(
     stdout.indexOf("Common commands:"),
   );
@@ -143,6 +143,8 @@ test.each([
         "Offline: reads saved messages and images without credentials or HTTP",
       );
       expect(stdout).toContain("--out <directory>");
+      expect(stdout).toContain("--all-chats");
+      expect(stdout).toContain("no image downloads occur");
       expect(stdout).toContain("--no-media");
       expect(stdout).toContain("--no-markdown");
     }

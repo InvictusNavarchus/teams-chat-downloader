@@ -80,6 +80,7 @@ export async function downloadChat(
     {
       db: options.db,
       chat: collection.chatId,
+      allChats: false,
       log: options.log,
       out,
       last: daily ? options.last : undefined,

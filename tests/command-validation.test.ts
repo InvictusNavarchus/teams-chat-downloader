@@ -4,6 +4,7 @@ import {
   resolveConvertOptions,
   resolveCollectOptions,
   resolveDatabaseMediaOptions,
+  resolveDatabaseExportOptions,
   resolveDownloadOptions,
   resolveExportOptions,
   resolveMediaOptions,
@@ -16,6 +17,43 @@ const base = {
   out: "export.json",
 };
 const now = Date.parse("2026-11-04T12:00:00Z");
+
+describe("all-chat daily export selection", () => {
+  test("accepts daily exports with saved images and Markdown by default", () => {
+    const options = resolveDatabaseExportOptions(
+      { db: "h", allChats: true, last: "5d" },
+      now,
+    );
+    expect(options).toMatchObject({
+      allChats: true,
+      last: "5d",
+      media: true,
+      markdown: true,
+    });
+    expect(options.window?.to).toBe(now);
+    expect(
+      resolveDatabaseExportOptions(
+        { db: "h", allChats: true, last: "5d", media: false, markdown: false },
+        now,
+      ),
+    ).toMatchObject({ media: false, markdown: false });
+  });
+
+  test.each([
+    { allChats: true, last: "5d", chat: "a" },
+    { allChats: true, last: "5d", chatLabel: "Alpha" },
+    { allChats: true, last: "5d", out: "out" },
+    { allChats: true, out: "out" },
+    { allChats: true },
+    { allChats: "true", last: "5d" },
+    { last: "5d" },
+    { allChat: true, last: "5d" },
+  ])("rejects ambiguous selectors and unsupported batch modes: %j", (input) => {
+    expect(() =>
+      resolveDatabaseExportOptions({ db: "h", ...input }, now),
+    ).toThrow();
+  });
+});
 
 describe("saved chat collection selection", () => {
   test("collection images are opt-in and do not enable download's export workflow", () => {
