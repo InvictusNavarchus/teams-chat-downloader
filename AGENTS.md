@@ -39,6 +39,7 @@ teams-chat-download/
 │   ├── archive-media.ts  # Media download coordination for archives (inline and post-export)
 │   ├── chat-selection.ts # Shared exact label matching, fallback rejection, and duplicate diagnostics
 │   ├── cli.ts            # CAC argument parsing, command dispatch, terminal progress, and exit handling
+│   ├── cli-help.ts       # Common workflow examples and grouped help from registered CAC options
 │   ├── collect.ts        # Single/batch backward collection, checkpoint pacing, and exclusive reservation
 │   ├── collection-backup.ts # Verified SQLite/media snapshots and hourly collection backup scheduling
 │   ├── command-validation.ts # Command schemas, inferred types, defaults application, and resolution
@@ -189,6 +190,8 @@ When modifying or extending this codebase, agents **must** respect these domain 
 `package.json` exposes `teams` through the executable Bun-shebang entry point `src/cli.ts`. After dependency installation, `bun link` makes it available through Bun's global executable directory on `PATH`; `bun unlink` removes the registration. Keep the caller's working directory unchanged: relative database/output paths and default `exports/` belong to the invoking workspace, not this tool's checkout. The linked command requires Bun and the checkout's dependencies and runs current source directly.
 
 `src/config.ts` owns shared command defaults and limits. Import those values in command validation, CLI help, and runtime fallbacks rather than duplicating literals. `src/command-validation.ts` owns all command input schemas, their types, and option resolution; `src/cli.ts` owns argument parsing and dispatch. `src/date-window.ts` owns the shared window contract so the Teams client does not depend on command validation. Resolve environment-dependent credential and media paths at invocation time in their existing helpers. Keep protocol constants in their domain modules.
+
+`src/cli-help.ts` uses CAC's help callback to lead with common catch-up, initial collection, and offline export examples, distinguish routine commands from archive utilities, and group command options by purpose. Render flags/descriptions/defaults from registered command metadata; keep every advanced option and compatibility alias discoverable. Omit misleading boolean default suffixes on negated flags. Help is presentation only: never change parser defaults or dispatch, and keep all command/alias help available without credentials, HTTP, or generated files.
 
 Use caret (`^`) ranges for dependencies and dev dependencies in `package.json`. Keep the workspace ranges in `bun.lock` synchronized; its resolved package versions provide reproducible installs.
 

@@ -17,6 +17,8 @@ bun run test
 
 Offline tests use synthetic responses for pagination, validation, retries, cancellation, and output publication. They do not require saved credentials. Live checks are separate and explicitly opt-in.
 
+`src/cli-help.ts` formats registered CAC commands/options into common workflows and grouped references. `tests/cli-help.test.ts` checks every command and alias without credentials or HTTP, verifies that help creates no application files, and checks the 88-column layout. Review `bun run teams --help` and `bun run teams collect --help` when changing user-facing commands; keep parser defaults independent of help formatting.
+
 ## Live smoke test
 
 Run an explicit, bounded check against live Teams using saved credentials:

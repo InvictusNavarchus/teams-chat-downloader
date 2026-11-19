@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { cac } from "cac";
+import { configureCliHelp } from "./cli-help.ts";
 import { downloadArchiveMedia } from "./archive-media.ts";
 import {
   resolveBatchConvertOptions,
@@ -14,7 +15,6 @@ import {
 } from "./command-validation.ts";
 import {
   commandDefaults,
-  collectionBackupIntervalMs,
   collectionBackupSuffix,
   collectionLogSuffix,
   defaultExportRoot,
@@ -169,7 +169,7 @@ export async function runCli(argv = process.argv): Promise<number> {
       );
   };
   cli
-    .command("login", "Sign in in a visible browser and save fresh credentials")
+    .command("login", "Sign in through a browser and save credentials")
     .option(
       "--wait-for-media",
       "Wait for an image cookie before saving credentials",
@@ -201,10 +201,7 @@ export async function runCli(argv = process.argv): Promise<number> {
       console.log(JSON.stringify(result));
     });
   cli
-    .command(
-      "media",
-      "Download images for a saved JSON export without fetching history",
-    )
+    .command("media", "Download images into an existing JSON archive")
     .option("--input <file>", "Existing version 1 JSON export to update")
     .option("--credentials <file>", "Override automatic credential file lookup")
     .option("--refresh-media", "Revalidate cached images with Teams")
@@ -226,7 +223,7 @@ export async function runCli(argv = process.argv): Promise<number> {
       console.log(JSON.stringify(result));
     });
   cli
-    .command("convert", "Convert a saved JSON export without contacting Teams")
+    .command("convert", "Render Markdown from an existing JSON archive")
     .option("--input <file>", "Existing version 1 JSON export")
     .option(
       "--format <format>",
@@ -246,7 +243,7 @@ export async function runCli(argv = process.argv): Promise<number> {
   cli
     .command(
       "convert-all",
-      "Convert JSON exports that have no sibling Markdown destination",
+      "Render missing Markdown transcripts in an export folder",
     )
     .option(
       "--dir <directory>",
@@ -273,7 +270,7 @@ export async function runCli(argv = process.argv): Promise<number> {
         );
     });
   cli
-    .command("chats", "List chat IDs and available titles as JSON")
+    .command("chats", "List chat names and IDs as JSON")
     .option("--credentials <file>", "Override automatic credential file lookup")
     .option("--out <file>", "Save or refresh the chat list as JSON")
     .option(
@@ -295,45 +292,42 @@ export async function runCli(argv = process.argv): Promise<number> {
       console.log(JSON.stringify(chats, null, 2));
     });
   cli
-    .command(
-      "download",
-      "Collect missing history and images, then export JSON and Markdown",
-    )
-    .option(
-      "--db <file>",
-      "Collection file (default: per-account user-state database)",
-    )
+    .command("download", "Collect messages and images, then export in one step")
+    .option("--db <file>", "Database file (default: account collection)")
     .option(
       "--no-log",
-      `Disable automatic private logs in <database>${collectionLogSuffix}/`,
+      `Disable private logs in <database>${collectionLogSuffix}/`,
       {
         default: commandDefaults.log,
       },
     )
     .option(
       "--backup-dir <directory>",
-      `Override backup directory (default: <database>${collectionBackupSuffix}); snapshots every ${collectionBackupIntervalMs / 3600000} hour(s) and on completion; no automatic deletion`,
+      `Database snapshot folder (default: <database>${collectionBackupSuffix}/)`,
     )
     .option("--no-backup", "Disable automatic collection backups", {
       default: commandDefaults.backup,
     })
-    .option("--chat <id>", "Raw chat ID; skips directory/profile lookup")
+    .option("--chat <id>", "Chat ID (skips name lookup)")
     .option(
       "--chat-label <label>",
-      "Exact resolved chat label (case-insensitive)",
+      "Exact chat name (case-insensitive; see teams chats)",
     )
     .option("--credentials <file>", "Override automatic credential file lookup")
-    .option(
-      "--all-history",
-      "Collect all accessible history from Unix millisecond 1 through now",
-    )
-    .option("--last <Nd>", "Last N calendar days including today")
+    .option("--all-history", "Backfill all accessible history through now")
+    .option("--last <Nd>", "Last N local calendar days, including today")
     .option(
       "--since <timestamp>",
-      "Inclusive start timestamp through invocation time",
+      "Start timestamp through now (requires Z or timezone offset)",
     )
-    .option("--from <timestamp>", "Inclusive start timestamp with Z or offset")
-    .option("--to <timestamp>", "Exclusive end timestamp with Z or offset")
+    .option(
+      "--from <timestamp>",
+      "Start timestamp (inclusive); requires --to and Z or offset",
+    )
+    .option(
+      "--to <timestamp>",
+      "End timestamp (exclusive); requires --from and Z or offset",
+    )
     .option(
       "--page-delay-min <seconds>",
       `Minimum pause between pages and collection windows (default: ${defaultPageDelay.min})`,
@@ -389,54 +383,46 @@ export async function runCli(argv = process.argv): Promise<number> {
       output(JSON.stringify(result));
     });
   cli
-    .command(
-      "collect",
-      "Catch up saved chat history into SQLite, optionally download images (no export)",
-    )
-    .option(
-      "--db <file>",
-      "Collection file (default: per-account user-state database)",
-    )
+    .command("collect", "Save messages; add --images to download images too")
+    .option("--db <file>", "Database file (default: account collection)")
     .option(
       "--no-log",
-      `Disable automatic private logs in <database>${collectionLogSuffix}/`,
+      `Disable private logs in <database>${collectionLogSuffix}/`,
       {
         default: commandDefaults.log,
       },
     )
     .option(
       "--backup-dir <directory>",
-      `Override backup directory (default: <database>${collectionBackupSuffix}); snapshots every ${collectionBackupIntervalMs / 3600000} hour(s) and on completion; no automatic deletion`,
+      `Database snapshot folder (default: <database>${collectionBackupSuffix}/)`,
     )
     .option("--no-backup", "Disable automatic collection backups", {
       default: commandDefaults.backup,
     })
-    .option("--chat <id>", "Raw chat ID; skips directory/profile lookup")
-    .option(
-      "--all-chats",
-      "Catch up every saved chat by default; skips directory/profile lookup",
-    )
-    .option(
-      "--images",
-      "Download pending images for selected chats after history collection; no export",
-      { default: commandDefaults.images },
-    )
+    .option("--chat <id>", "Chat ID (skips name lookup)")
+    .option("--all-chats", "Every chat already saved in the database")
+    .option("--images", "Also download pending images (off by default)", {
+      default: commandDefaults.images,
+    })
     .option(
       "--chat-label <label>",
-      "Exact resolved chat label (case-insensitive)",
+      "Exact chat name (case-insensitive; see teams chats)",
     )
     .option("--credentials <file>", "Override automatic credential file lookup")
-    .option(
-      "--all-history",
-      "Collect all accessible history from Unix millisecond 1 through now",
-    )
-    .option("--last <Nd>", "Last N calendar days including today")
+    .option("--all-history", "Backfill all accessible history through now")
+    .option("--last <Nd>", "Last N local calendar days, including today")
     .option(
       "--since <timestamp>",
-      "Inclusive start timestamp through invocation time",
+      "Start timestamp through now (requires Z or timezone offset)",
     )
-    .option("--from <timestamp>", "Inclusive start timestamp with Z or offset")
-    .option("--to <timestamp>", "Exclusive end timestamp with Z or offset")
+    .option(
+      "--from <timestamp>",
+      "Start timestamp (inclusive); requires --to and Z or offset",
+    )
+    .option(
+      "--to <timestamp>",
+      "End timestamp (exclusive); requires --from and Z or offset",
+    )
     .option(
       "--page-delay-min <seconds>",
       `Minimum pause between pages and collection windows (default: ${defaultPageDelay.min})`,
@@ -507,15 +493,15 @@ export async function runCli(argv = process.argv): Promise<number> {
       } else output(JSON.stringify(result));
     });
   cli
-    .command("export", "Export saved history to JSON and Markdown, offline")
+    .command("export", "Write JSON and Markdown from saved history, offline")
     .alias("export-db")
     .option(
       "--db <file>",
-      "Collection file (default: single saved account collection)",
+      "Database file (default: single saved account collection)",
     )
     .option(
       "--no-log",
-      `Disable automatic private logs in <database>${collectionLogSuffix}/`,
+      `Disable private logs in <database>${collectionLogSuffix}/`,
       { default: commandDefaults.log },
     )
     .option("--chat <id>", "Raw chat ID stored in the collection")
@@ -526,7 +512,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option("--out <directory>", "New directory for one combined archive")
     .option(
       "--last <Nd>",
-      "Export each of the last N local calendar days to refreshable daily folders",
+      "Last N local calendar days as daily folders, including today",
     )
     .option(
       "--from <timestamp>",
@@ -564,13 +550,10 @@ export async function runCli(argv = process.argv): Promise<number> {
   cli
     .command("images", "Download pending images for saved history")
     .alias("media-db")
-    .option(
-      "--db <file>",
-      "Collection file (default: per-account user-state database)",
-    )
+    .option("--db <file>", "Database file (default: account collection)")
     .option(
       "--no-log",
-      `Disable automatic private logs in <database>${collectionLogSuffix}/`,
+      `Disable private logs in <database>${collectionLogSuffix}/`,
       { default: commandDefaults.log },
     )
     .option(
@@ -619,7 +602,7 @@ export async function runCli(argv = process.argv): Promise<number> {
         ),
       );
     });
-  cli.help();
+  configureCliHelp(cli);
   cli.version("0.1.0");
   process.on("SIGINT", cancel);
   process.on("SIGTERM", cancel);

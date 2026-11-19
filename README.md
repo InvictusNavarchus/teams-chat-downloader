@@ -33,6 +33,8 @@ teams download --chat-label 'Project Alpha' --last 1d
 
 The linked command runs current source from this checkout and requires its dependencies and Bun. Relative paths and the default `exports/` directory belong to the invoking working directory. Relink after moving the checkout; `bun unlink` removes the registration.
 
+`teams --help` starts with common catch-up, initial collection, and offline export examples. Use `teams collect --help` or `teams export --help` for grouped options and defaults; advanced options and archive utilities remain listed.
+
 ## One collection workflow
 
 | Command | Purpose |
