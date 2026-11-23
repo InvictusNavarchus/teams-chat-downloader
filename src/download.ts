@@ -30,10 +30,10 @@ export async function downloadChat(
     signal,
     onCollection,
   );
-  let mediaError: unknown;
+  let mediaError: string | undefined;
   if (options.media) {
     try {
-      await downloadDatabaseMedia(
+      const media = await downloadDatabaseMedia(
         {
           db: options.db,
           chat: collection.chatId,
@@ -47,19 +47,27 @@ export async function downloadChat(
           if (event.phase === "summary") report(event.message);
           else if (event.phase === "start")
             report(`[images] Processing ${event.total} image(s).`);
-          else
+          else {
+            const outcome =
+              event.outcome === "failed"
+                ? `failed: ${event.reason}`
+                : event.outcome;
             report(
-              `[images] Image ${event.current}/${event.total}: ${event.outcome}.`,
+              `[images] Image ${event.current}/${event.total} (${outcome})`,
             );
+          }
         },
       );
+      if (media.failed)
+        mediaError = `${media.failed} image(s) failed. First failure: ${media.failureReason}`;
     } catch (error) {
       signal?.throwIfAborted();
-      mediaError = error;
+      mediaError = errorMessage(error);
+    }
+    if (mediaError)
       report(
         "[download] Image downloading failed; exporting saved text and available images.",
       );
-    }
   }
   let out = options.out;
   // All calendar-day requests use the same daily layout as offline export.
@@ -93,7 +101,7 @@ export async function downloadChat(
   );
   if (mediaError)
     throw new AppError(
-      `${errorMessage(mediaError)} Text export saved: ${result.output}. Retry download to resume.`,
+      `${mediaError} Text export saved: ${result.output}. Retry with teams images${options.refreshMedia ? " --refresh-media" : ""} for the same database and chat, then regenerate the export.`,
     );
   return { ...result, database: options.db, collection };
 }

@@ -15,7 +15,7 @@ import type { Credentials } from "./credentials.ts";
 import { AppError } from "./errors.ts";
 import { defaultExportDirectory } from "./export-path.ts";
 import type { Http, RequestStats } from "./http.ts";
-import type { MediaOutcome } from "./media.ts";
+import type { MediaItemProgress } from "./media.ts";
 import { renderMarkdown } from "./markdown.ts";
 import type { ExportOptions } from "./command-validation.ts";
 import {
@@ -35,12 +35,7 @@ import {
 export type ExportProgressEvent =
   | ({ type: "history" } & HistoryPageProgress)
   | { type: "media-start"; total: number }
-  | {
-      type: "media-progress";
-      current: number;
-      total: number;
-      outcome: MediaOutcome;
-    }
+  | ({ type: "media-progress" } & MediaItemProgress)
   | { type: "save"; format: "json"; destination: string }
   | { type: "convert"; format: "markdown"; destination: string };
 

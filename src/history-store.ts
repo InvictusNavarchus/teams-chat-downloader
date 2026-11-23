@@ -303,13 +303,13 @@ export class HistoryStore {
     this.db.query("UPDATE images SET status='pending' WHERE key=?").run(key);
   }
 
-  imageFailed(key: string, reason: string, cancelled = false) {
+  imageFailed(key: string, reason: string) {
     // A failed refresh keeps a previously verified file usable by offline export.
     this.db
       .query(
-        "UPDATE images SET status=CASE WHEN status='complete' THEN status ELSE ? END, last_error=? WHERE key=?",
+        "UPDATE images SET status=CASE WHEN status='complete' THEN status ELSE 'failed' END, last_error=? WHERE key=?",
       )
-      .run(cancelled ? "pending" : "failed", reason, key);
+      .run(reason, key);
   }
 
   private coverage(chat: string, window: Window): Coverage[] {

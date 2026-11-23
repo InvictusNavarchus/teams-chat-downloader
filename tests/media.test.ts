@@ -468,6 +468,58 @@ test("a later media failure keeps completed output and cached images for retry",
   expect(f.stats.media).toBe(2);
 });
 
+test.each([401, 429])(
+  "HTTP %i suppresses requests to that origin while cache and other origins still work",
+  async (status) => {
+    const blocked = url.replace("synthetic-object", "blocked");
+    const skipped = url.replace("synthetic-object", "skipped");
+    const otherOrigin = "https://experimental-api.asm.skype.com";
+    const healthy = url.replace(origin, otherOrigin);
+    const requests: string[] = [];
+    const f = await fixture();
+    const http = createHttp({
+      stats: f.stats,
+      totalTimeoutMs: 150,
+      fetch: async (request) => {
+        requests.push(request.url);
+        if (request.url === blocked)
+          return new Response(null, {
+            status,
+            headers: { "retry-after": "60" },
+          });
+        return new Response(png, { headers: { "content-type": "image/png" } });
+      },
+    });
+    await downloadImages([message()], f.out, credentials, http, f.options);
+    const outcomes: string[] = [];
+    await expect(
+      downloadImages(
+        [
+          message(
+            [blocked, skipped, url, healthy]
+              .map((src) => `<img src="${src}">`)
+              .join(""),
+          ),
+        ],
+        f.out,
+        {
+          ...credentials,
+          mediaCookies: { [origin]: cookie, [otherOrigin]: "other-cookie" },
+        },
+        http,
+        {
+          ...f.options,
+          onProgress(event) {
+            if (event.phase === "progress") outcomes.push(event.outcome);
+          },
+        },
+      ),
+    ).rejects.toThrow("2 image(s) failed");
+    expect(requests).toEqual([url, blocked, healthy]);
+    expect(outcomes).toEqual(["failed", "failed", "cache", "downloaded"]);
+  },
+);
+
 test("cancellation after receiving a body publishes no image directory", async () => {
   const controller = new AbortController();
   const f = await fixture(async () => {

@@ -94,9 +94,9 @@ teams collect --all-chats --images
 teams export --all-chats --last 5d
 ```
 
-Reuse `--db <file>` on collection, image, and export commands if you originally chose a custom database. `--all-chats` uses saved chat IDs without directory/profile lookup; it does not discover new chats. With no date flags, `collect` catches up from each chat’s earliest completed interval through now, retrying gaps within that range. Use `--all-history` to also backfill older history. A chat without completed coverage requires `--all-history` or an explicit date range for its initial collection. The old `--all` flag has been replaced by `--all-history` on both `collect` and `download`. Chats run sequentially and stop on failure or cancellation; rerun to resume from saved checkpoints. This selector is available on `collect` and daily `export`; `download` and combined `export --out` still require one chat.
+Reuse `--db <file>` on collection, image, and export commands if you originally chose a custom database. `--all-chats` uses saved chat IDs without directory/profile lookup; it does not discover new chats. With no date flags, `collect` catches up from each chat’s earliest completed interval through now, retrying gaps within that range. Use `--all-history` to also backfill older history. A chat without completed coverage requires `--all-history` or an explicit date range for its initial collection. The old `--all` flag has been replaced by `--all-history` on both `collect` and `download`. History collection runs sequentially and stops on failure or cancellation. Rerun to resume from saved checkpoints. This selector is available on `collect` and daily `export`; `download` and combined `export --out` still require one chat.
 
-`collect --images` downloads pending images across the selected chats’ saved history, including older pending references. Verified files are skipped. History failure stops before images; image failure or cancellation preserves completed history and image files for retry. Collection never creates JSON or Markdown bundles.
+`collect --images` downloads pending images across the selected chats’ saved history, including older pending references. History must finish before images start. If an individual image fails, the queue continues through later images and chats, then reports the failures and exits with status 1. Rerun the command to retry failed images and skip verified files. Collection never creates JSON or Markdown bundles.
 
 `export --all-chats --last 5d` writes JSON, Markdown, and saved images to each chat’s daily folders. It checks all chats’ coverage and folder-name conflicts before publishing. To download missing images first, use `collect --all-chats --images` or `images`; export itself stays offline.
 
@@ -131,7 +131,7 @@ For an existing standalone JSON archive, `teams media --input <chat.json>` remai
 
 - Expired credentials: run `login` again. For missing image credentials, use `login --wait-for-media` and open a chat containing images.
 - Interrupted download: rerun it. Completed database intervals and image files remain saved. A failed history phase leaves previously exported files intact.
-- Image failure: saved text and available images are exported when possible, and the command exits unsuccessfully. Retry `download`, or run `images` and then `export`.
+- If some images fail, `download` exports the text and available images, then exits with status 1. Run `teams images` to retry pending files, then regenerate the export. Standalone `media` updates its JSON archive and generated Markdown with the images it saves, even on a partial pass.
 - Unsupported attachments remain placeholders. Only supported inline images are downloaded; standard Teams emoji render as text.
 - Collection preserves previously observed history; it cannot recover messages Teams never made available. It does not synchronize later edits or deletions.
 - Combined exports load their selected range into memory; daily exports load one day at a time.

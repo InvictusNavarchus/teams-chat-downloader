@@ -224,20 +224,27 @@ test("media authentication failure preserves text, and saved history can be retr
   expect(f.stats.history).toBe(1);
 });
 
-test("failed and cancelled media passes preserve text and reuse completed images on retry", async () => {
+test("a media pass publishes later successes and a cancelled retry keeps that partial archive", async () => {
   let fail = true;
   const f = await fixture([image("one"), image("two")], async (request) =>
-    fail && request.url.includes("/two/")
+    fail && request.url.includes("/one/")
       ? new Response("private", { status: 403 })
       : new Response(png, { headers: { "content-type": "image/png" } }),
   );
-  const raw = await readFile(f.input, "utf8");
-  const text = await readFile(f.markdown, "utf8");
   await expect(
     downloadArchiveMedia(f.options, credentials, f.http, f.stats),
   ).rejects.toThrow("HTTP 403");
-  expect(await readFile(f.input, "utf8")).toBe(raw);
-  expect(await readFile(f.markdown, "utf8")).toBe(text);
+  const raw = await readFile(f.input, "utf8");
+  const text = await readFile(f.markdown, "utf8");
+  const partial = await readArchive(f.input);
+  expect(partial.media).toMatchObject({
+    status: "partial",
+    downloaded: 1,
+    images: [{ messageId: "two" }],
+  });
+  expect(partial.requests).toMatchObject({ media: 2 });
+  expect(text).toContain("](media/");
+  expect(text).toContain("Image not downloaded");
   expect(await readdir(dirname(f.input))).not.toContain("chat.json.media.lock");
   expect(await readdir(join(dirname(f.input), "media"))).toHaveLength(1);
 
@@ -256,7 +263,7 @@ test("failed and cancelled media passes preserve text and reuse completed images
   ).rejects.toThrow("cancelled");
   expect(await readFile(f.input, "utf8")).toBe(raw);
   expect(await readFile(f.markdown, "utf8")).toBe(text);
-  expect(f.stats.media).toBe(2);
+  expect(f.stats.media).toBe(3);
   fail = false;
   await downloadArchiveMedia(f.options, credentials, f.http, f.stats);
   const updated = await readArchive(f.input);
@@ -266,10 +273,10 @@ test("failed and cancelled media passes preserve text and reuse completed images
     cacheHits: 1,
   });
   expect(updated.futureManifestField).toEqual({ preserved: true });
-  expect(f.stats).toMatchObject({ history: 0, media: 3 });
+  expect(f.stats).toMatchObject({ history: 0, media: 4 });
 });
 
-test("a failed refresh leaves previous manifests and image bytes valid", async () => {
+test("a partial refresh publishes updated images and retains verified previous links", async () => {
   let refresh = false;
   const f = await fixture([image("one"), image("two")], async (request) => {
     if (refresh && request.url.includes("/two/"))
@@ -279,8 +286,6 @@ test("a failed refresh leaves previous manifests and image bytes valid", async (
     });
   });
   await downloadArchiveMedia(f.options, credentials, f.http, f.stats);
-  const raw = await readFile(f.input, "utf8");
-  const text = await readFile(f.markdown, "utf8");
   const before = await readArchive(f.input);
   refresh = true;
   await expect(
@@ -291,8 +296,23 @@ test("a failed refresh leaves previous manifests and image bytes valid", async (
       f.stats,
     ),
   ).rejects.toThrow("HTTP 403");
-  expect(await readFile(f.input, "utf8")).toBe(raw);
-  expect(await readFile(f.markdown, "utf8")).toBe(text);
+  const updated = await readArchive(f.input);
+  expect(updated.media).toMatchObject({
+    status: "partial",
+    downloaded: 1,
+    images: [{ messageId: "one" }, { messageId: "two" }],
+  });
+  if (updated.media.status === "not-downloaded")
+    throw new Error("Missing images");
+  expect(
+    await readFile(join(dirname(f.input), updated.media.images[0]!.path)),
+  ).toEqual(gif);
+  expect(
+    await readFile(join(dirname(f.input), updated.media.images[1]!.path)),
+  ).toEqual(png);
+  expect(await readFile(f.markdown, "utf8")).not.toContain(
+    "Image not downloaded",
+  );
   if (before.media.status === "not-downloaded")
     throw new Error("Missing images");
   for (const entry of before.media.images)

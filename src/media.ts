@@ -19,7 +19,7 @@ import {
 } from "./archive.ts";
 import type { Credentials } from "./credentials.ts";
 import { AppError } from "./errors.ts";
-import type { Http } from "./http.ts";
+import { ImageResponseError, type Http } from "./http.ts";
 import { teamsEmojiText } from "./teams-emoji.ts";
 
 export const mediaOrigins = [
@@ -132,7 +132,7 @@ function identify(
     data.readUInt32LE(4) + 8 === data.length
   )
     return { extension: "webp", mediaType: type };
-  throw new AppError(
+  throw new ImageResponseError(
     "Media response is not a supported complete JPEG, PNG, GIF, or WebP image.",
   );
 }
@@ -174,16 +174,26 @@ async function publishCache(
   }
 }
 
-export type MediaOutcome = "cache" | "revalidated" | "downloaded";
+type SavedImageOutcome = "cache" | "revalidated" | "downloaded";
+
+export type MediaItemProgress = {
+  current: number;
+  total: number;
+} & ({ outcome: SavedImageOutcome } | { outcome: "failed"; reason: string });
 
 export type MediaProgress =
   | { phase: "start"; total: number }
-  | {
-      phase: "progress";
-      current: number;
-      total: number;
-      outcome: MediaOutcome;
-    };
+  | ({ phase: "progress" } & MediaItemProgress);
+
+export class IncompleteImageDownload extends AppError {
+  constructor(
+    readonly media: DownloadedMedia,
+    readonly failedKeys: ReadonlySet<string>,
+    readonly reason: string,
+  ) {
+    super(`${failedKeys.size} image(s) failed. First failure: ${reason}`);
+  }
+}
 
 // Shared by archive downloads and SQLite indexing; never persist a translated
 // destination in place of the source identity used by Markdown and cache keys.
@@ -220,6 +230,7 @@ export function messageImageReferences(message: Message): {
 export async function readStoredImage(
   directory: string,
   image: ArchiveImage,
+  allowLegacyPath = false,
 ): Promise<Uint8Array | undefined> {
   const parsed = downloadedMediaSchema.safeParse({
     status: "complete",
@@ -249,7 +260,13 @@ export async function readStoredImage(
     } catch {
       return;
     }
-    if (image.path !== `media/${image.sha256}.${type.extension}`) return;
+    if (
+      image.path !== `media/${image.sha256}.${type.extension}` &&
+      !(
+        allowLegacyPath && image.path === `media/${image.key}.${type.extension}`
+      )
+    )
+      return;
     return bytes;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
@@ -272,6 +289,8 @@ export async function downloadImages(
     // Database callers save bytes beside SQLite; descriptors retain portable paths.
     directory?: string;
     onImage?: (image: ArchiveImage) => void;
+    onImageFailure?: (key: string, reason: string) => void;
+    unavailableOrigins?: Map<string, ImageResponseError>;
     // References already classified by the SQLite index, outside this work list.
     unsupported?: number;
   } = {},
@@ -309,92 +328,39 @@ export async function downloadImages(
   );
   let completed = 0;
   let revalidated = 0;
-  let failed = 0;
+  const failed = new Set<string>();
+  let firstFailure: string | undefined;
+  const unavailableOrigins = options.unavailableOrigins ?? new Map();
   if (resources.size > 0) {
     options.onProgress?.({ phase: "start", total: resources.size });
   }
   try {
-    // Sequential downloads keep concurrency bounded at one and stop immediately on failure.
+    // Storage, checkpoint, and cancellation errors still stop the queue.
     for (const [key, resource] of resources) {
       options.signal?.throwIfAborted();
       let image = await cached(cache, key);
-      let outcome: MediaOutcome;
+      let outcome: SavedImageOutcome;
       if (image && !options.refresh) {
-        media.cacheHits++;
         outcome = "cache";
       } else {
-        const cookie =
-          credentials.mediaCookies?.[
-            resource.url.origin as (typeof mediaOrigins)[number]
-          ];
-        if (!cookie)
-          throw new AppError(
-            "Image credentials are missing. Run teams login --wait-for-media and open an image-containing chat, or use --no-media.",
-          );
-        const headers: Record<string, string> = {
-          Cookie: `skypetoken_asm=${cookie}`,
-        };
-        if (image?.entry.etag) headers["If-None-Match"] = image.entry.etag;
-        else if (image?.entry.lastModified)
-          headers["If-Modified-Since"] = image.entry.lastModified;
-        const response = await http.image(
-          resource.url,
-          headers,
-          (destination) => {
-            if (
-              !imageUrl(destination.href) ||
-              destination.href !== resource.url.href
-            )
-              throw new AppError("Refused an unexpected media destination.");
-          },
-        );
-        if (response.status === 304) {
-          if (!image)
-            throw new AppError(
-              "Media returned 304 without a complete cached image.",
-            );
-          media.cacheHits++;
-          revalidated++;
-          outcome = "revalidated";
-        } else {
-          if (response.status !== 200)
-            throw new AppError(
-              "Media did not return a complete image (HTTP 200 required).",
-            );
-          const type = identify(
-            response.bytes,
-            response.headers.get("content-type") ?? "",
-          );
-          const entry: CacheEntry = {
-            version: 1,
-            key,
-            ...type,
-            sha256: digest(response.bytes),
-            bytes: response.bytes.length,
-            ...(response.headers.get("etag")
-              ? { etag: response.headers.get("etag")! }
-              : {}),
-            ...(response.headers.get("last-modified")
-              ? { lastModified: response.headers.get("last-modified")! }
-              : {}),
-          };
-          const parsed = cacheSchema.safeParse(entry);
-          if (!parsed.success)
-            throw new AppError("Media returned invalid cache validators.");
-          await mkdir(cache, { recursive: true, mode: 0o700 });
-          await publishCache(
-            join(cache, `${entry.sha256}.${entry.extension}`),
-            response.bytes,
-            options.signal,
-          );
-          await publishCache(
-            join(cache, `${key}.json`),
-            JSON.stringify(entry),
-            options.signal,
-          );
-          image = { entry, bytes: response.bytes };
-          media.downloaded++;
-          outcome = "downloaded";
+        try {
+          ({ image, outcome } = await fetchImage(key, resource.url, image));
+        } catch (error) {
+          options.signal?.throwIfAborted();
+          if (!(error instanceof ImageResponseError)) throw error;
+          if (error.status === 401 || error.status === 429)
+            unavailableOrigins.set(resource.url.origin, error);
+          failed.add(key);
+          firstFailure ??= error.message;
+          options.onImageFailure?.(key, error.message);
+          options.onProgress?.({
+            phase: "progress",
+            current: completed + failed.size,
+            total: resources.size,
+            outcome: "failed",
+            reason: error.message,
+          });
+          continue;
         }
       }
       const directory = options.directory ?? mediaDirectory(output);
@@ -417,18 +383,24 @@ export async function downloadImages(
         });
       }
       options.onImage?.(media.images.at(-1)!);
+      if (outcome === "downloaded") media.downloaded++;
+      else media.cacheHits++;
+      if (outcome === "revalidated") revalidated++;
       completed++;
       options.onProgress?.({
         phase: "progress",
-        current: completed,
+        current: completed + failed.size,
         total: resources.size,
         outcome,
       });
     }
     options.signal?.throwIfAborted();
+    if (firstFailure !== undefined) {
+      media.status = "partial";
+      throw new IncompleteImageDownload(media, failed, firstFailure);
+    }
     return media;
   } catch (error) {
-    failed = resources.size - completed;
     if (options.signal?.aborted)
       throw new AppError("Export cancelled; completed images and cache kept.");
     if (error instanceof AppError) throw error;
@@ -437,7 +409,78 @@ export async function downloadImages(
     );
   } finally {
     (options.onSummary ?? console.log)(
-      `Images: ${media.cacheHits - revalidated} reused from local cache, ${revalidated} revalidated with Teams (HTTP 304), ${media.downloaded} downloaded (HTTP 200), ${failed} unfinished; unsupported media references: ${media.unsupported}.`,
+      `Images: ${completed} saved, ${failed.size} failed, ${resources.size - completed - failed.size} unfinished; ${media.cacheHits - revalidated} reused from local cache, ${revalidated} revalidated with Teams (HTTP 304), ${media.downloaded} downloaded (HTTP 200); unsupported media references: ${media.unsupported}.`,
     );
+  }
+
+  async function fetchImage(
+    key: string,
+    url: URL,
+    previous?: Image,
+  ): Promise<{ image: Image; outcome: "downloaded" | "revalidated" }> {
+    const unavailable = unavailableOrigins.get(url.origin);
+    if (unavailable)
+      throw new ImageResponseError(
+        `Skipped request to ${url.hostname}. ${unavailable.message}`,
+      );
+    const cookie =
+      credentials.mediaCookies?.[url.origin as (typeof mediaOrigins)[number]];
+    if (!cookie) {
+      const error = new ImageResponseError(
+        "Image credentials are missing. Run teams login --wait-for-media and open an image-containing chat, or use --no-media.",
+      );
+      unavailableOrigins.set(url.origin, error);
+      throw error;
+    }
+    const headers: Record<string, string> = {
+      Cookie: `skypetoken_asm=${cookie}`,
+    };
+    if (previous?.entry.etag) headers["If-None-Match"] = previous.entry.etag;
+    else if (previous?.entry.lastModified)
+      headers["If-Modified-Since"] = previous.entry.lastModified;
+    const response = await http.image(url, headers, (destination) => {
+      if (!imageUrl(destination.href) || destination.href !== url.href)
+        throw new AppError("Refused an unexpected media destination.");
+    });
+    if (response.status === 304) {
+      if (!previous)
+        throw new ImageResponseError(
+          "Media returned 304 without a complete cached image.",
+        );
+      return { image: previous, outcome: "revalidated" };
+    }
+    if (response.status !== 200)
+      throw new ImageResponseError(
+        "Media did not return a complete image (HTTP 200 required).",
+      );
+    const type = identify(
+      response.bytes,
+      response.headers.get("content-type") ?? "",
+    );
+    const etag = response.headers.get("etag");
+    const lastModified = response.headers.get("last-modified");
+    const entry: CacheEntry = {
+      version: 1,
+      key,
+      ...type,
+      sha256: digest(response.bytes),
+      bytes: response.bytes.length,
+      ...(etag ? { etag } : {}),
+      ...(lastModified ? { lastModified } : {}),
+    };
+    if (!cacheSchema.safeParse(entry).success)
+      throw new ImageResponseError("Media returned invalid cache validators.");
+    await mkdir(cache, { recursive: true, mode: 0o700 });
+    await publishCache(
+      join(cache, `${entry.sha256}.${entry.extension}`),
+      response.bytes,
+      options.signal,
+    );
+    await publishCache(
+      join(cache, `${key}.json`),
+      JSON.stringify(entry),
+      options.signal,
+    );
+    return { image: { entry, bytes: response.bytes }, outcome: "downloaded" };
   }
 }

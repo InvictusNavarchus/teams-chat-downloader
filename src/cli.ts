@@ -39,7 +39,7 @@ import { downloadDatabaseMedia } from "./database-media.ts";
 import { loadCredentials } from "./credentials.ts";
 import { AppError, errorMessage } from "./errors.ts";
 import type { ExportProgressEvent } from "./export.ts";
-import { createHttp, requestStats } from "./http.ts";
+import { createHttp, requestStats, type ImageResponseError } from "./http.ts";
 import type { MediaProgress } from "./media.ts";
 import { writeChatList } from "./output.ts";
 import { historyProgress, listChats } from "./teams.ts";
@@ -94,11 +94,15 @@ export async function runCli(argv = process.argv): Promise<number> {
         output(`[media] Found ${event.total} image(s); processing...`);
         break;
       case "media-progress": {
-        const outcome = {
-          cache: "reused from local cache",
-          revalidated: "revalidated with Teams: HTTP 304; reused cached bytes",
-          downloaded: "downloaded: HTTP 200",
-        }[event.outcome];
+        const outcome =
+          event.outcome === "failed"
+            ? `failed: ${event.reason}`
+            : {
+                cache: "reused from local cache",
+                revalidated:
+                  "revalidated with Teams: HTTP 304; reused cached bytes",
+                downloaded: "downloaded: HTTP 200",
+              }[event.outcome];
         output(`[media] Image ${event.current}/${event.total} (${outcome})`);
         break;
       }
@@ -116,13 +120,13 @@ export async function runCli(argv = process.argv): Promise<number> {
     if (event.phase === "summary") output(event.message);
     else if (event.phase === "start")
       reportProgress({ type: "media-start", total: event.total });
-    else
+    else {
+      const { phase: _phase, ...progress } = event;
       reportProgress({
         type: "media-progress",
-        current: event.current,
-        total: event.total,
-        outcome: event.outcome,
+        ...progress,
       });
+    }
   };
   const reportCollection = (event: CollectionEvent) => {
     if (event.type === "warning") warning(event.message);
@@ -469,6 +473,7 @@ export async function runCli(argv = process.argv): Promise<number> {
         );
         const selected = "chats" in result ? result.chats : [result];
         const images = [];
+        const unavailableOrigins = new Map<string, ImageResponseError>();
         for (const [index, chat] of selected.entries()) {
           controller.signal.throwIfAborted();
           output(
@@ -485,10 +490,17 @@ export async function runCli(argv = process.argv): Promise<number> {
             http,
             controller.signal,
             reportDatabaseMedia,
+            undefined,
+            unavailableOrigins,
           );
           images.push({ chatId: chat.chatId, ...media });
         }
+        const failed = images.reduce((count, chat) => count + chat.failed, 0);
         output(JSON.stringify({ ...result, images }));
+        if (failed)
+          throw new AppError(
+            `${failed} image download(s) failed across the selected chats. Saved history and images remain available. Rerun collect --images or teams images to retry.`,
+          );
       } else output(JSON.stringify(result));
     });
   cli
@@ -594,17 +606,18 @@ export async function runCli(argv = process.argv): Promise<number> {
       output(
         `[images] Requested chat: ${JSON.stringify(options.chat ?? options.chatLabel ?? "all chats")}; refresh: ${options.refreshMedia}`,
       );
-      output(
-        JSON.stringify(
-          await downloadDatabaseMedia(
-            options,
-            credentials,
-            http,
-            controller.signal,
-            reportDatabaseMedia,
-          ),
-        ),
+      const result = await downloadDatabaseMedia(
+        options,
+        credentials,
+        http,
+        controller.signal,
+        reportDatabaseMedia,
       );
+      output(JSON.stringify(result));
+      if (result.failed)
+        throw new AppError(
+          `${result.failed} image(s) failed. First failure: ${result.failureReason} Completed image files and database records remain saved. Rerun this command to retry.`,
+        );
     });
   configureCliHelp(cli);
   cli.version("0.1.0");

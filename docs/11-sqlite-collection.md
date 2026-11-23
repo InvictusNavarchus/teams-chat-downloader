@@ -80,7 +80,7 @@ Implementation reference: [SQLite VACUUM INTO](https://www.sqlite.org/lang_vacuu
 
 `collect --images` is CLI orchestration: finish `collectHistory`/`collectChats` first, including database backups, then call `downloadDatabaseMedia` once per selected result chat ID. Reuse resolved raw IDs even for a label selector, without a second directory/profile lookup. Batch image selection is limited to the IDs chosen by the history phase. Process all pending references saved for each selected chat, irrespective of the history date window; verify and reuse shared completed files. Each phase uses its existing reservation rather than nesting locks. `commandDefaults.images` is false; `download` retains its separate media/export defaults and rejects this collect-only flag.
 
-Mirror image progress through the same CLI log/output helpers used by standalone `images`. Only print a successful final result after all image phases complete; include an `images` array with per-chat results. On image failure/cancellation, retain history and already published image files/rows, stop later chats, and preserve existing media recovery diagnostics. Failed/cancelled history never starts media work. Do not call the exporter or publish JSON/Markdown from collection. Collection backups remain database-only and precede media work.
+Mirror image progress through the same CLI log/output helpers used by standalone `images`. After processing the selected chats, print an `images` array with per-chat results and exit 1 if any supported image failed. Share the blocked media origins across chats for the invocation. Cancellation or a storage failure stops later chats and preserves history and published image files and rows. Failed or cancelled history prevents media work. Collection backups remain database-only and precede media work.
 
 ## Independent image collection
 
@@ -88,7 +88,7 @@ Mirror image progress through the same CLI log/output helpers used by standalone
 
 Before skipping completed work, verify file/directory types (no symlinks), byte length, checksum, and signature. Valid completed bytes need neither HTTP nor the disposable shared cache. Missing/corrupt files become pending for cache restoration or download. Cache validators provide conditional refresh; absent cache entries receive normal downloads. A failed refresh preserves previously verified metadata/files. Old unreferenced content-addressed files are retained.
 
-Successful images survive a later failure. The active unfinished resource is marked failed with a sanitized reason, or pending on cancellation; unstarted work remains pending. Rerun to continue. Unsupported references produce partial coverage. Cookies, request cursors, and raw HTTP error bodies are never stored or logged. Each database remains bound to one account, and image identities are shared across its chats.
+Successful images survive a later failure. Record individual download failures with a sanitized reason and continue through the queue. A failed refresh records the error and keeps verified complete rows eligible for offline export. Pending or failed rows remain eligible on retry. Unsupported references produce partial coverage. Cookies, request cursors, and raw HTTP error bodies are never stored or logged. Each database remains bound to one account, and image identities are shared across its chats.
 
 ## Offline archive generation and analytics
 

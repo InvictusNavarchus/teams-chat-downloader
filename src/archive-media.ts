@@ -7,7 +7,12 @@ import { AppError } from "./errors.ts";
 import type { ExportProgressEvent } from "./export.ts";
 import type { Http, RequestStats } from "./http.ts";
 import { renderMarkdown } from "./markdown.ts";
-import { downloadImages } from "./media.ts";
+import {
+  downloadImages,
+  IncompleteImageDownload,
+  mediaDirectory,
+  readStoredImage,
+} from "./media.ts";
 import type { MediaOptions } from "./command-validation.ts";
 import { updateExport, updateMarkdown, withArchiveLock } from "./output.ts";
 
@@ -63,7 +68,9 @@ export async function downloadLockedArchiveMedia(
     if (!counts.success)
       throw new AppError("Input export has invalid request counts.");
     const before = { ...stats };
-    archive.media = await downloadImages(
+    const previous = archive.media;
+    let incomplete: IncompleteImageDownload | undefined;
+    const media = await downloadImages(
       archive.messages,
       output,
       credentials,
@@ -74,22 +81,49 @@ export async function downloadLockedArchiveMedia(
         onProgress: (event) => {
           if (event.phase === "start")
             onProgress?.({ type: "media-start", total: event.total });
-          else
-            onProgress?.({
-              type: "media-progress",
-              current: event.current,
-              total: event.total,
-              outcome: event.outcome,
-            });
+          else {
+            const { phase: _phase, ...progress } = event;
+            onProgress?.({ type: "media-progress", ...progress });
+          }
         },
       },
-    );
+    ).catch((error: unknown) => {
+      if (
+        !(error instanceof IncompleteImageDownload) ||
+        !error.media.images.length
+      )
+        throw error;
+      incomplete = error;
+      return error.media;
+    });
+    if (incomplete && previous.status !== "not-downloaded") {
+      const verified = new Map<string, boolean>();
+      const directory = mediaDirectory(output);
+      for (const image of previous.images) {
+        signal?.throwIfAborted();
+        if (!incomplete.failedKeys.has(image.key)) continue;
+        const descriptor = JSON.stringify([
+          image.key,
+          image.path,
+          image.sha256,
+          image.bytes,
+          image.mediaType,
+        ]);
+        if (!verified.has(descriptor))
+          verified.set(
+            descriptor,
+            !!(await readStoredImage(directory, image, true)),
+          );
+        if (verified.get(descriptor)) media.images.push(image);
+      }
+    }
+    archive.media = media;
     // Add only this pass: export's history requests are already in the archive.
     const requests = counts.data;
     for (const key of Object.keys(before) as (keyof RequestStats)[])
       requests[key] += stats[key] - before[key];
     requests.scope =
-      "HTTP client attempts for published history and media passes; retries included; failed media passes excluded; redirects refused; browser traffic excluded";
+      "HTTP client attempts for published history and media passes; retries included; unpublished media passes excluded; redirects refused; browser traffic excluded";
     archive.requests = requests;
     archive.mediaUpdatedAt = new Date().toISOString();
     await updateExport(output, archive, signal);
@@ -113,6 +147,7 @@ export async function downloadLockedArchiveMedia(
         );
       }
     }
+    if (incomplete) throw incomplete;
     return {
       output,
       messages: archive.messages.length,

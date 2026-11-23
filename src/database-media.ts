@@ -10,10 +10,11 @@ import {
   reserveCollection,
   storedImageDescriptor,
 } from "./history-store.ts";
-import type { Http } from "./http.ts";
+import type { Http, ImageResponseError } from "./http.ts";
 import {
   downloadImages,
   imageSourceUrl,
+  IncompleteImageDownload,
   readStoredImage,
   type MediaProgress,
 } from "./media.ts";
@@ -27,6 +28,7 @@ export async function downloadDatabaseMedia(
     event: MediaProgress | { phase: "summary"; message: string },
   ) => void,
   cacheRoot?: string,
+  unavailableOrigins?: Map<string, ImageResponseError>,
 ) {
   signal?.throwIfAborted();
   try {
@@ -69,7 +71,7 @@ export async function downloadDatabaseMedia(
         alreadyDownloaded++;
         continue;
       }
-      if (!valid) store.imagePending(image.key);
+      if (image.status === "complete" && !valid) store.imagePending(image.key);
       const source = imageSourceUrl(image.source_url);
       if (
         !source ||
@@ -85,7 +87,6 @@ export async function downloadDatabaseMedia(
         content: `<img src="${source.href}">`,
       });
     }
-    const completed = new Set<string>();
     const unsupported = store.unsupportedImages(chat);
     onProgress?.({
       phase: "summary",
@@ -97,48 +98,45 @@ export async function downloadDatabaseMedia(
         message:
           "[images] No images need downloading; no media requests needed.",
       });
-    try {
-      const result = await downloadImages(
-        pending,
-        options.db,
-        credentials,
-        http,
-        {
-          directory,
-          unsupported,
-          cacheRoot,
-          refresh: options.refreshMedia,
-          signal,
-          onProgress,
-          onSummary: onProgress
-            ? (message) => onProgress({ phase: "summary", message })
-            : undefined,
-          onImage(image) {
-            store!.saveImage(image);
-            completed.add(image.key);
-          },
-        },
-      );
-      return {
-        database: options.db,
-        status: unsupported ? "partial" : "complete",
-        images: images.length,
-        alreadyDownloaded,
-        saved: completed.size,
-        downloaded: result.downloaded,
-        cacheHits: result.cacheHits,
+    let failed = 0;
+    let failureReason: string | undefined;
+    const result = await downloadImages(
+      pending,
+      options.db,
+      credentials,
+      http,
+      {
+        directory,
         unsupported,
-      };
-    } catch (error) {
-      const active = pending.find((message) => !completed.has(message.id));
-      if (active)
-        store.imageFailed(
-          active.id,
-          signal?.aborted ? "Image download cancelled." : errorMessage(error),
-          signal?.aborted,
-        );
-      throw error;
-    }
+        cacheRoot,
+        refresh: options.refreshMedia,
+        signal,
+        unavailableOrigins,
+        onProgress,
+        onSummary: onProgress
+          ? (message) => onProgress({ phase: "summary", message })
+          : undefined,
+        onImage: (image) => store!.saveImage(image),
+        onImageFailure: (key, reason) => store!.imageFailed(key, reason),
+      },
+    ).catch((error: unknown) => {
+      if (!(error instanceof IncompleteImageDownload)) throw error;
+      failed = error.failedKeys.size;
+      failureReason = error.reason;
+      return error.media;
+    });
+    return {
+      database: options.db,
+      status: result.status,
+      images: images.length,
+      alreadyDownloaded,
+      saved: result.downloaded + result.cacheHits,
+      downloaded: result.downloaded,
+      cacheHits: result.cacheHits,
+      unsupported,
+      failed,
+      ...(failureReason === undefined ? {} : { failureReason }),
+    };
   } catch (error) {
     throw new AppError(
       `${signal?.aborted ? "Database media download cancelled." : errorMessage(error)} Completed image files and database records remain saved; rerun images to continue.`,

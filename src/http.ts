@@ -1,5 +1,20 @@
-import ky, { isHTTPError, isTimeoutError, type ResponsePromise } from "ky";
+import ky, {
+  isHTTPError,
+  isNetworkError,
+  isResponseSizeError,
+  isTimeoutError,
+  type ResponsePromise,
+} from "ky";
 import { AppError } from "./errors.ts";
+
+export class ImageResponseError extends AppError {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+  }
+}
 
 export type Purpose = "history" | "directory" | "profiles" | "media";
 export type Fetch = (request: Request, init?: RequestInit) => Promise<Response>;
@@ -42,6 +57,7 @@ export function createHttp(config: {
   ): Promise<T> {
     validate(url);
     let attempts = 0;
+    let lastMediaStatus: number | undefined;
     try {
       return await consume(
         ky(url, {
@@ -75,7 +91,9 @@ export function createHttp(config: {
             config.stats.total++;
             config.stats[purpose]++;
             if (attempts++ > 0) config.stats.retries++;
-            return (config.fetch ?? fetch)(request, init);
+            const response = await (config.fetch ?? fetch)(request, init);
+            if (purpose === "media") lastMediaStatus = response.status;
+            return response;
           },
         }),
       );
@@ -89,12 +107,31 @@ export function createHttp(config: {
             : status >= 300 && status < 400
               ? " Redirects are refused before forwarding credentials."
               : "";
-        throw new AppError(
-          `${purpose} request failed (HTTP ${status}).${detail}`,
-        );
+        const message = `${purpose} request failed (HTTP ${status}).${detail}`;
+        if (purpose === "media") throw new ImageResponseError(message, status);
+        throw new AppError(message);
       }
-      if (isTimeoutError(error))
-        throw new AppError(`${purpose} request exceeded its time budget.`);
+      if (purpose === "media" && isResponseSizeError(error))
+        throw new ImageResponseError(
+          "Media response exceeded the 50 MiB limit.",
+        );
+      if (isTimeoutError(error)) {
+        const message = `${purpose} request exceeded its time budget.`;
+        if (purpose === "media") {
+          // Ky can time out while waiting for a Retry-After on a 429 response.
+          if (lastMediaStatus === 429)
+            throw new ImageResponseError(
+              "Media retry time budget expired after HTTP 429.",
+              429,
+            );
+          throw new ImageResponseError(message);
+        }
+        throw new AppError(message);
+      }
+      if (purpose === "media" && isNetworkError(error))
+        throw new ImageResponseError(
+          "Media request failed or returned an unreadable image body.",
+        );
       if (error instanceof AppError) throw error;
       throw new AppError(
         `${purpose} request failed or returned an unreadable ${purpose === "media" ? "image" : "JSON"} body.`,

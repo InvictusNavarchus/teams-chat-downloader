@@ -269,36 +269,45 @@ test("downloads directly from SQLite, survives cache deletion, and exports porta
     expect(raw.includes(Buffer.from(secret))).toBe(false);
 });
 
-test("a later HTTP failure retains per-image checkpoints and retry downloads only unfinished images", async () => {
+test("failed images leave retryable checkpoints while later images are saved", async () => {
   const f = await fixture();
   await seed(f.db, [
     message("a"),
     message("b", `<img src="${imageUrl("second")}">`),
+    message("c", `<img src="${imageUrl("third")}">`),
   ]);
   const stats = requestStats();
   let calls = 0;
   const http = createHttp({
     stats,
-    fetch: async () =>
-      ++calls === 2 ? Response.json({}, { status: 401 }) : response(),
+    fetch: async () => {
+      calls++;
+      if (calls === 1) return new Response("private", { status: 404 });
+      if (calls === 2) return new Response("invalid image", { status: 200 });
+      return response();
+    },
   });
-  await expect(
-    downloadDatabaseMedia(
-      f.options,
-      f.credentials,
-      http,
-      undefined,
-      undefined,
-      f.cacheRoot,
-    ),
-  ).rejects.toThrow("HTTP 401");
+  const partialResult = await downloadDatabaseMedia(
+    f.options,
+    f.credentials,
+    http,
+    undefined,
+    undefined,
+    f.cacheRoot,
+  );
+  expect(partialResult).toMatchObject({
+    status: "partial",
+    saved: 1,
+    failed: 2,
+  });
+  expect(partialResult.failureReason).toContain("HTTP 404");
   let store = await HistoryStore.open(f.db);
   expect(
     store
       .images()
       .map((i) => i.status)
       .sort(),
-  ).toEqual(["complete", "failed"]);
+  ).toEqual(["complete", "failed", "failed"]);
   store.close();
   expect((await readdir(f.dir)).some((p) => p.endsWith(".lock"))).toBe(false);
   const partial = await exportDatabase(
@@ -317,8 +326,8 @@ test("a later HTTP failure retains per-image checkpoints and retry downloads onl
     undefined,
     f.cacheRoot,
   );
-  expect(retry).toMatchObject({ alreadyDownloaded: 1, saved: 1 });
-  expect(stats.total).toBe(3);
+  expect(retry).toMatchObject({ alreadyDownloaded: 1, saved: 2, failed: 0 });
+  expect(stats.total).toBe(5);
   store = await HistoryStore.open(f.db);
   expect(store.images().every((i) => i.status === "complete")).toBe(true);
   store.close();
@@ -447,16 +456,16 @@ test("refresh honors validators, and a failed refresh keeps verified old bytes e
   );
   expect(refresh.cacheHits).toBe(1);
   mode = 401;
-  await expect(
-    downloadDatabaseMedia(
-      { ...f.options, refreshMedia: true },
-      f.credentials,
-      http,
-      undefined,
-      undefined,
-      f.cacheRoot,
-    ),
-  ).rejects.toThrow("HTTP 401");
+  const failed = await downloadDatabaseMedia(
+    { ...f.options, refreshMedia: true },
+    f.credentials,
+    http,
+    undefined,
+    undefined,
+    f.cacheRoot,
+  );
+  expect(failed).toMatchObject({ status: "partial", failed: 1, saved: 0 });
+  expect(failed.failureReason).toContain("HTTP 401");
   const store = await HistoryStore.open(f.db);
   expect(store.images()[0]!.status).toBe("complete");
   store.close();

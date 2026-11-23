@@ -160,7 +160,7 @@ teams collect --chat-label 'Project Alpha' --images
 
 Image downloading is opt-in; omitting `--images` collects history and source references only. After all selected history succeeds (including automatic database backups), the CLI runs the existing image downloader sequentially for those exact resolved chat IDs. It handles pending references across their entire saved history, not only the requested history dates. Images shared by chats are downloaded once and verified on reuse. Each image phase acquires its own database reservation after the history reservation is released. The same invocation log records history and image progress, final per-chat image results, and any failure/cancellation; `--no-log` covers both phases.
 
-History failure/cancellation prevents the image phase. Image failure/cancellation stops remaining chats, preserves completed history/files/metadata, and exits with failure/130 respectively. Rerun `collect --images` to reuse history coverage and resume pending images, or use `images` alone. No archive is published in either case. Use `images --refresh-media` for deliberate revalidation. `export` remains an independent offline step and copies the saved image files into its portable bundle. Database backups contain only SQLite, so back up the adjacent media directory separately.
+History must finish before images start. Individual image failures leave later images and chats eligible for processing. The final per-chat results report saved and failed counts, and any failed downloads cause exit status 1. Storage errors stop the queue, and cancellation stops it with exit status 130. Both preserve completed history and image checkpoints. Rerun `collect --images` to reuse history coverage and resume pending images, or use `images` alone. No archive is published in either case. Use `images --refresh-media` for deliberate revalidation. `export` remains an independent offline step and copies the saved image files into its portable bundle. Database backups contain only SQLite, so back up the adjacent media directory separately.
 
 ```sh
 bun run teams images --db exports/history.sqlite
@@ -237,7 +237,7 @@ Complete cached images are reused without HTTP. The cache defaults to `$XDG_CACH
 
 Supported inline images include JPEG, PNG, GIF, and WebP from specific Teams media sources, with a 50 MiB response limit. Other attachments, unsupported regions, signed links, and opaque references may remain placeholders. Unsupported references produce partial media coverage; actual download errors fail the command. A complete history export does not imply complete media coverage.
 
-If image download fails, saved text and completed images remain available. Refresh credentials with `login --wait-for-media` when needed, then retry `media` or `images`. See the [image reference](10-image-export.md) for supported URLs, regional translation, validation, and cache behavior.
+If an image download fails, other images can still be saved. A missing cookie, HTTP 401, or HTTP 429 after retries skips further requests to that origin for the invocation. Local cache reuse and requests to other origins can continue. Refresh credentials with `login --wait-for-media` when needed, then retry `media` or `images`. Standalone `media` links successfully saved images in the archive and generated Markdown and keeps verified previous links when a refresh fails for those images. [Image reference](10-image-export.md)
 
 ## Markdown and offline conversion
 

@@ -293,6 +293,39 @@ test("all-chat catch-up images include only saved chats and reuse a shared image
   expect(await readdir(f.dir)).not.toContain("exports");
 });
 
+test("batch image collection continues to the next chat after an image failure", async () => {
+  const f = await fixture({ media: true });
+  for (const [chat, object] of [
+    ["a", "fixture-image"],
+    ["b", "second-image"],
+  ] as const) {
+    const seeded = await f.run(["--chat", chat, "--last", "1d"], {
+      command: "collect",
+      expectedChat: chat,
+      messages: [imageMessage("image", object)],
+    });
+    expect(seeded.code).toBe(0);
+  }
+  const args = ["--all-chats", "--images"];
+  const partial = await f.run(args, {
+    command: "collect",
+    historyStatus: 401,
+    imageStatuses: { "fixture-image": 404 },
+  });
+  expect(partial.code).toBe(1);
+  expect(partial.stdout).toContain("HTTP 404");
+  expect(readSummary(partial.stdout).images).toMatchObject([
+    { chatId: "a", saved: 0, failed: 1 },
+    { chatId: "b", saved: 1, failed: 0 },
+  ]);
+  const retry = await f.run(args, { command: "collect", historyStatus: 401 });
+  expect(retry.code).toBe(0);
+  expect(readSummary(retry.stdout).images).toMatchObject([
+    { chatId: "a", saved: 1, failed: 0 },
+    { chatId: "b", alreadyDownloaded: 1, saved: 0, failed: 0 },
+  ]);
+});
+
 test("single-chat image collection excludes other saved chats", async () => {
   const f = await fixture({ media: true });
   let database = "";
@@ -497,19 +530,29 @@ test("failed tail retrieval keeps saved database history and the previously publ
   expect(failed.stderr).toContain("checkpoints remain saved");
 });
 
-test("media failure still exports text; retry reuses collected history", async () => {
+test("media failure still exports text and available images; retry reuses collected history", async () => {
   const f = await fixture({ media: true });
   const messages = [
-    {
-      ...message("image"),
-      messagetype: "RichText/Html",
-      content:
-        '<img src="https://us-api.asm.skype.com/v1/objects/fixture-image/views/imgo">',
-    },
+    imageMessage("first", "fixture-image"),
+    imageMessage("second", "second-image"),
   ];
-  const first = await f.run(["--last", "1d"], { messages, imageStatus: 401 });
+  const first = await f.run(["--last", "1d"], {
+    messages,
+    imageStatuses: { "fixture-image": 404 },
+  });
   expect(first.code).toBe(1);
   expect(first.stderr).toContain("Text export saved:");
+  const [chatFolder] = await readdir(join(f.dir, "exports"));
+  const partial = JSON.parse(
+    await readFile(
+      join(f.dir, "exports", chatFolder!, "2026-11-11", "chat.json"),
+      "utf8",
+    ),
+  );
+  expect(partial.media).toMatchObject({
+    status: "partial",
+    images: [{ messageId: "second" }],
+  });
   const second = await f.run(["--last", "1d"], { messages });
   expect(second.code).toBe(0);
   expect(second.stdout).toContain("no history requests needed");
@@ -517,7 +560,8 @@ test("media failure still exports text; retry reuses collected history", async (
     await readFile(readSummary(second.stdout).output, "utf8"),
   );
   expect(archive.media.status).toBe("complete");
-  expect(archive.media.images).toHaveLength(1);
+  expect(archive.media.images).toHaveLength(2);
+  expect(second.stdout).toContain("media: 1");
 });
 
 test("calendar downloads and offline exports both publish one folder per day", async () => {
