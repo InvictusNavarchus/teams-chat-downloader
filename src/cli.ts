@@ -626,7 +626,19 @@ export async function runCli(argv = process.argv): Promise<number> {
   try {
     cli.parse(argv, { run: false });
     if (!cli.matchedCommand && !cli.options.help && !cli.options.version) {
-      if (cli.args.length) throw new AppError("Unknown command; use --help.");
+      if (cli.args.length) {
+        const name = String(cli.args[0]);
+        const suggestion = closest(
+          name,
+          cli.commands.flatMap((command) => [
+            command.name,
+            ...command.aliasNames,
+          ]),
+        );
+        throw new AppError(
+          `Unknown command "${name}".${suggestion ? ` Did you mean "${suggestion}"?` : ""} Run teams --help to see commands.`,
+        );
+      }
       cli.outputHelp();
       return 0;
     }
@@ -637,7 +649,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     // CAC's syntax errors do not include remote bodies or credential values.
     const message =
       error instanceof Error && error.name === "CACError"
-        ? error.message
+        ? syntaxErrorMessage(error.message, cli)
         : errorMessage(error);
     console.error(message);
     collectionLog?.write(
@@ -653,6 +665,50 @@ export async function runCli(argv = process.argv): Promise<number> {
       );
     collectionLog?.close();
   }
+}
+
+/** Explains a CAC syntax error using the flag spelling the user typed. */
+function syntaxErrorMessage(message: string, cli: ReturnType<typeof cac>) {
+  // CAC reports unknown options by their camelCase parse key, e.g. `--chatLabl`.
+  const unknown = /^Unknown option `--([^`]+)`$/.exec(message)?.[1];
+  if (unknown === undefined) return message;
+  const flag = `--${unknown.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+  const command = cli.matchedCommand;
+  const suggestion = closest(
+    flag,
+    [...(command?.options ?? []), ...cli.globalCommand.options].flatMap(
+      (option) =>
+        option.rawName.split(/[\s,]+/).filter((name) => name.startsWith("--")),
+    ),
+  );
+  return `Unknown option ${flag}.${suggestion ? ` Did you mean ${suggestion}?` : ""} Run teams ${command?.name ?? ""}${command ? " " : ""}--help to see options.`;
+}
+
+/** Returns the candidate within two edits of the input, if any. */
+function closest(input: string, candidates: string[]): string | undefined {
+  let best: { name: string; distance: number } | undefined;
+  for (const name of candidates) {
+    const distance = editDistance(input, name);
+    if (distance <= 2 && (best === undefined || distance < best.distance))
+      best = { name, distance };
+  }
+  return best?.name;
+}
+
+/** Levenshtein distance, keeping one row of the edit table at a time. */
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (const [i, left] of [...a].entries()) {
+    const current = [i + 1];
+    for (const [j, right] of [...b].entries()) {
+      const substitution = (previous[j] ?? 0) + (left === right ? 0 : 1);
+      const deletion = (previous[j + 1] ?? 0) + 1;
+      const insertion = (current[j] ?? 0) + 1;
+      current.push(Math.min(substitution, deletion, insertion));
+    }
+    previous = current;
+  }
+  return previous[b.length] ?? 0;
 }
 
 if (import.meta.main) process.exitCode = await runCli();

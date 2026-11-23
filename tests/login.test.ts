@@ -163,7 +163,9 @@ test("login defaults are per-user, visible and sandboxed, with Wayland selected 
   expect(resolveLoginOptions({ timeout: 42 }).timeout).toBe(42);
   expect(resolveLoginOptions({ timeout: "42" }).timeout).toBe(42);
   for (const timeout of [0, -1, 3601, "invalid", true])
-    expect(() => resolveLoginOptions({ timeout })).toThrow("Login options");
+    expect(() => resolveLoginOptions({ timeout })).toThrow(
+      timeout === true ? "--timeout needs a value." : "--timeout expects",
+    );
 });
 
 test("login captures a matching profile pair, verifies all services and atomically saves private credentials", async () => {
@@ -572,7 +574,9 @@ test("login help and invalid timeouts exit before starting a browser", async () 
     expect(code).toBe(args[0] === "--help" ? 0 : 1);
     expect(stdout + stderr).not.toContain("Opening the Teams login browser");
     expect(stdout + stderr).toContain(
-      args[0] === "--help" ? "--wait-for-media" : "Login options",
+      args[0] === "--help"
+        ? "--wait-for-media"
+        : "--timeout expects whole seconds from 1 to 3600.",
     );
   }
 });

@@ -78,7 +78,7 @@ describe("saved chat collection selection", () => {
         { db: "h", chat: "a", last: "1d", images: true },
         now,
       ),
-    ).toThrow("Download options");
+    ).toThrow("Unknown option --images.");
   });
 
   test("defaults to catch-up without inventing a global start date", () => {
@@ -143,10 +143,11 @@ describe("saved chat collection selection", () => {
         { db: "h", allChats: true, allHistory: true },
         now,
       ),
-    ).toThrow("Download options");
+    ).toThrow("Unknown option --all-chats.");
+    // Download must not suggest collect's --all-chats selector.
     expect(() =>
       resolveDownloadOptions({ db: "h", allHistory: true }, now),
-    ).toThrow("Choose exactly one");
+    ).toThrow("Choose exactly one of --chat <id> or --chat-label <label>.");
   });
 });
 
@@ -181,7 +182,7 @@ describe("database media chat selection", () => {
     (chatLabel) => {
       expect(() =>
         resolveDatabaseMediaOptions({ db: "history.sqlite", chatLabel }),
-      ).toThrow("Database media options");
+      ).toThrow(/^--chat-label (needs a value|has an invalid value)\.$/);
     },
   );
 });
@@ -210,7 +211,7 @@ describe("chat selection", () => {
     (chatLabel) => {
       expect(() =>
         resolveExportOptions({ chatLabel, last: "1d" }, now),
-      ).toThrow("Export options");
+      ).toThrow(/^--chat-label (needs a value|has an invalid value)\.$/);
     },
   );
 });
@@ -242,10 +243,13 @@ describe("history page delay options", () => {
   test.each([-1, 3601, Infinity, NaN, "", " ", "slow", "1s", true, null])(
     "rejects invalid delay bounds: %s",
     (value) => {
-      for (const name of ["pageDelayMin", "pageDelayMax"]) {
+      for (const [name, flag] of [
+        ["pageDelayMin", "--page-delay-min"],
+        ["pageDelayMax", "--page-delay-max"],
+      ] as const) {
         expect(() =>
           resolveExportOptions({ ...base, last: "1d", [name]: value }),
-        ).toThrow("Export options");
+        ).toThrow(flag);
       }
     },
   );
@@ -275,8 +279,12 @@ test("media options require an archive and support refresh and skipping Markdown
       markdown: false,
     }),
   ).toMatchObject({ refreshMedia: true, markdown: false });
-  for (const options of [{}, { input: "" }, { input: "chat.json", chat: "id" }])
-    expect(() => resolveMediaOptions(options)).toThrow("Media options");
+  for (const [options, message] of [
+    [{}, "--input is required."],
+    [{ input: "" }, "--input needs a value."],
+    [{ input: "chat.json", chat: "id" }, "Unknown option --chat."],
+  ] as const)
+    expect(() => resolveMediaOptions(options)).toThrow(message);
 });
 
 test("images default on, can be skipped, and refresh requires media", () => {

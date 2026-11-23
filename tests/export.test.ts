@@ -346,6 +346,6 @@ test("CLI rejects invalid input before network or output", async () => {
   );
   const stderr = await new Response(result.stderr).text();
   expect(await result.exited).toBe(1);
-  expect(stderr).toContain("Database export options");
+  expect(stderr).toContain("--last expects a number of days");
   expect(stderr).not.toContain("HTTP attempts");
 });
