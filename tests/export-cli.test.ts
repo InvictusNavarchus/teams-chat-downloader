@@ -14,10 +14,15 @@ import { fileURLToPath } from "node:url";
 
 const directories: string[] = [];
 
-function readSummary(stdout: string) {
-  const line = stdout.split("\n").find((line) => line.startsWith("{"));
+/** Reads the full command result, which is written to the invocation log. */
+async function readSummary(stdout: string) {
+  const log = /^\[log\] Collection log: (.+)$/m.exec(stdout)?.[1];
+  expect(log).toBeDefined();
+  const line = (await readFile(log!, "utf8"))
+    .split("\n")
+    .find((line) => line.includes("] Result: {"));
   expect(line).toBeDefined();
-  return JSON.parse(line!);
+  return JSON.parse(line!.slice(line!.indexOf("] Result: ") + 10));
 }
 
 afterEach(async () => {
@@ -222,10 +227,14 @@ test("collect --images saves history and images without exporting, then offline 
     },
   );
   expect(collected.code).toBe(0);
-  const result = readSummary(collected.stdout);
+  const result = await readSummary(collected.stdout);
   expect(result.images).toMatchObject([
     { chatId: "fixture", saved: 1, downloaded: 1 },
   ]);
+  expect(collected.stdout).not.toMatch(/^\{/m);
+  expect(collected.stdout).toContain(
+    'Collection complete: 1 new message for "Café / Project Alpha"; 1 window saved.',
+  );
   expect(collected.stdout).toContain(
     "History collection complete; downloading pending images.",
   );
@@ -275,7 +284,7 @@ test("all-chat catch-up images include only saved chats and reuse a shared image
   expect(result.code).toBe(0);
   expect(result.stdout).toContain('Chat 1/2: "a"');
   expect(result.stdout).toContain('Chat 2/2: "b"');
-  const summary = readSummary(result.stdout);
+  const summary = await readSummary(result.stdout);
   expect(summary.completedWindows).toBe(0);
   expect(summary.images).toMatchObject([
     { chatId: "a", downloaded: 1, alreadyDownloaded: 0 },
@@ -314,13 +323,13 @@ test("batch image collection continues to the next chat after an image failure",
   });
   expect(partial.code).toBe(1);
   expect(partial.stdout).toContain("HTTP 404");
-  expect(readSummary(partial.stdout).images).toMatchObject([
+  expect((await readSummary(partial.stdout)).images).toMatchObject([
     { chatId: "a", saved: 0, failed: 1 },
     { chatId: "b", saved: 1, failed: 0 },
   ]);
   const retry = await f.run(args, { command: "collect", historyStatus: 401 });
   expect(retry.code).toBe(0);
-  expect(readSummary(retry.stdout).images).toMatchObject([
+  expect((await readSummary(retry.stdout)).images).toMatchObject([
     { chatId: "a", saved: 1, failed: 0 },
     { chatId: "b", alreadyDownloaded: 1, saved: 0, failed: 0 },
   ]);
@@ -339,7 +348,7 @@ test("single-chat image collection excludes other saved chats", async () => {
       messages: [imageMessage("image", object)],
     });
     expect(seeded.code).toBe(0);
-    database = readSummary(seeded.stdout).database;
+    database = (await readSummary(seeded.stdout)).database;
   }
   const result = await f.run(["--db", database, "--chat", "a", "--images"], {
     command: "collect",
@@ -347,7 +356,7 @@ test("single-chat image collection excludes other saved chats", async () => {
     imageStatuses: { "second-image": 401 },
   });
   expect(result.code).toBe(0);
-  expect(readSummary(result.stdout).images).toMatchObject([
+  expect((await readSummary(result.stdout)).images).toMatchObject([
     { chatId: "a", saved: 1 },
   ]);
   const other = await f.run(["--db", database, "--chat", "b"], {
@@ -384,7 +393,7 @@ test.each(["failure", "cancellation"])(
       cancelImage: mode === "cancellation",
     });
     expect(failed.code).toBe(mode === "failure" ? 1 : 130);
-    const database = readSummary(first.stdout).database;
+    const database = (await readSummary(first.stdout)).database;
     const logs = await readdir(`${database}.logs`);
     const text = (
       await Promise.all(
@@ -403,7 +412,7 @@ test.each(["failure", "cancellation"])(
       historyStatus: 401,
     });
     expect(retried.code).toBe(0);
-    expect(readSummary(retried.stdout).images).toMatchObject([
+    expect((await readSummary(retried.stdout)).images).toMatchObject([
       { chatId: "a", alreadyDownloaded: 1, saved: 0 },
       { chatId: "b", saved: 1 },
     ]);
@@ -427,13 +436,24 @@ test("download collects, downloads and exports; repeat runs preserve saved edits
   const args = ["--chat-label", "Café / Project Alpha", "--last", "1d"];
   const first = await f.run(args, { messages: [message("a"), message("b")] });
   expect(first.code).toBe(0);
-  const summary = readSummary(first.stdout);
+  const summary = await readSummary(first.stdout);
   expect(summary.output).toBe(
     join(f.dir, "exports/cafe-project-alpha/2026-11-11/chat.json"),
+  );
+  // People get a readable summary; the JSON result stays in the log.
+  expect(first.stdout).not.toMatch(/^\{/m);
+  expect(first.stdout).toContain(
+    'Collection complete: 2 new messages for "Café / Project Alpha"; 1 window saved.',
+  );
+  expect(first.stdout).toContain(
+    `Export complete: 2 messages for "Café / Project Alpha" in 1 daily folder under ${join(f.dir, "exports/cafe-project-alpha")}`,
   );
   const second = await f.run(args, { messages: [message("a", "edited")] });
   expect(second.code).toBe(0);
   expect(second.stdout).toContain("no history requests needed");
+  expect(second.stdout).toContain(
+    'Collection complete: "Café / Project Alpha" was already up to date.',
+  );
   const archive = JSON.parse(await readFile(summary.output, "utf8"));
   expect(archive.messages).toEqual([message("a"), message("b")]);
   expect(archive.requests.total).toBe(0);
@@ -461,7 +481,7 @@ test("offline export finds a single account database without credentials or HTTP
   });
   expect(result.code).toBe(0);
   expect(result.stdout).not.toContain("HTTP attempts:");
-  expect(readSummary(result.stdout).messages).toBe(1);
+  expect((await readSummary(result.stdout)).messages).toBe(1);
 });
 
 test("explicit combined download refuses overwrite before HTTP; offline export uses the same database", async () => {
@@ -476,7 +496,7 @@ test("explicit combined download refuses overwrite before HTTP; offline export u
   const exported = await f.run(
     [
       "--db",
-      readSummary(first.stdout).database,
+      (await readSummary(first.stdout)).database,
       "--chat",
       "fixture",
       "--out",
@@ -485,7 +505,7 @@ test("explicit combined download refuses overwrite before HTTP; offline export u
     { command: "export" },
   );
   expect(exported.code).toBe(0);
-  expect(readSummary(exported.stdout).messages).toBe(1);
+  expect((await readSummary(exported.stdout)).messages).toBe(1);
   expect(exported.stdout).not.toContain("HTTP attempts:");
 });
 
@@ -519,7 +539,7 @@ test("duplicate labels fail before history", async () => {
 test("failed tail retrieval keeps saved database history and the previously published daily bundle", async () => {
   const f = await fixture();
   const first = await f.run(["--last", "1d"], { messages: [message("a")] });
-  const summary = readSummary(first.stdout);
+  const summary = await readSummary(first.stdout);
   const saved = await readFile(summary.output, "utf8");
   const failed = await f.run(["--last", "1d"], {
     now: Date.parse("2026-11-11T04:00:00Z"),
@@ -557,7 +577,7 @@ test("media failure still exports text and available images; retry reuses collec
   expect(second.code).toBe(0);
   expect(second.stdout).toContain("no history requests needed");
   const archive = JSON.parse(
-    await readFile(readSummary(second.stdout).output, "utf8"),
+    await readFile((await readSummary(second.stdout)).output, "utf8"),
   );
   expect(archive.media.status).toBe("complete");
   expect(archive.media.images).toHaveLength(2);
@@ -568,7 +588,7 @@ test("calendar downloads and offline exports both publish one folder per day", a
   const f = await fixture();
   const first = await f.run(["--last", "3d", "--no-media", "--no-markdown"]);
   expect(first.code).toBe(0);
-  const summary = readSummary(first.stdout);
+  const summary = await readSummary(first.stdout);
   expect(summary.days).toHaveLength(3);
   expect(summary.markdown).toBeUndefined();
   const exported = await f.run(
@@ -577,7 +597,9 @@ test("calendar downloads and offline exports both publish one folder per day", a
   );
   expect(exported.code).toBe(0);
   expect(
-    readSummary(exported.stdout).days.map((d: { output: string }) => d.output),
+    (await readSummary(exported.stdout)).days.map(
+      (d: { output: string }) => d.output,
+    ),
   ).toEqual(summary.days.map((d: { output: string }) => d.output));
 });
 
@@ -593,13 +615,13 @@ test("collect uses the account default and leaves rendering to offline export", 
     command: "export",
   });
   expect(result.code).toBe(0);
-  expect(readSummary(result.stdout).messages).toBe(1);
+  expect((await readSummary(result.stdout)).messages).toBe(1);
 });
 
 test("offline defaults refuse multiple accounts and honor an explicit database", async () => {
   const f = await fixture();
   const first = await f.run(["--last", "1d"]);
-  const db = readSummary(first.stdout).database;
+  const db = (await readSummary(first.stdout)).database;
   const { copyFile } = await import("node:fs/promises");
   await copyFile(db, join(dirname(db), `${"f".repeat(64)}.sqlite`));
   const ambiguous = await f.run(["--chat", "fixture", "--last", "1d"], {
@@ -618,7 +640,7 @@ test("offline defaults refuse multiple accounts and honor an explicit database",
 test("download daily publication refuses an archive lock or symlink without altering saved files", async () => {
   const f = await fixture();
   const first = await f.run(["--last", "1d"]);
-  const output = readSummary(first.stdout).output;
+  const output = (await readSummary(first.stdout)).output;
   const bytes = await readFile(output, "utf8");
   await mkdir(`${output}.media.lock`);
   const locked = await f.run(["--last", "1d"]);
@@ -639,7 +661,7 @@ test("download daily publication refuses an archive lock or symlink without alte
 test("a later invocation fetches only the uncovered tail and cancellation keeps previous output", async () => {
   const f = await fixture();
   const first = await f.run(["--last", "1d"], { messages: [message("a")] });
-  const output = readSummary(first.stdout).output;
+  const output = (await readSummary(first.stdout)).output;
   const bytes = await readFile(output, "utf8");
   const later = Date.parse("2026-11-11T04:00:00Z");
   const cancelled = await f.run(["--last", "1d"], {

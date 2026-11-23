@@ -37,7 +37,15 @@ import {
 import { exportDatabase, exportSavedChats } from "./database-export.ts";
 import { downloadDatabaseMedia } from "./database-media.ts";
 import { loadCredentials } from "./credentials.ts";
+import {
+  type ChatNames,
+  collectionSummary,
+  exportSummary,
+  imagesSummary,
+  savedChatsExportSummary,
+} from "./cli-summary.ts";
 import { AppError, errorMessage } from "./errors.ts";
+import { HistoryStore } from "./history-store.ts";
 import type { ExportProgressEvent } from "./export.ts";
 import { createHttp, requestStats, type ImageResponseError } from "./http.ts";
 import type { MediaProgress } from "./media.ts";
@@ -56,6 +64,11 @@ export async function runCli(argv = process.argv): Promise<number> {
     collectionLog?.write(message);
   };
   let operation = "collect";
+  // People get a readable summary; the full result stays in the invocation log.
+  const finish = (result: unknown, summary: string[]) => {
+    collectionLog?.write(`[${operation}] Result: ${JSON.stringify(result)}`);
+    for (const line of summary) output(line);
+  };
   const startLog = (
     command: string,
     options: { db: string; log?: boolean } & Record<string, unknown>,
@@ -380,7 +393,17 @@ export async function runCli(argv = process.argv): Promise<number> {
         output,
         reportCollection,
       );
-      output(JSON.stringify(result));
+      const names = await chatNames(options.db, [result.collection.chatId]);
+      finish(result, [
+        ...collectionSummary(
+          { chats: [result.collection], ...result.collection },
+          names,
+        ),
+        ...exportSummary(
+          result,
+          names.get(result.collection.chatId) ?? result.collection.chatId,
+        ),
+      ]);
     });
   cli
     .command("collect", "Save messages; add --images to download images too")
@@ -461,6 +484,18 @@ export async function runCli(argv = process.argv): Promise<number> {
         controller.signal,
         reportCollection,
       );
+      // Single-chat results are flat; batch results list their chats.
+      const summarizeCollection = async () => {
+        const collection =
+          "chats" in result ? result : { ...result, chats: [result] };
+        return collectionSummary(
+          collection,
+          await chatNames(
+            options.db,
+            collection.chats.map((chat) => chat.chatId),
+          ),
+        );
+      };
       if (options.images) {
         output(
           "[collect] History collection complete; downloading pending images.",
@@ -490,12 +525,15 @@ export async function runCli(argv = process.argv): Promise<number> {
           images.push({ chatId: chat.chatId, ...media });
         }
         const failed = images.reduce((count, chat) => count + chat.failed, 0);
-        output(JSON.stringify({ ...result, images }));
+        finish({ ...result, images }, [
+          ...(await summarizeCollection()),
+          ...imagesSummary(images),
+        ]);
         if (failed)
           throw new AppError(
             `${failed} image download(s) failed across the selected chats. Saved history and images remain available. Rerun collect --images or teams images to retry.`,
           );
-      } else output(JSON.stringify(result));
+      } else finish(result, await summarizeCollection());
     });
   cli
     .command("export", "Write JSON and Markdown from saved history, offline")
@@ -547,15 +585,24 @@ export async function runCli(argv = process.argv): Promise<number> {
       output(
         `[export] Requested chat: ${JSON.stringify(options.allChats ? "all saved chats" : (options.chat ?? options.chatLabel))}; range: ${options.window ? new Date(options.window.from).toISOString() : "stored coverage"} to ${options.window ? new Date(options.window.to).toISOString() : "stored coverage"}; media: ${options.media}; markdown: ${options.markdown}; destination: ${options.out ?? "daily folders"}`,
       );
-      output(
-        JSON.stringify(
-          await (options.allChats ? exportSavedChats : exportDatabase)(
-            options,
-            controller.signal,
-            output,
-          ),
-        ),
-      );
+      if (options.allChats) {
+        const result = await exportSavedChats(
+          options,
+          controller.signal,
+          output,
+        );
+        finish(result, savedChatsExportSummary(result));
+      } else {
+        const result = await exportDatabase(options, controller.signal, output);
+        const chat =
+          options.chatLabel ??
+          (options.chat === undefined
+            ? ""
+            : ((await chatNames(options.db, [options.chat])).get(
+                options.chat,
+              ) ?? options.chat));
+        finish(result, exportSummary(result, chat));
+      }
     });
   cli
     .command("images", "Download pending images for saved history")
@@ -607,7 +654,8 @@ export async function runCli(argv = process.argv): Promise<number> {
         controller.signal,
         reportDatabaseMedia,
       );
-      output(JSON.stringify(result));
+      // The image summary line has already been printed by reportDatabaseMedia.
+      finish(result, []);
       if (result.failed)
         throw new AppError(
           `${result.failed} image(s) failed. First failure: ${result.failureReason} Completed image files and database records remain saved. Rerun this command to retry.`,
@@ -659,6 +707,24 @@ export async function runCli(argv = process.argv): Promise<number> {
       );
     collectionLog?.close();
   }
+}
+
+/** Saved chat labels for summaries; falls back to raw IDs if the store cannot be read. */
+async function chatNames(db: string, ids: string[]): Promise<ChatNames> {
+  const names = new Map<string, string>();
+  let store: HistoryStore | undefined;
+  try {
+    store = await HistoryStore.open(db);
+    for (const id of ids) {
+      const label = store.chatLabel(id);
+      if (label !== undefined) names.set(id, label);
+    }
+  } catch {
+    // Names are cosmetic; the work already succeeded.
+  } finally {
+    store?.close();
+  }
+  return names;
 }
 
 /** Explains a CAC syntax error using the flag spelling the user typed. */

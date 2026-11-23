@@ -718,7 +718,7 @@ test("media-db CLI downloads without JSON and export-db links its saved images o
   expect(await readdir(f.dir)).not.toContain("history.sqlite.logs");
   const first = await cli(args);
   expect(first.exit).toBe(0);
-  expect(first.stdout).toContain('"saved":1');
+  expect(first.stdout).toContain("Images: 1 saved, 0 failed");
   expect(first.stdout).toContain('Selected stored chat: "group"');
   expect(
     (await readdir(f.dir)).some(
@@ -727,7 +727,7 @@ test("media-db CLI downloads without JSON and export-db links its saved images o
   ).toBe(false);
   const second = await cli(args, true);
   expect(second.exit).toBe(0);
-  expect(second.stdout).toContain('"alreadyDownloaded":1');
+  expect(second.stdout).toContain("already downloaded: 1;");
   expect(second.stdout).not.toContain("HTTP attempts:");
   expect(second.stdout).toContain("No images need downloading");
   const mediaLogs = await readdir(`${f.db}.logs`);

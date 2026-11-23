@@ -327,9 +327,17 @@ test("export-db CLI accepts --chat-label with --last and logs the resolved chat 
   ]);
   expect(stderr).toBe("");
   expect(code).toBe(0);
-  expect(JSON.parse(stdout.trim().split("\n").at(-1)!).days).toHaveLength(3);
+  expect(stdout).toContain(
+    'for "DE-DQC (tim Biru Oligarki)" in 3 daily folders under ',
+  );
   const files = await readdir(`${f.db}.logs`);
   const log = await readFile(join(`${f.db}.logs`, files[0]!), "utf8");
+  const resultLine = log
+    .split("\n")
+    .find((line) => line.includes("] Result: {"))!;
+  expect(
+    JSON.parse(resultLine.slice(resultLine.indexOf("{"))).days,
+  ).toHaveLength(3);
   expect(log).toContain('Selected stored chat: "cli"');
   expect(log).toContain("collected cutoff");
   expect(log).toContain("Saved JSON archive");

@@ -39,6 +39,7 @@ teams-chat-download/
 │   ├── archive-media.ts  # Media download coordination for archives (inline and post-export)
 │   ├── chat-selection.ts # Shared exact label matching, fallback rejection, and duplicate diagnostics
 │   ├── cli.ts            # CAC argument parsing, command dispatch, terminal progress, and exit handling
+│   ├── cli-summary.ts    # Readable final summaries for download, collect, export, and images
 │   ├── cli-help.ts       # Common workflow examples and grouped help from registered CAC options
 │   ├── collect.ts        # Single/batch backward collection, checkpoint pacing, and exclusive reservation
 │   ├── collection-backup.ts # Verified SQLite/media snapshots and hourly collection backup scheduling
@@ -71,6 +72,7 @@ teams-chat-download/
 │   ├── archive-media.test.ts
 │   ├── chats-output.test.ts
 │   ├── cli-errors.test.ts # Unknown command/flag suggestions and option-format errors before HTTP
+│   ├── cli-summary.test.ts # Final summary wording, pluralization, labels, and export folders
 │   ├── convert.test.ts
 │   ├── convert-all.test.ts
 │   ├── credentials.test.ts
@@ -229,7 +231,7 @@ bun run format
 
 ### Collection execution logs
 
-`download`, `collect`, `images`, and `export` automatically write a private, timestamped log per invocation in `<database>.logs/` and print its path. Use `--no-log` to disable file logging. Logs include the requested range, already-collected duration and remaining gap count, fetched pages and checkpoints, profile warnings, backup outcomes, final results, and handled failures or cancellation. Fully covered ranges explicitly report that no history requests are needed. Skipped intervals are summarized rather than listed individually.
+`download`, `collect`, `images`, and `export` automatically write a private, timestamped log per invocation in `<database>.logs/` and print its path. Use `--no-log` to disable file logging. Logs include the requested range, already-collected duration and remaining gap count, fetched pages and checkpoints, profile warnings, backup outcomes, final results, and handled failures or cancellation. These four commands end the terminal output with readable lines from `src/cli-summary.ts`, using saved chat labels with raw-ID fallback, and write the full JSON result only to the log as `[<command>] Result: {...}`; never print the raw result object to the terminal. Label lookup for summaries is cosmetic and must not fail a completed command. Fully covered ranges explicitly report that no history requests are needed. Skipped intervals are summarized rather than listed individually.
 
 Each log starts with the normalized command input, working directory, and resolved options, including defaults and ISO date bounds when available. Input uses parsed flags (including parser defaults), so shell quoting, flag order, launcher details, and ignored arguments after `--` are not preserved. Credential-file arguments are shown as `[REDACTED]`; only explicitly selected operational fields are recorded. The header is saved to the log file only, before database access. With explicit --db it also precedes credential access; default-path selection first needs the credential account ID.
 
