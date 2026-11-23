@@ -78,6 +78,15 @@ bun run teams download --chat '<raw-chat-id>' --last 7d
 
 Labels match exactly after trimming surrounding whitespace and ignoring case; partial matches are not supported. Generic labels `Untitled chat` and `Unresolved one-to-one chat` cannot select a chat. If a name is duplicated, use the raw ID shown in the error or chat list. IDs are preferable for scripts because labels can change.
 
+### See what is saved
+
+```sh
+bun run teams status
+bun run teams status --db exports/history.sqlite
+```
+
+`status` lists every saved chat with its saved label (the one offline `export --chat-label` and `images --chat-label` match), message count, collected range in local time (`all history` after `--all-history`), the number of internal coverage gaps, images still to download (pending or previously failed), and raw ID. It ends with the next command to run when gaps or images remain. Like `export`, it is offline and read-only: it needs no credentials, makes no requests, and writes no log. It uses `--db`, then `TEAMS_DATA_DIR/history.sqlite`, then the single default account collection. Image counts come from saved metadata; a file deleted outside the tool still appears complete until `images` verifies it.
+
 Label selection requires a current directory lookup and any needed participant names, even with an explicit output path. Raw-ID downloads and collection skip that lookup, using any saved label for output naming. Offline `export` and `images` label lookup use only saved labels. Profile cache locations and lookup mechanics are documented in the [participant profile reference](08-participant-profiles.md).
 
 ## Choose dates and export history

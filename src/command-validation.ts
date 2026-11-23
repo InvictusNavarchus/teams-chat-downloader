@@ -546,3 +546,17 @@ export function resolveChatsOptions(input: unknown): ChatsOptions {
   if (!result.success) throw optionsError(input, result.error);
   return result.data;
 }
+
+const statusOptionsSchema = z.strictObject({
+  db: z.string().min(1).optional(),
+});
+
+export type StatusOptions = z.infer<typeof statusOptionsSchema>;
+
+export function resolveStatusOptions(input: unknown): StatusOptions {
+  const result = statusOptionsSchema.safeParse(input);
+  if (!result.success) throw optionsError(input, result.error);
+  return {
+    db: result.data.db === undefined ? undefined : resolve(result.data.db),
+  };
+}

@@ -1,4 +1,5 @@
 import dayjs from "dayjs";
+import type { ChatSummary, ImageCounts } from "./history-store.ts";
 
 type ListedChat = { id: string; label: string; lastActivity?: string | null };
 
@@ -51,15 +52,7 @@ export function chatTable(
       ? [activity, label, chat.id]
       : [activity, saved.has(chat.id) ? "yes" : "", label, chat.id];
   });
-  const widths = header.map((title, column) =>
-    Math.max(title.length, ...rows.map((row) => row[column]?.length ?? 0)),
-  );
-  const line = (cells: string[]) =>
-    cells
-      .map((cell, column) => cell.padEnd(widths[column] ?? 0))
-      .join("  ")
-      .trimEnd();
-  const lines = [line(header), ...rows.map(line), ""];
+  const lines = [...columns(header, rows), ""];
   if (options.onlyNew) {
     const [first] = shown;
     lines.push(
@@ -74,4 +67,72 @@ export function chatTable(
       `${chatCount(chats.length)}; ${savedCount} saved. Use --new to list only unsaved chats.`,
     );
   return lines;
+}
+
+/**
+ * Renders what the collection holds, offline: saved labels, collected range,
+ * internal gaps, and images still to download.
+ */
+export function statusTable(
+  chats: ChatSummary[],
+  images: ImageCounts,
+  database: string,
+): string[] {
+  if (!chats.length)
+    return [
+      `No saved chats in ${database}.`,
+      "Run teams chats --new to pick one, then collect it with --chat-label and --all-history.",
+    ];
+  const sorted = [...chats].sort(
+    (a, b) =>
+      (a.label ?? "").localeCompare(b.label ?? "") ||
+      a.chatId.localeCompare(b.chatId),
+  );
+  const rows = sorted.map((chat) => [
+    chat.label ?? "(no saved label)",
+    chat.messages.toLocaleString("en-US"),
+    chat.coverage
+      ? `${chat.coverage.from <= 1 ? "all history" : dayjs(chat.coverage.from).format("YYYY-MM-DD")} to ${dayjs(chat.coverage.to).format("YYYY-MM-DD HH:mm")}`
+      : "nothing yet",
+    chat.gaps ? String(chat.gaps) : "",
+    String(chat.images.pending + chat.images.failed || ""),
+    chat.chatId,
+  ]);
+  const lines = [
+    ...columns(
+      [
+        "CHAT",
+        "MESSAGES",
+        "COLLECTED (LOCAL TIME)",
+        "GAPS",
+        "IMAGES TO GET",
+        "ID",
+      ],
+      rows,
+    ),
+    "",
+    `${chats.length} saved chat${chats.length === 1 ? "" : "s"} in ${database}.`,
+  ];
+  if (chats.some((chat) => chat.gaps))
+    lines.push(
+      "Chats with gaps are retried by catch-up: teams collect --all-chats",
+    );
+  const toGet = images.pending + images.failed;
+  if (toGet)
+    lines.push(
+      `${toGet} image${toGet === 1 ? "" : "s"} still to download${images.failed ? ` (${images.failed} failed before)` : ""}: teams images`,
+    );
+  return lines;
+}
+
+function columns(header: string[], rows: string[][]): string[] {
+  const widths = header.map((title, column) =>
+    Math.max(title.length, ...rows.map((row) => row[column]?.length ?? 0)),
+  );
+  const line = (cells: string[]) =>
+    cells
+      .map((cell, column) => cell.padEnd(widths[column] ?? 0))
+      .join("  ")
+      .trimEnd();
+  return [line(header), ...rows.map(line)];
 }

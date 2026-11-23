@@ -13,6 +13,7 @@ import {
   resolveConvertOptions,
   resolveLoginOptions,
   resolveMediaOptions,
+  resolveStatusOptions,
 } from "./command-validation.ts";
 import {
   commandDefaults,
@@ -45,7 +46,7 @@ import {
   imagesSummary,
   savedChatsExportSummary,
 } from "./cli-summary.ts";
-import { chatTable } from "./chat-table.ts";
+import { chatTable, statusTable } from "./chat-table.ts";
 import { AppError, errorMessage } from "./errors.ts";
 import { HistoryStore } from "./history-store.ts";
 import type { ExportProgressEvent } from "./export.ts";
@@ -317,6 +318,38 @@ export async function runCli(argv = process.argv): Promise<number> {
       }
       for (const line of chatTable(chats, saved, { onlyNew: options.new }))
         console.log(line);
+    });
+  cli
+    .command(
+      "status",
+      "Show saved chats, collected ranges and pending images, offline",
+    )
+    .option(
+      "--db <file>",
+      "Override TEAMS_DATA_DIR or single-account database discovery",
+    )
+    .action(async (raw: Record<string, unknown>) => {
+      const { "--": _trailing, ...input } = raw;
+      const options = resolveStatusOptions(input);
+      // Offline and read-only like export: no credentials, HTTP, or log file.
+      const db = options.db ?? (await findDefaultCollection());
+      try {
+        await lstat(db);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        throw new AppError("No collection database at --db path.");
+      }
+      const store = await HistoryStore.open(db);
+      try {
+        for (const line of statusTable(
+          store.chatSummaries(),
+          store.imageCounts(),
+          db,
+        ))
+          console.log(line);
+      } finally {
+        store.close();
+      }
     });
   cli
     .command("download", "Collect messages and images, then export in one step")

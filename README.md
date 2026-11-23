@@ -96,6 +96,8 @@ teams export --all-chats --last 5d
 
 Reuse `--db <file>` on collection, image, and export commands if you originally chose a custom database. `--all-chats` uses saved chat IDs without directory/profile lookup; it does not discover new chats. With no date flags, `collect` catches up from each chat’s earliest completed interval through now, retrying gaps within that range. Use `--all-history` to also backfill older history. A chat without completed coverage requires `--all-history` or an explicit date range for its initial collection. The old `--all` flag has been replaced by `--all-history` on both `collect` and `download`. History collection runs sequentially and stops on failure or cancellation. Rerun to resume from saved checkpoints. This selector is available on `collect` and daily `export`; `download` and combined `export --out` still require one chat.
 
+`teams status` shows, offline, which chats are saved, the range collected for each, any gaps, and images still to download.
+
 `collect --images` downloads pending images across the selected chats’ saved history, including older pending references. History must finish before images start. If an individual image fails, the queue continues through later images and chats, then reports the failures and exits with status 1. Rerun the command to retry failed images and skip verified files. Collection never creates JSON or Markdown bundles.
 
 `export --all-chats --last 5d` writes JSON, Markdown, and saved images to each chat’s daily folders. It checks all chats’ coverage and folder-name conflicts before publishing. To download missing images first, use `collect --all-chats --images` or `images`; export itself stays offline.
