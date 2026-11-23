@@ -38,7 +38,9 @@ teams-chat-download/
 │   ├── archive.ts        # Version 1 JSON archive schema, serialization, and validation
 │   ├── archive-media.ts  # Media download coordination for archives (inline and post-export)
 │   ├── chat-selection.ts # Shared exact label matching, fallback rejection, and duplicate diagnostics
+│   ├── chat-table.ts     # Chat directory and offline status tables, with next-step suggestions
 │   ├── cli.ts            # CAC argument parsing, command dispatch, terminal progress, and exit handling
+│   ├── cli-summary.ts    # Readable final summaries for download, collect, export, and images
 │   ├── cli-help.ts       # Common workflow examples and grouped help from registered CAC options
 │   ├── collect.ts        # Single/batch backward collection, checkpoint pacing, and exclusive reservation
 │   ├── collection-backup.ts # Verified SQLite/media snapshots and hourly collection backup scheduling
@@ -69,7 +71,10 @@ teams-chat-download/
 │   └── teams.ts          # Teams API client (raw directory, validated page iterator, full history, pacing)
 ├── tests/                # Bun test suites (unit, mock HTTP, and integration flows)
 │   ├── archive-media.test.ts
+│   ├── chat-table.test.ts
 │   ├── chats-output.test.ts
+│   ├── cli-errors.test.ts # Unknown command/flag suggestions and option-format errors before HTTP
+│   ├── cli-summary.test.ts # Final summary wording, pluralization, labels, and export folders
 │   ├── convert.test.ts
 │   ├── convert-all.test.ts
 │   ├── credentials.test.ts
@@ -86,6 +91,7 @@ teams-chat-download/
 │   ├── collection-backup.test.ts # Snapshot restoration, WAL, publication, failure/cancellation, and scheduling
 │   ├── database-media.test.ts # Image indexing, migration, retries, durable files, and portable exports
 │   ├── profiles.test.ts
+│   ├── status.test.ts # Offline status summaries, gaps, image states, and database discovery
 │   ├── smoke-targets.test.ts # Discovery ordering, account isolation, filesystem scope, and cancellation
 │   └── teams.test.ts
 ├── biome.json            # Biome formatter and linter configuration
@@ -191,7 +197,7 @@ When modifying or extending this codebase, agents **must** respect these domain 
 
 `package.json` exposes `teams` through the executable Bun-shebang entry point `src/cli.ts`. After dependency installation, `bun link` makes it available through Bun's global executable directory on `PATH`; `bun unlink` removes the registration. Preserve the caller's working directory for explicit relative paths. Default exports, `convert-all` discovery, and smoke fixture discovery use `TEAMS_DATA_DIR/exports/` when configured and the caller's `exports/` otherwise. The linked command requires Bun and the checkout's dependencies and runs current source directly.
 
-`src/config.ts` owns shared command defaults and limits. Import those values in command validation, CLI help, and runtime fallbacks rather than duplicating literals. `src/command-validation.ts` owns all command input schemas, their types, and option resolution; `src/cli.ts` owns argument parsing and dispatch. `src/date-window.ts` owns the shared window contract so the Teams client does not depend on command validation. Resolve environment-dependent credential and media paths at invocation time in their existing helpers. Keep protocol constants in their domain modules.
+`src/config.ts` owns shared command defaults and limits. Import those values in command validation, CLI help, and runtime fallbacks rather than duplicating literals. `src/command-validation.ts` owns all command input schemas, their types, and option resolution; `src/cli.ts` owns argument parsing and dispatch. Explain invalid options by the kebab-case flag the user typed, with a format hint when the shape is not obvious, and never echo option values; selector errors list only the selectors that command accepts. Unknown commands and flags name the typed input and suggest a close registered match. `chats` prints a table from `src/chat-table.ts`, newest `lastActivity` first (parsed loosely from the directory `lastMessage` preview; an unexpected shape becomes `null` and never fails the listing), and marks chats saved in the default or `--db` collection, opened read-only after an account check; a missing default database means nothing is saved. `--new` filters to unsaved chats; `--out` still writes the full directory as JSON. Printed commands are pasted into shells and labels are participant-controlled titles: single-quote suggested values with `shellQuote` semantics and suggest `--chat <id>` for labels containing `'` or `\`, which fish interprets inside single quotes. `status` is offline and read-only like `export`: resolve `--db`, then the shared offline discovery, without credentials, HTTP, or a log file. It lists `HistoryStore.chatSummaries()` (saved label, message count, completed bounds, internal gaps, per-chat image states) and distinct database image totals, and suggests catch-up or `images` when work remains. On `collect`, `download`, and `export`, `--since`/`--from`/`--to` accept `YYYY-MM-DD` as local midnight, converted during validation into an offset timestamp so later parsing and logs are unambiguous; `--to` stays exclusive. Live smoke windows still require timezone-qualified timestamps. `src/date-window.ts` owns the shared window contract so the Teams client does not depend on command validation. Resolve environment-dependent credential and media paths at invocation time in their existing helpers. Keep protocol constants in their domain modules.
 
 `bun run teams` and `bun run test:live` load optional checkout settings from the ignored `.env.teams` file. This lets ordinary test runs use fixture paths independently of the local data directory.
 
@@ -228,7 +234,7 @@ bun run format
 
 ### Collection execution logs
 
-`download`, `collect`, `images`, and `export` automatically write a private, timestamped log per invocation in `<database>.logs/` and print its path. Use `--no-log` to disable file logging. Logs include the requested range, already-collected duration and remaining gap count, fetched pages and checkpoints, profile warnings, backup outcomes, final results, and handled failures or cancellation. Fully covered ranges explicitly report that no history requests are needed. Skipped intervals are summarized rather than listed individually.
+`download`, `collect`, `images`, and `export` automatically write a private, timestamped log per invocation in `<database>.logs/` and print its path. Use `--no-log` to disable file logging. Logs include the requested range, already-collected duration and remaining gap count, fetched pages and checkpoints, profile warnings, backup outcomes, final results, and handled failures or cancellation. `download`, `collect`, and `export` end the terminal output with readable lines from `src/cli-summary.ts`, using saved chat labels with raw-ID fallback. `images` keeps the image summary line printed by its media reporter and adds no `cli-summary.ts` lines. All four write the full JSON result only to the log as `[<command>] Result: {...}`; never print the raw result object to the terminal. Label lookup for summaries is cosmetic and must not fail a completed command. Fully covered ranges explicitly report that no history requests are needed. Skipped intervals are summarized rather than listed individually.
 
 Each log starts with the normalized command input, working directory, and resolved options, including defaults and ISO date bounds when available. Input uses parsed flags (including parser defaults), so shell quoting, flag order, launcher details, and ignored arguments after `--` are not preserved. Credential-file arguments are shown as `[REDACTED]`; only explicitly selected operational fields are recorded. The header is saved to the log file only, before database access. With explicit --db it also precedes credential access; default-path selection first needs the credential account ID.
 

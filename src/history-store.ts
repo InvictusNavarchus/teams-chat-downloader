@@ -17,6 +17,16 @@ import { messageImageReferences } from "./media.ts";
 
 type Coverage = { from_ms: number; to_ms: number; completed_at: string };
 type Payload = { payload_json: string };
+export type ImageCounts = { complete: number; pending: number; failed: number };
+export type ChatSummary = {
+  chatId: string;
+  label?: string;
+  messages: number;
+  coverage?: Window;
+  gaps: number;
+  images: ImageCounts;
+};
+
 export type StoredImage = {
   key: string;
   source_url: string;
@@ -409,6 +419,54 @@ export class HistoryStore {
       .map((chat) => chat.id);
   }
 
+  /** Read-only overview of each saved chat for the status command. */
+  chatSummaries(): ChatSummary[] {
+    return this.savedChatIds().map((chatId) => {
+      const messages = this.db
+        .query<{ n: number }, [string]>(
+          "SELECT COUNT(*) AS n FROM messages WHERE chat_id=?",
+        )
+        .get(chatId)!.n;
+      const bounds = this.db
+        .query<{ from_ms: number | null; to_ms: number | null }, [string]>(
+          "SELECT MIN(from_ms) AS from_ms, MAX(to_ms) AS to_ms FROM completed_windows WHERE chat_id=?",
+        )
+        .get(chatId)!;
+      const coverage =
+        bounds.from_ms === null || bounds.to_ms === null
+          ? undefined
+          : { from: bounds.from_ms, to: bounds.to_ms };
+      return {
+        chatId,
+        label: this.chatLabel(chatId),
+        messages,
+        coverage,
+        gaps: coverage ? this.missing(chatId, coverage).length : 0,
+        images: this.imageCounts(chatId),
+      };
+    });
+  }
+
+  /** Image states, per chat or across the database (images are shared between chats). */
+  imageCounts(chat?: string): ImageCounts {
+    const counts = { complete: 0, pending: 0, failed: 0 };
+    if (this.version < 2) return counts;
+    const rows =
+      chat === undefined
+        ? this.db
+            .query<{ status: keyof ImageCounts; n: number }, []>(
+              "SELECT status, COUNT(*) AS n FROM images GROUP BY status",
+            )
+            .all()
+        : this.db
+            .query<{ status: keyof ImageCounts; n: number }, [string]>(
+              "SELECT status, COUNT(*) AS n FROM images WHERE key IN (SELECT image_key FROM message_images WHERE chat_id=?) GROUP BY status",
+            )
+            .all(chat);
+    for (const row of rows) counts[row.status] = row.n;
+    return counts;
+  }
+
   chatLabel(chat: string): string | undefined {
     return (
       this.db
@@ -428,7 +486,7 @@ export class HistoryStore {
     return selectChatByLabel(
       chats,
       label,
-      "No saved chat matches --chat-label in this database. Use --chat <id>, or collect the chat with its current label first.",
+      "No saved chat matches --chat-label in this database. Run teams status (with the same --db, if you used one) to see saved labels, use --chat <id>, or collect the chat with its current label first.",
     ).id;
   }
 

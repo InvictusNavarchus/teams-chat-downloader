@@ -369,9 +369,12 @@ test("batch collection rejects empty databases and account mismatch before HTTP"
       throw new Error("No HTTP expected");
     },
   });
+  // Pre-flight failures need a different command, so no resume advice.
   await expect(
     collectChats(options, f.credentials, http, stats, historyProgress()),
-  ).rejects.toThrow("No saved chats");
+  ).rejects.toThrow(
+    /^No saved chats in this database\. Run teams chats --new \(with the same --db, if you used one\) and follow the collect command it prints\.$/,
+  );
   await expect(
     collectChats(
       options,
@@ -380,9 +383,32 @@ test("batch collection rejects empty databases and account mismatch before HTTP"
       stats,
       historyProgress(),
     ),
-  ).rejects.toThrow("different account");
+  ).rejects.toThrow(/different account(?!.*rerun)/);
   expect(stats.total).toBe(0);
   expect(await readdir(f.dir)).toEqual(["history.sqlite"]);
+});
+
+test("catching up a chat without saved coverage asks for an initial range, not a rerun", async () => {
+  const f = await fixture();
+  const stats = requestStats();
+  const http = createHttp({
+    stats,
+    fetch: async () => {
+      throw new Error("No HTTP expected");
+    },
+  });
+  await expect(
+    collectHistory(
+      resolveCollectOptions({ db: f.db, chat: "new", backup: false }, f.to),
+      f.credentials,
+      http,
+      stats,
+      historyProgress(),
+    ),
+  ).rejects.toThrow(
+    /^No completed history for chat "new"\. Choose --all-history or an explicit date range for its initial collection\.$/,
+  );
+  expect(stats.total).toBe(0);
 });
 
 test("batch pacing also applies between chats", async () => {
@@ -492,17 +518,21 @@ test("CLI all-chats catches up saved IDs and records per-chat progress with opti
   expect(result.stdout).toContain(
     'Chat "b" complete: 0 new messages; 1 windows saved.',
   );
-  const summary = JSON.parse(
-    result.stdout.split("\n").find((line) => line.startsWith("{"))!,
-  );
+  expect(result.stdout).toContain("across 2 chats; 2 windows saved.");
+  expect(result.stdout).not.toContain('"completedWindows"');
+  const logs = await readdir(`${f.db}.logs`);
+  expect(logs).toHaveLength(1);
+  const log = await readFile(join(`${f.db}.logs`, logs[0]!), "utf8");
+  // The full result is kept in the log rather than printed.
+  const resultLine = log
+    .split("\n")
+    .find((line) => line.includes("] Result: {"))!;
+  const summary = JSON.parse(resultLine.slice(resultLine.indexOf("{")));
   expect(summary.chats.map((chat: { chatId: string }) => chat.chatId)).toEqual([
     "a",
     "b",
   ]);
   expect(summary.completedWindows).toBe(2);
-  const logs = await readdir(`${f.db}.logs`);
-  expect(logs).toHaveLength(1);
-  const log = await readFile(join(`${f.db}.logs`, logs[0]!), "utf8");
   expect(log).toContain("--all-chats");
   expect(log).toContain('"allChats":true');
   expect(log).toContain('"catchUpTo":');
@@ -524,7 +554,9 @@ test("CLI all-chats catches up saved IDs and records per-chat progress with opti
     credentialsPath,
   ]);
   expect(noOp.code).toBe(0);
-  expect(noOp.stdout).toContain('"completedWindows":0');
+  expect(noOp.stdout).toContain(
+    "Collection complete: 0 new messages across 2 chats; 0 windows saved.",
+  );
   expect(noOp.stdout).not.toContain("Collection log:");
   expect(await readdir(`${f.db}.logs`)).toHaveLength(1);
   const invalid = await cli([...args, "--chat", "a"]);
@@ -1012,7 +1044,9 @@ test("CLI collection resumes without HTTP and exports offline without credential
   ];
   const first = await cli(args);
   expect(first.exit).toBe(0);
-  expect(first.stdout).toContain('"completedWindows":2');
+  expect(first.stdout).toContain(
+    'Collection complete: 2 new messages for "group"; 2 windows saved.',
+  );
   expect(first.stdout).toContain(
     "[backup] Snapshotting and verifying database...",
   );
@@ -1020,10 +1054,12 @@ test("CLI collection resumes without HTTP and exports offline without credential
     "[backup] Writing manifest and syncing snapshot...",
   );
   expect(first.stdout).toContain("[backup] Saved verified snapshot:");
-  expect(first.stdout).toContain('"saved":1,"failed":0');
+  expect(first.stdout).toContain("Backups: 1 saved; latest: ");
   const second = await cli(args, true);
   expect(second.exit).toBe(0);
-  expect(second.stdout).toContain('"completedWindows":0');
+  expect(second.stdout).toContain(
+    'Collection complete: "group" was already up to date.',
+  );
   expect(second.stdout).not.toContain("HTTP attempts:");
   expect(second.stdout).toContain(
     "Requested range already collected; no history requests needed.",
@@ -1046,7 +1082,7 @@ test("CLI collection resumes without HTTP and exports offline without credential
   const disabled = await cli([...args, "--no-backup"], true);
   expect(disabled.exit).toBe(0);
   expect(disabled.stdout).not.toContain("[backup]");
-  expect(disabled.stdout).not.toContain('"backups":');
+  expect(disabled.stdout).not.toContain("Backups:");
   expect(await readdir(`${f.db}.backups`)).toHaveLength(2);
   const override = await cli(
     [...args, "--backup-dir", join(f.dir, "custom-backups")],

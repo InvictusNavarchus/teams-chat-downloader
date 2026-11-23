@@ -372,6 +372,8 @@ Observed nested member keys included `isMuted`, `mri`, `objectId`, `role`, and `
 
 The nested `lastMessage` used different capitalization from history records, including `messageType`, `composeTime`, `originalArrivalTime`, and `imDisplayName`. Do not reuse a history field adapter blindly for directory previews.
 
+`chats` reads only `lastMessage.originalArrivalTime`, falling back to `composeTime`, to sort its table by recent activity. Any other or missing shape becomes `lastActivity: null` instead of failing directory validation. Field presence across empty, hidden, and very old chats has not been verified against live responses.
+
 ### 6.4 Labels and selection
 
 - Use raw `id` as the selection identity.

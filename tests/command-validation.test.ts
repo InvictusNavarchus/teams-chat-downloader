@@ -7,6 +7,7 @@ import {
   resolveDatabaseExportOptions,
   resolveDownloadOptions,
   resolveExportOptions,
+  resolveLiveSmokeOptions,
   resolveMediaOptions,
 } from "../src/command-validation.ts";
 import { defaultPageDelay } from "../src/config.ts";
@@ -78,7 +79,7 @@ describe("saved chat collection selection", () => {
         { db: "h", chat: "a", last: "1d", images: true },
         now,
       ),
-    ).toThrow("Download options");
+    ).toThrow("Unknown option --images.");
   });
 
   test("defaults to catch-up without inventing a global start date", () => {
@@ -143,10 +144,11 @@ describe("saved chat collection selection", () => {
         { db: "h", allChats: true, allHistory: true },
         now,
       ),
-    ).toThrow("Download options");
+    ).toThrow("Unknown option --all-chats.");
+    // Download must not suggest collect's --all-chats selector.
     expect(() =>
       resolveDownloadOptions({ db: "h", allHistory: true }, now),
-    ).toThrow("Choose exactly one");
+    ).toThrow("Choose exactly one of --chat <id> or --chat-label <label>.");
   });
 });
 
@@ -181,7 +183,7 @@ describe("database media chat selection", () => {
     (chatLabel) => {
       expect(() =>
         resolveDatabaseMediaOptions({ db: "history.sqlite", chatLabel }),
-      ).toThrow("Database media options");
+      ).toThrow(/^--chat-label (needs a value|has an invalid value)\.$/);
     },
   );
 });
@@ -210,7 +212,7 @@ describe("chat selection", () => {
     (chatLabel) => {
       expect(() =>
         resolveExportOptions({ chatLabel, last: "1d" }, now),
-      ).toThrow("Export options");
+      ).toThrow(/^--chat-label (needs a value|has an invalid value)\.$/);
     },
   );
 });
@@ -242,10 +244,13 @@ describe("history page delay options", () => {
   test.each([-1, 3601, Infinity, NaN, "", " ", "slow", "1s", true, null])(
     "rejects invalid delay bounds: %s",
     (value) => {
-      for (const name of ["pageDelayMin", "pageDelayMax"]) {
+      for (const [name, flag] of [
+        ["pageDelayMin", "--page-delay-min"],
+        ["pageDelayMax", "--page-delay-max"],
+      ] as const) {
         expect(() =>
           resolveExportOptions({ ...base, last: "1d", [name]: value }),
-        ).toThrow("Export options");
+        ).toThrow(flag);
       }
     },
   );
@@ -275,8 +280,12 @@ test("media options require an archive and support refresh and skipping Markdown
       markdown: false,
     }),
   ).toMatchObject({ refreshMedia: true, markdown: false });
-  for (const options of [{}, { input: "" }, { input: "chat.json", chat: "id" }])
-    expect(() => resolveMediaOptions(options)).toThrow("Media options");
+  for (const [options, message] of [
+    [{}, "--input is required."],
+    [{ input: "" }, "--input needs a value."],
+    [{ input: "chat.json", chat: "id" }, "Unknown option --chat."],
+  ] as const)
+    expect(() => resolveMediaOptions(options)).toThrow(message);
 });
 
 test("images default on, can be skipped, and refresh requires media", () => {
@@ -396,6 +405,56 @@ describe("date options", () => {
     ).toEqual({ from: 1785542400000, to: 1786147200000 });
   });
 
+  test.each([
+    // Local midnight on both bounds; --to stays exclusive.
+    ["Asia/Jakarta", "2026-10-01T00:00:00+07:00", "2026-11-01T00:00:00+07:00"],
+    ["UTC", "2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z"],
+    // 2026-11-01 is the US daylight-saving change; midnight is still -04:00.
+    [
+      "America/New_York",
+      "2026-10-01T00:00:00-04:00",
+      "2026-11-01T00:00:00-04:00",
+    ],
+  ])(
+    "%s calendar dates resolve to local midnight for collect, download and export",
+    async (zone, from, to) => {
+      const module = JSON.stringify(
+        fileURLToPath(new URL("../src/command-validation.ts", import.meta.url)),
+      );
+      const child = Bun.spawn(
+        [
+          process.execPath,
+          "--eval",
+          `import { resolveCollectOptions, resolveDatabaseExportOptions, resolveDownloadOptions } from ${module};
+      const dates = { from: "2026-10-01", to: "2026-11-01" };
+      const now = Date.parse("2026-11-24T00:00:00Z");
+      console.log(JSON.stringify([
+        resolveCollectOptions({ db: "h", chat: "a", ...dates }, now).window,
+        resolveDownloadOptions({ db: "h", chat: "a", ...dates }, now).window,
+        resolveDatabaseExportOptions({ db: "h", chat: "a", out: "o", ...dates }, now).window,
+        resolveCollectOptions({ db: "h", chat: "a", since: dates.from }, now).window.from,
+      ]));`,
+        ],
+        { env: { ...process.env, TZ: zone }, stdout: "pipe", stderr: "pipe" },
+      );
+      const [code, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      expect(stderr).toBe("");
+      expect(code).toBe(0);
+      const window = { from: Date.parse(from), to: Date.parse(to) };
+      expect(JSON.parse(stdout)).toEqual([window, window, window, window.from]);
+    },
+  );
+
+  test("live smoke windows still require timezone-qualified timestamps", () => {
+    expect(() =>
+      resolveLiveSmokeOptions({ from: "2026-08-01", to: "2026-08-02" }, now),
+    ).toThrow("--from expects a timestamp with Z or a UTC offset");
+  });
+
   test("since ends at invocation time", () => {
     expect(
       resolveExportOptions({ ...base, since: "2026-11-01T00:00:00Z" }, now)
@@ -410,7 +469,10 @@ describe("date options", () => {
     { last: "-1d" },
     { last: "9999999999999999999999999d" },
     { from: "2026-08-01T00:00:00Z" },
-    { from: "2026-08-01", to: "2026-08-08" },
+    { from: "2026-02-30", to: "2026-03-05" },
+    { since: "2026-8-1" },
+    { since: "20260801" },
+    { since: "2026-08-01T00:00:00" },
     { from: "2026-08-08T00:00:00Z", to: "2026-08-01T00:00:00Z" },
     { from: "2026-08-01T00:00:00Z", to: "2026-08-01T00:00:00Z" },
     { from: "2026-02-30T00:00:00Z", to: "2026-03-05T00:00:00Z" },

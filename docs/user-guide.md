@@ -58,13 +58,16 @@ Manual input is supported using the [credential template](../examples/credential
 
 ```sh
 bun run teams chats
+bun run teams chats --new
 bun run teams chats --out .private/chats.json
 bun run teams chats --refresh-names
 ```
 
-`chats` prints IDs and labels. Named groups keep their titles; one-to-one chats use the other participant's name when available. Names are cached for 24 hours. Use `--refresh-names` after a rename. Without profile credentials, listing can still work with unresolved names; profile authentication failures and incomplete directory responses fail explicitly.
+`chats` prints a table of chats, newest activity first: the local date of each chat's last message (`-` when Teams gives none), whether the chat is already saved in your collection database, its label, and its raw ID. `--new` shows only chats that are not saved yet and suggests a `collect` command for the first one listed, which is the most recently active when Teams reports activity (chats without it sort last, by name). The suggestion single-quotes the label for pasting, uses the raw ID when the label contains `'` or `\`, and repeats an explicit `--db`; use it to spot new chats, since `collect --all-chats` only catches up chats already saved. Labels that are generic or shared by several chats are marked "select with --chat" because `--chat-label` cannot select them.
 
-`--out` saves a clean JSON array, replacing an earlier chat list only after a successful write. Saved lists are reference snapshots: selection always uses the current directory and does not read this file. Terminal output includes progress and summaries, so use the saved file for machine-readable JSON.
+Saved status comes from the same default database as `collect` (`TEAMS_DATA_DIR/history.sqlite` or the account database), opened read-only; `--db <file>` selects another. A missing default database simply means nothing is saved yet, while a missing explicit `--db` or another account's database fails. Listing still needs credentials and one directory request. Named groups keep their titles; one-to-one chats use the other participant's name when available. Names are cached for 24 hours. Use `--refresh-names` after a rename. Without profile credentials, listing can still work with unresolved names; profile authentication failures and incomplete directory responses fail explicitly.
+
+`--out` also saves the full directory as a clean JSON array, including saved chats and each chat's `lastActivity` (ISO time or `null`), even with `--new`. It replaces an earlier chat list only after a successful write. Saved lists are reference snapshots: selection always uses the current directory and does not read this file. Terminal output is the table, so use the saved file for machine-readable JSON.
 
 For `download` and `collect`, choose exactly one selector:
 
@@ -74,6 +77,15 @@ bun run teams download --chat '<raw-chat-id>' --last 7d
 ```
 
 Labels match exactly after trimming surrounding whitespace and ignoring case; partial matches are not supported. Generic labels `Untitled chat` and `Unresolved one-to-one chat` cannot select a chat. If a name is duplicated, use the raw ID shown in the error or chat list. IDs are preferable for scripts because labels can change.
+
+### See what is saved
+
+```sh
+bun run teams status
+bun run teams status --db exports/history.sqlite
+```
+
+`status` lists every saved chat with its saved label (the one offline `export --chat-label` and `images --chat-label` match), message count, collected range in local time (`all history` after `--all-history`), the number of internal coverage gaps, images still to download (pending or previously failed), and raw ID. It ends with the next command to run when gaps or images remain, repeating `--db` when you passed one. On an older (version 1) database that predates the image index, the image column shows `?` until `teams images` runs once to migrate it. Like `export`, it is offline and read-only: it needs no credentials, makes no requests, and writes no log. It uses `--db`, then `TEAMS_DATA_DIR/history.sqlite`, then the single default account collection. Image counts come from saved metadata; a file deleted outside the tool still appears complete until `images` verifies it.
 
 Label selection requires a current directory lookup and any needed participant names, even with an explicit output path. Raw-ID downloads and collection skip that lookup, using any saved label for output naming. Offline `export` and `images` label lookup use only saved labels. Profile cache locations and lookup mechanics are documented in the [participant profile reference](08-participant-profiles.md).
 
@@ -85,10 +97,10 @@ Label selection requires a current directory lookup and any needed participant n
 | ------------------------------------- | ------------------------------------------------------------- |
 | `--last 1d`                           | Today from local midnight through invocation time             |
 | `--last 7d`                           | Six days ago at local midnight through invocation time        |
-| `--since <timestamp>`                 | The supplied instant through invocation time                  |
-| `--from <timestamp> --to <timestamp>` | The supplied start, inclusive, to the supplied end, exclusive |
+| `--since <date>`                      | The supplied date or instant through invocation time          |
+| `--from <date> --to <date>`           | The supplied start, inclusive, to the supplied end, exclusive |
 
-`--last Nd` means calendar days, including today, rather than N × 24 hours. The machine's local timezone applies; set `TZ` to override it. Explicit timestamps require `Z` or a timezone offset and at most millisecond precision. Date-only values are rejected. Filtering uses the original message arrival time.
+`--last Nd` means calendar days, including today, rather than N × 24 hours. The machine's local timezone applies; set `TZ` to override it. `--since`, `--from`, and `--to` accept a calendar date such as `2026-11-01`, meaning local midnight in that same timezone, or a full timestamp with `Z` or a timezone offset and at most millisecond precision. Because `--to` is exclusive, `--from 2026-10-01 --to 2026-11-01` selects October. Commands print the resolved UTC range before any requests. Filtering uses the original message arrival time.
 
 ```sh
 bun run teams download --chat-label 'Project Alpha' --last 7d
@@ -145,7 +157,7 @@ teams collect --db exports/history.sqlite --all-chats --images
 
 `--all-chats` reads IDs already present in the account's database, including chats without labels or with duplicate labels. It does not discover new chats, refresh labels, or request the directory/profiles. It cannot be combined with `--chat` or `--chat-label`, and an empty database fails with guidance to collect a chat first. `download` remains single-chat.
 
-Chats run sequentially in raw-ID order with one captured endpoint, one collection reservation, shared backup scheduling, and normal pacing between windows even across chat boundaries. Without date flags, each chat starts at its earliest completed interval and ends at the captured invocation time, skipping completed intervals and retrying internal gaps. This uses saved coverage even when it contains no messages; it does not infer a start from message timestamps. It does not backfill before that saved start. For an initial collection without completed coverage, choose an explicit range or `--all-history`. Use `--all-history` to include older history down to Unix millisecond 1. The old `--all` flag is no longer accepted on `collect` or `download`. Per-chat progress and a final result with per-chat and aggregate counts appear in the terminal and automatic log; `--no-log` disables the log. History failure or cancellation stops the batch, retains earlier checkpoints, and does not start a final history backup. Rerun the same command to resume. For images afterward, `teams images` handles all saved chats; pass the same `--db` for a custom database.
+Chats run sequentially in raw-ID order with one captured endpoint, one collection reservation, shared backup scheduling, and normal pacing between windows even across chat boundaries. Without date flags, each chat starts at its earliest completed interval and ends at the captured invocation time, skipping completed intervals and retrying internal gaps. This uses saved coverage even when it contains no messages; it does not infer a start from message timestamps. It does not backfill before that saved start. For an initial collection without completed coverage, choose an explicit range or `--all-history`. Use `--all-history` to include older history down to Unix millisecond 1. The old `--all` flag is no longer accepted on `collect` or `download`. Per-chat progress and a final summary of new messages, listing only chats that received some, appear in the terminal; the automatic log also records the full result with per-chat and aggregate counts. `--no-log` disables the log. History failure or cancellation stops the batch, retains earlier checkpoints, and does not start a final history backup. Rerun the same command to resume. For images afterward, `teams images` handles all saved chats; pass the same `--db` for a custom database.
 
 **Collection is not ongoing synchronization:** completed intervals are not refreshed for later edits or deletions. Conflicting content for an already saved message fails the current interval rather than overwriting the saved record. See the [SQLite reference](11-sqlite-collection.md) for schema, migration, and checkpoint behavior.
 
@@ -249,7 +261,7 @@ bun run teams download --chat '<raw-chat-id>' --last 7d --out exports/last-week
 bun run teams download --chat '<raw-chat-id>' --last 7d --no-markdown
 ```
 
-Download `--out` selects the **export directory**. JSON is always named `chat.json`, with `chat.md` beside it (unless `--no-markdown` is passed). The second command saves `exports/last-week/chat.json` and `exports/last-week/chat.md`. Successful stdout includes the JSON path as `output` and the Markdown path as `markdown` (omitted with `--no-markdown`).
+Download `--out` selects the **export directory**. JSON is always named `chat.json`, with `chat.md` beside it (unless `--no-markdown` is passed). The second command saves `exports/last-week/chat.json` and `exports/last-week/chat.md`. On success the command ends with a short summary naming the export folder. The full result, including the JSON path as `output` and the Markdown path as `markdown` (omitted with `--no-markdown`), is recorded in the invocation log.
 
 Convert an existing export later without credentials, browser access, or Teams requests:
 
@@ -282,7 +294,7 @@ Downloaded images become local Markdown image links; conversion to another direc
 
 ## Progress and recovery
 
-Commands print results, progress, and request summaries to stdout; warnings and errors go to stderr. Stdout as a whole is not a JSON document. Use `chats --out` or saved archives for JSON data. The exit code indicates command success, with backup warnings reported separately as described above.
+Commands print progress and request summaries to stdout; warnings and errors go to stderr. `download`, `collect`, `export`, and `images` end with a short readable summary: new messages per chat, backups, image totals, and the export folder. Their full JSON result is written to the invocation log as a `[<command>] Result: {...}` line, so `--no-log` leaves only the readable summary. `login`, `media`, `convert`, and `convert-all` still print their JSON result. Stdout as a whole is not a JSON document. Use `chats --out` or saved archives for JSON data. The exit code indicates command success, with backup warnings reported separately as described above.
 
 | Situation                             | Next step                                                                               |
 | ------------------------------------- | --------------------------------------------------------------------------------------- |

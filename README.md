@@ -15,9 +15,9 @@ bun run teams collect --chat-label 'Project Alpha' --last 7d --images
 bun run teams export --chat-label 'Project Alpha' --last 7d
 ```
 
-Sign in and complete verification in the browser opened by `login`. Later commands use direct HTTP and do not need an open browser. Replace `Project Alpha` with a label from `chats`.
+Sign in and complete verification in the browser opened by `login`. Later commands use direct HTTP and do not need an open browser. Replace `Project Alpha` with a label from `chats`, which lists chats by recent activity and marks those already saved. Later, `teams chats --new` shows chats you have not collected yet; `collect --all-chats` only catches up saved ones.
 
-`collect --images` saves missing history in SQLite and downloads pending images beside the database. `export` separately writes `chat.json` and `chat.md` offline; `download` remains a convenience command that runs all three stages. `--last 7d` means seven local calendar days including today. Export writes one folder per day under `exports/<chat-label>/`; rerunning export regenerates matching bundles from saved history.
+`collect --images` saves missing history in SQLite and downloads pending images beside the database. `export` separately writes `chat.json` and `chat.md` offline. Collect-then-export is the main workflow; `download` is a single-chat shortcut that runs collection, images, and export in one command. `--last 7d` means seven local calendar days including today. Export writes one folder per day under `exports/<chat-label>/`; rerunning export regenerates matching bundles from saved history.
 
 **Collection resumes automatically.** Completed intervals are skipped, and later edits or deletions in those intervals are not synchronized. Existing saved messages are preserved. There is no history refresh mode or `--resume` flag. Image revalidation remains available through `--refresh-media`.
 
@@ -28,21 +28,21 @@ Run `bun link` once from this checkout to expose `teams` on your `PATH`. Bun's g
 ```sh
 bun link
 teams --help
-teams download --chat-label 'Project Alpha' --last 1d
+teams status
 ```
 
 The linked command runs current source from this checkout and requires its dependencies and Bun. Explicit relative paths resolve from the invoking working directory. Relink after moving the checkout; `bun unlink` removes the registration.
 
-`teams --help` starts with common catch-up, initial collection, and offline export examples. Use `teams collect --help` or `teams export --help` for grouped options and defaults; advanced options and archive utilities remain listed.
+`teams --help` starts with common catch-up, initial collection, and offline export examples, then lists the everyday commands: `login`, `chats`, `status`, `collect`, `images`, and `export`. Use `teams collect --help` or `teams export --help` for grouped options and defaults; advanced options and archive utilities remain listed.
 
 ## One collection workflow
 
 | Command | Purpose |
 | --- | --- |
-| `download` | Collect missing history, download images, and export JSON/Markdown |
 | `collect` | Collect missing history, optionally with `--images`, without exporting |
 | `images` | Download or repair images referenced by saved history |
 | `export` | Create JSON/Markdown from saved history, completely offline |
+| `download` | Single-chat shortcut: collect, download images, and export in one command |
 
 All four accept `--db <file>`. With neither `--db` nor `TEAMS_DATA_DIR` set, online commands use an account-specific database under `$XDG_STATE_HOME/teams-chat-download/collections/` (default `~/.local/state/teams-chat-download/collections/`). Offline `export` discovers a single default collection without credentials. If several accounts have collections, specify `--db`.
 
@@ -57,26 +57,7 @@ TZ=Asia/Jakarta
 
 Commands default to `history.sqlite` and `exports/` under that directory. Media, backups, and logs stay beside the database. `--db` and explicit output paths still take precedence for their respective destinations. Without `TEAMS_DATA_DIR`, the export root is `exports/` in the invoking working directory.
 
-### Download a period
-
-```sh
-# Today so far, using the default account collection:
-teams download --chat-label 'Project Alpha' --last 1d
-
-# A specific period as one combined bundle in a new folder:
-teams download --chat-label 'Project Alpha' \
-  --from '2026-10-01T00:00:00+07:00' --to '2026-11-01T00:00:00+07:00' \
-  --out exports/alpha-october
-
-# Use your existing collection:
-teams download --db exports/history.sqlite --chat-label 'Project Alpha' --last 7d
-```
-
-Choose one date mode: `--last Nd`, `--since <timestamp>`, paired `--from`/`--to`, or `--all-history`. Timestamps require a timezone, start is included and end excluded, and future ends are refused. Use `--chat '<raw-chat-id>'` when labels are duplicated. Raw-ID downloads skip name lookup and use saved labels or a hashed ID for automatic folders.
-
-Without `--out`, `--last Nd` regenerates one folder per day. Other date modes create a combined timestamped snapshot. Explicit `--out` always requires a new directory. `--no-media` skips images; `--no-markdown` omits Markdown.
-
-### Collect now, export later
+### Collect, then export
 
 ```sh
 teams collect --chat-label 'Project Alpha' --all-history --images
@@ -94,13 +75,38 @@ teams collect --all-chats --images
 teams export --all-chats --last 5d
 ```
 
+Overlapping exports are safe: daily export regenerates each matching day folder from saved history, so a routine `--last 7d` also recreates any missed day within those seven days. For older missed days, request a wider range such as `--last 30d`.
+
 Reuse `--db <file>` on collection, image, and export commands if you originally chose a custom database. `--all-chats` uses saved chat IDs without directory/profile lookup; it does not discover new chats. With no date flags, `collect` catches up from each chat’s earliest completed interval through now, retrying gaps within that range. Use `--all-history` to also backfill older history. A chat without completed coverage requires `--all-history` or an explicit date range for its initial collection. The old `--all` flag has been replaced by `--all-history` on both `collect` and `download`. History collection runs sequentially and stops on failure or cancellation. Rerun to resume from saved checkpoints. This selector is available on `collect` and daily `export`; `download` and combined `export --out` still require one chat.
+
+`teams status` shows, offline, which chats are saved, the range collected for each, any gaps, and images still to download.
 
 `collect --images` downloads pending images across the selected chats’ saved history, including older pending references. History must finish before images start. If an individual image fails, the queue continues through later images and chats, then reports the failures and exits with status 1. Rerun the command to retry failed images and skip verified files. Collection never creates JSON or Markdown bundles.
 
 `export --all-chats --last 5d` writes JSON, Markdown, and saved images to each chat’s daily folders. It checks all chats’ coverage and folder-name conflicts before publishing. To download missing images first, use `collect --all-chats --images` or `images`; export itself stays offline.
 
 Collection makes automatic verified database backups in `<database>.backups/`, hourly between completed intervals and on clean completion. Use `--backup-dir` to change the location or `--no-backup` to disable them. Backups snapshot only `history.sqlite` (not `<database>.media/`) and are not automatically pruned. Keep the live database and adjacent `<database>.media/` directory together, and back up `<database>.media/` separately. See [backup and restoration](docs/user-guide.md#back-up-and-restore-collections).
+
+### One-chat shortcut: download
+
+`download` collects one chat, downloads its images, and exports it in a single command. It always needs a date mode and never accepts `--all-chats`; use `collect` and `export` for several chats.
+
+```sh
+# Today so far, using the default account collection:
+teams download --chat-label 'Project Alpha' --last 1d
+
+# A specific period as one combined bundle in a new folder:
+teams download --chat-label 'Project Alpha' \
+  --from 2026-10-01 --to 2026-11-01 \
+  --out exports/alpha-october
+
+# Use your existing collection:
+teams download --db exports/history.sqlite --chat-label 'Project Alpha' --last 7d
+```
+
+Choose one date mode: `--last Nd`, `--since <date>`, paired `--from`/`--to`, or `--all-history`. `collect` accepts the same modes, all optional. `export` instead takes `--last Nd` for daily folders, or `--out` with optional paired `--from`/`--to`; it has no `--since` or `--all-history`. The date and timestamp forms below apply wherever these flags exist. Dates such as `2026-11-01` mean local midnight; full timestamps require `Z` or an offset. Start is included and end excluded, so `--from 2026-10-01 --to 2026-11-01` is October. Future ends are refused. Use `--chat '<raw-chat-id>'` when labels are duplicated. Raw-ID downloads skip name lookup and use saved labels or a hashed ID for automatic folders.
+
+Without `--out`, `--last Nd` regenerates one folder per day. Other date modes create a combined timestamped snapshot. Explicit `--out` always requires a new directory. `--no-media` skips images; `--no-markdown` omits Markdown.
 
 ## Use your exported files
 

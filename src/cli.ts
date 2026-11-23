@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import { lstat } from "node:fs/promises";
+import { resolve } from "node:path";
 import { cac } from "cac";
 import { configureCliHelp } from "./cli-help.ts";
 import { downloadArchiveMedia } from "./archive-media.ts";
@@ -12,6 +14,7 @@ import {
   resolveConvertOptions,
   resolveLoginOptions,
   resolveMediaOptions,
+  resolveStatusOptions,
 } from "./command-validation.ts";
 import {
   commandDefaults,
@@ -37,7 +40,16 @@ import {
 import { exportDatabase, exportSavedChats } from "./database-export.ts";
 import { downloadDatabaseMedia } from "./database-media.ts";
 import { loadCredentials } from "./credentials.ts";
+import {
+  type ChatNames,
+  collectionSummary,
+  exportSummary,
+  imagesSummary,
+  savedChatsExportSummary,
+} from "./cli-summary.ts";
+import { chatTable, statusTable } from "./chat-table.ts";
 import { AppError, errorMessage } from "./errors.ts";
+import { HistoryStore } from "./history-store.ts";
 import type { ExportProgressEvent } from "./export.ts";
 import { createHttp, requestStats, type ImageResponseError } from "./http.ts";
 import type { MediaProgress } from "./media.ts";
@@ -56,6 +68,11 @@ export async function runCli(argv = process.argv): Promise<number> {
     collectionLog?.write(message);
   };
   let operation = "collect";
+  // People get a readable summary; the full result stays in the invocation log.
+  const finish = (result: unknown, summary: string[]) => {
+    collectionLog?.write(`[${operation}] Result: ${JSON.stringify(result)}`);
+    for (const line of summary) output(line);
+  };
   const startLog = (
     command: string,
     options: { db: string; log?: boolean } & Record<string, unknown>,
@@ -273,9 +290,11 @@ export async function runCli(argv = process.argv): Promise<number> {
         );
     });
   cli
-    .command("chats", "List chat names and IDs as JSON")
+    .command("chats", "List chats by recent activity and show which are saved")
+    .option("--new", "Show only chats not saved in the database yet")
+    .option("--db <file>", "Override the account or TEAMS_DATA_DIR database")
     .option("--credentials <file>", "Override automatic credential file lookup")
-    .option("--out <file>", "Save or refresh the chat list as JSON")
+    .option("--out <file>", "Also save the full chat list as JSON")
     .option(
       "--refresh-names",
       "Refresh participant names instead of using cached profiles",
@@ -283,6 +302,12 @@ export async function runCli(argv = process.argv): Promise<number> {
     .action(async (raw: Record<string, unknown>) => {
       const options = resolveChatsOptions(raw);
       const credentials = await loadCredentials(options.credentials);
+      // Check the database first so a wrong --db fails before any request.
+      const saved = await savedChatIds(
+        options.db ?? defaultCollectionPath(credentials.accountId),
+        credentials.accountId,
+        options.db !== undefined,
+      );
       const chats = await listChats(http, credentials, {
         refresh: options.refreshNames === true,
         warn: (message) => console.warn(message),
@@ -292,7 +317,49 @@ export async function runCli(argv = process.argv): Promise<number> {
         const path = await writeChatList(options.out, chats, controller.signal);
         console.log(`Saved chat list to ${path}.`);
       }
-      console.log(JSON.stringify(chats, null, 2));
+      for (const line of chatTable(chats, saved, {
+        onlyNew: options.new,
+        db: options.db === undefined ? undefined : resolve(options.db),
+      }))
+        console.log(line);
+    });
+  cli
+    .command(
+      "status",
+      "Show saved chats, collected ranges and pending images, offline",
+    )
+    .option(
+      "--db <file>",
+      "Override TEAMS_DATA_DIR or single-account database discovery",
+    )
+    .action(async (raw: Record<string, unknown>) => {
+      const { "--": _trailing, ...input } = raw;
+      const options = resolveStatusOptions(input);
+      // Offline and read-only like export: no credentials, HTTP, or log file.
+      const db = options.db ?? (await findDefaultCollection());
+      try {
+        await lstat(db);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        // TEAMS_DATA_DIR names its database without checking it exists.
+        throw new AppError(
+          options.db === undefined
+            ? `No collection database at ${db} (from TEAMS_DATA_DIR); run collect first, or pass --db.`
+            : `No collection database at ${db}.`,
+        );
+      }
+      const store = await HistoryStore.open(db);
+      try {
+        for (const line of statusTable(
+          store.chatSummaries(),
+          store.imageCounts(),
+          db,
+          { db: options.db, imagesIndexed: store.version >= 2 },
+        ))
+          console.log(line);
+      } finally {
+        store.close();
+      }
     });
   cli
     .command("download", "Collect messages and images, then export in one step")
@@ -320,17 +387,14 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option("--all-history", "Backfill all accessible history through now")
     .option("--last <Nd>", "Last N local calendar days, including today")
     .option(
-      "--since <timestamp>",
-      "Start timestamp through now (requires Z or timezone offset)",
+      "--since <date>",
+      "Start date (local midnight) or timestamp with Z or offset, through now",
     )
     .option(
-      "--from <timestamp>",
-      "Start timestamp (inclusive); requires --to and Z or offset",
+      "--from <date>",
+      "Start date or timestamp (inclusive); requires --to",
     )
-    .option(
-      "--to <timestamp>",
-      "End timestamp (exclusive); requires --from and Z or offset",
-    )
+    .option("--to <date>", "End date or timestamp (exclusive); requires --from")
     .option(
       "--page-delay-min <seconds>",
       `Minimum pause between pages and collection windows (default: ${defaultPageDelay.min})`,
@@ -383,7 +447,17 @@ export async function runCli(argv = process.argv): Promise<number> {
         output,
         reportCollection,
       );
-      output(JSON.stringify(result));
+      const names = await chatNames(options.db, [result.collection.chatId]);
+      finish(result, [
+        ...collectionSummary(
+          { chats: [result.collection], ...result.collection },
+          names,
+        ),
+        ...exportSummary(
+          result,
+          names.get(result.collection.chatId) ?? result.collection.chatId,
+        ),
+      ]);
     });
   cli
     .command("collect", "Save messages; add --images to download images too")
@@ -415,17 +489,14 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option("--all-history", "Backfill all accessible history through now")
     .option("--last <Nd>", "Last N local calendar days, including today")
     .option(
-      "--since <timestamp>",
-      "Start timestamp through now (requires Z or timezone offset)",
+      "--since <date>",
+      "Start date (local midnight) or timestamp with Z or offset, through now",
     )
     .option(
-      "--from <timestamp>",
-      "Start timestamp (inclusive); requires --to and Z or offset",
+      "--from <date>",
+      "Start date or timestamp (inclusive); requires --to",
     )
-    .option(
-      "--to <timestamp>",
-      "End timestamp (exclusive); requires --from and Z or offset",
-    )
+    .option("--to <date>", "End date or timestamp (exclusive); requires --from")
     .option(
       "--page-delay-min <seconds>",
       `Minimum pause between pages and collection windows (default: ${defaultPageDelay.min})`,
@@ -467,6 +538,18 @@ export async function runCli(argv = process.argv): Promise<number> {
         controller.signal,
         reportCollection,
       );
+      // Single-chat results are flat; batch results list their chats.
+      const summarizeCollection = async () => {
+        const collection =
+          "chats" in result ? result : { ...result, chats: [result] };
+        return collectionSummary(
+          collection,
+          await chatNames(
+            options.db,
+            collection.chats.map((chat) => chat.chatId),
+          ),
+        );
+      };
       if (options.images) {
         output(
           "[collect] History collection complete; downloading pending images.",
@@ -496,12 +579,15 @@ export async function runCli(argv = process.argv): Promise<number> {
           images.push({ chatId: chat.chatId, ...media });
         }
         const failed = images.reduce((count, chat) => count + chat.failed, 0);
-        output(JSON.stringify({ ...result, images }));
+        finish({ ...result, images }, [
+          ...(await summarizeCollection()),
+          ...imagesSummary(images),
+        ]);
         if (failed)
           throw new AppError(
             `${failed} image download(s) failed across the selected chats. Saved history and images remain available. Rerun collect --images or teams images to retry.`,
           );
-      } else output(JSON.stringify(result));
+      } else finish(result, await summarizeCollection());
     });
   cli
     .command("export", "Write JSON and Markdown from saved history, offline")
@@ -527,10 +613,10 @@ export async function runCli(argv = process.argv): Promise<number> {
       "Last N local calendar days as daily folders, including today",
     )
     .option(
-      "--from <timestamp>",
-      "Inclusive start; requires --to (default: full collected range)",
+      "--from <date>",
+      "Start date or timestamp (inclusive); requires --to (default: full collected range)",
     )
-    .option("--to <timestamp>", "Exclusive end; requires --from")
+    .option("--to <date>", "End date or timestamp (exclusive); requires --from")
     .option("--no-markdown", "Skip rendering Markdown", {
       default: commandDefaults.markdown,
     })
@@ -553,15 +639,24 @@ export async function runCli(argv = process.argv): Promise<number> {
       output(
         `[export] Requested chat: ${JSON.stringify(options.allChats ? "all saved chats" : (options.chat ?? options.chatLabel))}; range: ${options.window ? new Date(options.window.from).toISOString() : "stored coverage"} to ${options.window ? new Date(options.window.to).toISOString() : "stored coverage"}; media: ${options.media}; markdown: ${options.markdown}; destination: ${options.out ?? "daily folders"}`,
       );
-      output(
-        JSON.stringify(
-          await (options.allChats ? exportSavedChats : exportDatabase)(
-            options,
-            controller.signal,
-            output,
-          ),
-        ),
-      );
+      if (options.allChats) {
+        const result = await exportSavedChats(
+          options,
+          controller.signal,
+          output,
+        );
+        finish(result, savedChatsExportSummary(result));
+      } else {
+        const result = await exportDatabase(options, controller.signal, output);
+        const chat =
+          options.chatLabel ??
+          (options.chat === undefined
+            ? ""
+            : ((await chatNames(options.db, [options.chat])).get(
+                options.chat,
+              ) ?? options.chat));
+        finish(result, exportSummary(result, chat));
+      }
     });
   cli
     .command("images", "Download pending images for saved history")
@@ -613,7 +708,8 @@ export async function runCli(argv = process.argv): Promise<number> {
         controller.signal,
         reportDatabaseMedia,
       );
-      output(JSON.stringify(result));
+      // The image summary line has already been printed by reportDatabaseMedia.
+      finish(result, []);
       if (result.failed)
         throw new AppError(
           `${result.failed} image(s) failed. First failure: ${result.failureReason} Completed image files and database records remain saved. Rerun this command to retry.`,
@@ -626,7 +722,19 @@ export async function runCli(argv = process.argv): Promise<number> {
   try {
     cli.parse(argv, { run: false });
     if (!cli.matchedCommand && !cli.options.help && !cli.options.version) {
-      if (cli.args.length) throw new AppError("Unknown command; use --help.");
+      if (cli.args.length) {
+        const name = String(cli.args[0]);
+        const suggestion = closest(
+          name,
+          cli.commands.flatMap((command) => [
+            command.name,
+            ...command.aliasNames,
+          ]),
+        );
+        throw new AppError(
+          `Unknown command "${name}".${suggestion ? ` Did you mean "${suggestion}"?` : ""} Run teams --help to see commands.`,
+        );
+      }
       cli.outputHelp();
       return 0;
     }
@@ -637,7 +745,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     // CAC's syntax errors do not include remote bodies or credential values.
     const message =
       error instanceof Error && error.name === "CACError"
-        ? error.message
+        ? syntaxErrorMessage(error.message, cli)
         : errorMessage(error);
     console.error(message);
     collectionLog?.write(
@@ -653,6 +761,96 @@ export async function runCli(argv = process.argv): Promise<number> {
       );
     collectionLog?.close();
   }
+}
+
+/**
+ * Chat IDs already in the collection, read-only. A missing default database
+ * means nothing is saved yet; an explicit --db must exist.
+ */
+async function savedChatIds(
+  db: string,
+  accountId: string,
+  explicit: boolean,
+): Promise<Set<string>> {
+  try {
+    await lstat(db);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (explicit) throw new AppError("No collection database at --db path.");
+    return new Set();
+  }
+  const store = await HistoryStore.open(db);
+  try {
+    if (store.accountId !== accountId)
+      throw new AppError(
+        "This collection database belongs to a different account; pass --db for this account's collection.",
+      );
+    return new Set(store.savedChatIds());
+  } finally {
+    store.close();
+  }
+}
+
+/** Saved chat labels for summaries; falls back to raw IDs if the store cannot be read. */
+async function chatNames(db: string, ids: string[]): Promise<ChatNames> {
+  const names = new Map<string, string>();
+  let store: HistoryStore | undefined;
+  try {
+    store = await HistoryStore.open(db);
+    for (const id of ids) {
+      const label = store.chatLabel(id);
+      if (label !== undefined) names.set(id, label);
+    }
+  } catch {
+    // Names are cosmetic; the work already succeeded.
+  } finally {
+    store?.close();
+  }
+  return names;
+}
+
+/** Explains a CAC syntax error using the flag spelling the user typed. */
+function syntaxErrorMessage(message: string, cli: ReturnType<typeof cac>) {
+  // CAC reports unknown options by their camelCase parse key, e.g. `--chatLabl`.
+  const unknown = /^Unknown option `--([^`]+)`$/.exec(message)?.[1];
+  if (unknown === undefined) return message;
+  const flag = `--${unknown.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+  const command = cli.matchedCommand;
+  const suggestion = closest(
+    flag,
+    [...(command?.options ?? []), ...cli.globalCommand.options].flatMap(
+      (option) =>
+        option.rawName.split(/[\s,]+/).filter((name) => name.startsWith("--")),
+    ),
+  );
+  return `Unknown option ${flag}.${suggestion ? ` Did you mean ${suggestion}?` : ""} Run teams ${command?.name ?? ""}${command ? " " : ""}--help to see options.`;
+}
+
+/** Returns the candidate within two edits of the input, if any. */
+function closest(input: string, candidates: string[]): string | undefined {
+  let best: { name: string; distance: number } | undefined;
+  for (const name of candidates) {
+    const distance = editDistance(input, name);
+    if (distance <= 2 && (best === undefined || distance < best.distance))
+      best = { name, distance };
+  }
+  return best?.name;
+}
+
+/** Levenshtein distance, keeping one row of the edit table at a time. */
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (const [i, left] of [...a].entries()) {
+    const current = [i + 1];
+    for (const [j, right] of [...b].entries()) {
+      const substitution = (previous[j] ?? 0) + (left === right ? 0 : 1);
+      const deletion = (previous[j + 1] ?? 0) + 1;
+      const insertion = (current[j] ?? 0) + 1;
+      current.push(Math.min(substitution, deletion, insertion));
+    }
+    previous = current;
+  }
+  return previous[b.length] ?? 0;
 }
 
 if (import.meta.main) process.exitCode = await runCli();

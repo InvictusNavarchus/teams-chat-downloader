@@ -14,13 +14,72 @@ import {
 } from "./config.ts";
 import { defaultCredentialsPath } from "./credentials.ts";
 import { assertWindow, type Window } from "./date-window.ts";
-import { AppError, validationError } from "./errors.ts";
+import { AppError } from "./errors.ts";
 
 const timestampSchema = z.iso
   .datetime({ offset: true })
   .refine(
     (value) => Number.isFinite(Date.parse(value)) && !/\.\d{4}/.test(value),
   );
+// A calendar date means local midnight, like --last's local calendar days.
+// It becomes an offset timestamp so later parsing and logs stay unambiguous.
+const localDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => dayjs(value).format("YYYY-MM-DD") === value)
+  .transform((value) => dayjs(value).format());
+const dateOrTimestampSchema = z.union([timestampSchema, localDateSchema]);
+const timestampHint = (flag: string) =>
+  `${flag} expects a date such as 2026-11-01 (local midnight) or a timestamp with Z or a UTC offset, such as 2026-11-01T09:00:00+07:00.`;
+const strictTimestampHint = (flag: string) =>
+  `${flag} expects a timestamp with Z or a UTC offset, such as 2026-11-01T00:00:00+07:00.`;
+const pageDelayHint = (flag: string) =>
+  `${flag} expects seconds from ${pageDelayLimits.min} to ${pageDelayLimits.max}.`;
+// Format hints for options whose shape is not obvious from the flag name.
+const optionHints: Partial<Record<string, string>> = {
+  last: "--last expects a number of days with a d suffix, such as 7d.",
+  since: timestampHint("--since"),
+  from: timestampHint("--from"),
+  to: timestampHint("--to"),
+  pageDelayMin: pageDelayHint("--page-delay-min"),
+  pageDelayMax: pageDelayHint("--page-delay-max"),
+  timeout: `--timeout expects whole seconds from ${loginTimeout.min} to ${loginTimeout.max}.`,
+  format: `--format supports only ${defaultOutputFormat}.`,
+};
+
+function optionFlag(key: string): string {
+  return `--${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+}
+
+/**
+ * Explains invalid command options by the flag the user typed, never by schema
+ * field name. Parsed values are not echoed because some options name credential files.
+ */
+function optionsError(
+  input: unknown,
+  error: z.ZodError,
+  hints = optionHints,
+): AppError {
+  const values =
+    input !== null && typeof input === "object"
+      ? (input as Record<string, unknown>)
+      : {};
+  const messages = error.issues.flatMap((issue) => {
+    if (issue.code === "unrecognized_keys")
+      return issue.keys.map((key) => `Unknown option ${optionFlag(key)}.`);
+    const key = issue.path[0];
+    if (typeof key !== "string") return ["Invalid options."];
+    const flag = optionFlag(key);
+    const value = values[key];
+    if (value === undefined) return [`${flag} is required.`];
+    // CAC parses a value option given without a value as boolean true.
+    if (value === true || (typeof value === "string" && value.trim() === ""))
+      return [`${flag} needs a value.`];
+    return [hints[key] ?? `${flag} has an invalid value.`];
+  });
+  return new AppError([...new Set(messages)].join(" "));
+}
+
 const pageDelaySchema = z
   .union([
     z.number(),
@@ -40,9 +99,9 @@ const exportOptionsSchema = z.strictObject({
   refreshMedia: z.boolean().default(commandDefaults.refreshMedia),
   pageDelayMin: pageDelaySchema.default(defaultPageDelay.min),
   pageDelayMax: pageDelaySchema.default(defaultPageDelay.max),
-  from: timestampSchema.optional(),
-  to: timestampSchema.optional(),
-  since: timestampSchema.optional(),
+  from: dateOrTimestampSchema.optional(),
+  to: dateOrTimestampSchema.optional(),
+  since: dateOrTimestampSchema.optional(),
   last: z
     .string()
     .regex(/^[1-9]\d*d$/)
@@ -71,8 +130,13 @@ export function resolveLiveSmokeOptions(
   now = Date.now(),
 ): LiveSmokeOptions {
   const result = liveSmokeOptionsSchema.safeParse(input);
+  // The live smoke window stays explicitly timezone-qualified.
   if (!result.success)
-    throw validationError("Live smoke options", result.error);
+    throw optionsError(input, result.error, {
+      ...optionHints,
+      from: strictTimestampHint("--from"),
+      to: strictTimestampHint("--to"),
+    });
   const options = result.data;
   if (
     Number(options.chat !== undefined) +
@@ -112,7 +176,7 @@ export type MediaOptions = z.infer<typeof mediaOptionsSchema>;
 
 export function resolveMediaOptions(input: unknown): MediaOptions {
   const result = mediaOptionsSchema.safeParse(input);
-  if (!result.success) throw validationError("Media options", result.error);
+  if (!result.success) throw optionsError(input, result.error);
   return result.data;
 }
 
@@ -126,7 +190,7 @@ export type ConvertOptions = z.infer<typeof convertOptionsSchema>;
 
 export function resolveConvertOptions(input: unknown): ConvertOptions {
   const result = convertOptionsSchema.safeParse(input);
-  if (!result.success) throw validationError("Convert options", result.error);
+  if (!result.success) throw optionsError(input, result.error);
   return result.data;
 }
 
@@ -142,8 +206,7 @@ export function resolveBatchConvertOptions(
   input: unknown,
 ): BatchConvertOptions {
   const result = batchConvertOptionsSchema.safeParse(input);
-  if (!result.success)
-    throw validationError("Batch convert options", result.error);
+  if (!result.success) throw optionsError(input, result.error);
   return result.data;
 }
 
@@ -152,7 +215,7 @@ export function resolveExportOptions(
   now = Date.now(),
 ): ExportOptions {
   const result = exportOptionsSchema.safeParse(input);
-  if (!result.success) throw validationError("Export options", result.error);
+  if (!result.success) throw optionsError(input, result.error);
   const options = result.data;
   assertChatSelection(options);
   if (!options.media && options.refreshMedia)
@@ -175,7 +238,7 @@ function resolveHistoryWindow(
     Number(options.from !== undefined);
   if (modes !== 1 || (options.to !== undefined && options.from === undefined)) {
     throw new AppError(
-      "Choose exactly one of --last Nd, --since <timestamp>, or --from <timestamp> --to <timestamp>.",
+      "Choose exactly one of --last Nd, --since <date>, or --from <date> --to <date>.",
     );
   }
   if (options.from !== undefined && options.to === undefined) {
@@ -214,8 +277,7 @@ export function resolveCollectOptions(
   now = Date.now(),
 ): CollectOptions {
   const result = collectOptionsSchema.safeParse(input);
-  if (!result.success)
-    throw validationError("Collection options", result.error);
+  if (!result.success) throw optionsError(input, result.error);
   const {
     db,
     allHistory,
@@ -230,7 +292,7 @@ export function resolveCollectOptions(
       throw new AppError(
         "--all-chats cannot be combined with --chat or --chat-label.",
       );
-  } else assertChatSelection(options);
+  } else assertChatSelection(options, "--all-chats");
   if (!backup && backupDir !== undefined)
     throw new AppError("--no-backup cannot be combined with --backup-dir.");
   if (
@@ -290,8 +352,10 @@ export function resolveDownloadOptions(
   now = Date.now(),
 ): DownloadOptions {
   const result = downloadOptionsSchema.safeParse(input);
-  if (!result.success) throw validationError("Download options", result.error);
+  if (!result.success) throw optionsError(input, result.error);
   const { out, media, markdown, refreshMedia, ...collection } = result.data;
+  // Check here so download never suggests collect's --all-chats selector.
+  assertChatSelection(collection);
   if (!media && refreshMedia)
     throw new AppError("--refresh-media cannot be combined with --no-media.");
   const resolved = resolveCollectOptions(collection, now);
@@ -319,8 +383,8 @@ const databaseExportOptionsSchema = z.strictObject({
   allChats: z.boolean().default(false),
   out: z.string().min(1).optional(),
   last: exportOptionsSchema.shape.last,
-  from: timestampSchema.optional(),
-  to: timestampSchema.optional(),
+  from: dateOrTimestampSchema.optional(),
+  to: dateOrTimestampSchema.optional(),
   markdown: z.boolean().default(commandDefaults.markdown),
   media: z.boolean().default(commandDefaults.media),
 });
@@ -333,8 +397,7 @@ export function resolveDatabaseExportOptions(
   now = Date.now(),
 ): DatabaseExportOptions {
   const result = databaseExportOptionsSchema.safeParse(input);
-  if (!result.success)
-    throw validationError("Database export options", result.error);
+  if (!result.success) throw optionsError(input, result.error);
   const options = result.data;
   if (options.allChats) {
     if (options.chat !== undefined || options.chatLabel !== undefined)
@@ -345,7 +408,7 @@ export function resolveDatabaseExportOptions(
       throw new AppError(
         "Use --all-chats with --last Nd for daily exports; combined --out exports require one chat.",
       );
-  } else assertChatSelection(options);
+  } else assertChatSelection(options, "--all-chats with --last Nd");
   if (options.chatLabel !== undefined)
     assertSelectableChatLabel(options.chatLabel);
   if (
@@ -394,8 +457,7 @@ export function resolveDatabaseMediaOptions(
   input: unknown,
 ): DatabaseMediaOptions {
   const result = databaseMediaOptionsSchema.safeParse(input);
-  if (!result.success)
-    throw validationError("Database media options", result.error);
+  if (!result.success) throw optionsError(input, result.error);
   if (result.data.chat !== undefined && result.data.chatLabel !== undefined)
     throw new AppError(
       "Choose at most one of --chat <id> or --chat-label <label>.",
@@ -410,17 +472,19 @@ function calendarDayStart(to: number, days: number): number {
     .valueOf();
 }
 
-function assertChatSelection(options: {
-  chat?: string;
-  chatLabel?: string;
-}): void {
+function assertChatSelection(
+  options: { chat?: string; chatLabel?: string },
+  allChats?: string,
+): void {
   if (
     Number(options.chat !== undefined) +
       Number(options.chatLabel !== undefined) !==
     1
   )
     throw new AppError(
-      "Choose exactly one of --chat <id> or --chat-label <label>.",
+      allChats === undefined
+        ? "Choose exactly one of --chat <id> or --chat-label <label>."
+        : `Choose exactly one of --chat <id>, --chat-label <label>, or ${allChats}.`,
     );
 }
 
@@ -443,7 +507,7 @@ export type LoginOptions = {
 };
 export function resolveLoginOptions(input: unknown): LoginOptions {
   const result = loginOptionsSchema.safeParse(input);
-  if (!result.success) throw validationError("Login options", result.error);
+  if (!result.success) throw optionsError(input, result.error);
   const options = result.data;
   return {
     credentials: resolve(options.credentials ?? defaultCredentialsPath()),
@@ -471,12 +535,28 @@ const chatsOptionsSchema = z.object({
   credentials: z.string().min(1).optional(),
   out: z.string().min(1).optional(),
   refreshNames: z.boolean().optional(),
+  db: z.string().min(1).optional(),
+  new: z.boolean().default(false),
 });
 
 export type ChatsOptions = z.infer<typeof chatsOptionsSchema>;
 
 export function resolveChatsOptions(input: unknown): ChatsOptions {
   const result = chatsOptionsSchema.safeParse(input);
-  if (!result.success) throw validationError("Chat options", result.error);
+  if (!result.success) throw optionsError(input, result.error);
   return result.data;
+}
+
+const statusOptionsSchema = z.strictObject({
+  db: z.string().min(1).optional(),
+});
+
+export type StatusOptions = z.infer<typeof statusOptionsSchema>;
+
+export function resolveStatusOptions(input: unknown): StatusOptions {
+  const result = statusOptionsSchema.safeParse(input);
+  if (!result.success) throw optionsError(input, result.error);
+  return {
+    db: result.data.db === undefined ? undefined : resolve(result.data.db),
+  };
 }

@@ -3,8 +3,20 @@ import type { cac } from "cac";
 type Cli = ReturnType<typeof cac>;
 type Section = { title?: string; body: string };
 
-const commonCommands = ["login", "chats", "collect", "images", "export"];
+const commonCommands = [
+  "login",
+  "chats",
+  "status",
+  "collect",
+  "images",
+  "export",
+];
 const examples: Record<string, [string, string][]> = {
+  chats: [
+    ["Show chats you have not collected yet", "chats --new"],
+    ["Show every chat, newest activity first", "chats"],
+  ],
+  status: [["Show what is saved, offline", "status"]],
   collect: [
     [
       "Catch up all saved chats, including images",
@@ -44,9 +56,13 @@ const examples: Record<string, [string, string][]> = {
 
 const behavior: Record<string, string> = {
   collect:
-    "Without date flags, catch up from each chat's saved coverage through now.\nNew chats need --all-history or a date range. Completed intervals are skipped.\nImages are opt-in with --images. Export JSON/Markdown separately with export.",
+    "Without date flags, catch up from each chat's saved coverage through now.\nNew chats need --all-history or a date range. Completed intervals are skipped.\nImages are opt-in with --images. Export JSON/Markdown separately with export.\nDates such as 2026-11-01 mean local midnight; --to is exclusive.",
   export:
     "Offline: reads saved messages and images without credentials or HTTP.\nUse --all-chats --last Nd for every saved chat, or select one chat.\nChoose --last Nd for daily folders, or --out for one chat's combined bundle.\nJSON and Markdown include saved images by default; no image downloads occur.",
+  chats:
+    "Reads the chat list from Teams and marks chats already saved in your database.\nUse a CHAT label with --chat-label, or the ID with --chat where noted.",
+  status:
+    "Offline: reads the collection database without credentials or HTTP.\nLists saved labels for --chat-label, collected ranges, gaps, and pending images.",
   images:
     "With no chat selector, process all saved chats. Verified images are skipped.\nDownloads files beside the database; does not export JSON or Markdown.",
   download:
@@ -143,8 +159,10 @@ export function configureCliHelp(cli: Cli): void {
       [
         command?.name === "images"
           ? "Select chats (default: all saved chats)"
-          : "Select chats (choose one)",
-        ["allChats", "chatLabel", "chat"],
+          : command?.name === "chats"
+            ? "Filter and names"
+            : "Select chats (choose one)",
+        ["allChats", "chatLabel", "chat", "new", "refreshNames"],
       ],
       ["Images", ["images", "refreshMedia"]],
       [

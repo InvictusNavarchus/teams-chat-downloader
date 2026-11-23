@@ -180,9 +180,15 @@ test("all-chat daily export includes saved images and Markdown offline, with per
   expect(result.stderr).toBe("");
   expect(result.code).toBe(0);
   expect(result.stdout).not.toContain("HTTP attempts:");
-  const summary = JSON.parse(
-    result.stdout.split("\n").find((line) => line.startsWith("{"))!,
+  expect(result.stdout).toContain(
+    `Export complete: 2 messages across 3 chats in 14 daily folders under ${join(f.dir, "exports")}`,
   );
+  // The full result is kept in the invocation log rather than printed.
+  const [logFile] = await readdir(`${f.db}.logs`);
+  const resultLine = (await readFile(join(`${f.db}.logs`, logFile!), "utf8"))
+    .split("\n")
+    .find((line) => line.includes("] Result: {"))!;
+  const summary = JSON.parse(resultLine.slice(resultLine.indexOf("{")));
   expect(summary).toMatchObject({ status: "complete", messages: 2 });
   expect(
     summary.chats.map((chat: { chatId: string; days: unknown[] }) => [
