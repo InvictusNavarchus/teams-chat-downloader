@@ -95,9 +95,12 @@ export function statusTable(
   chats: ChatSummary[],
   images: ImageCounts,
   database: string,
-  options: { db?: string } = {},
+  options: { db?: string; imagesIndexed?: boolean } = {},
 ): string[] {
   const db = dbArg(options.db);
+  // Version 1 collections predate the image index; read-only status cannot
+  // migrate them, so their image counts are unknown rather than zero.
+  const indexed = options.imagesIndexed ?? true;
   if (!chats.length)
     return [
       `No saved chats in ${database}.`,
@@ -115,7 +118,7 @@ export function statusTable(
       ? `${chat.coverage.from <= 1 ? "all history" : dayjs(chat.coverage.from).format("YYYY-MM-DD")} to ${dayjs(chat.coverage.to).format("YYYY-MM-DD HH:mm")}`
       : "nothing yet",
     chat.gaps ? String(chat.gaps) : "",
-    String(chat.images.pending + chat.images.failed || ""),
+    indexed ? String(chat.images.pending + chat.images.failed || "") : "?",
     chat.chatId,
   ]);
   const lines = [
@@ -136,6 +139,10 @@ export function statusTable(
   if (chats.some((chat) => chat.gaps))
     lines.push(
       `Chats with gaps are retried by catch-up: teams collect --all-chats${db}`,
+    );
+  if (!indexed)
+    lines.push(
+      `Images are not indexed in this older database yet; run teams images${db} once to index and download them.`,
     );
   const toGet = images.pending + images.failed;
   if (toGet)

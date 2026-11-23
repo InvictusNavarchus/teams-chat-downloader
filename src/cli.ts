@@ -341,7 +341,12 @@ export async function runCli(argv = process.argv): Promise<number> {
         await lstat(db);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        throw new AppError("No collection database at --db path.");
+        // TEAMS_DATA_DIR names its database without checking it exists.
+        throw new AppError(
+          options.db === undefined
+            ? `No collection database at ${db} (from TEAMS_DATA_DIR); run collect first, or pass --db.`
+            : `No collection database at ${db}.`,
+        );
       }
       const store = await HistoryStore.open(db);
       try {
@@ -349,7 +354,7 @@ export async function runCli(argv = process.argv): Promise<number> {
           store.chatSummaries(),
           store.imageCounts(),
           db,
-          { db: options.db },
+          { db: options.db, imagesIndexed: store.version >= 2 },
         ))
           console.log(line);
       } finally {

@@ -225,8 +225,38 @@ test("status explains a missing database", async () => {
   directories.push(dir);
   const missing = await cli(dir, ["--db", join(dir, "missing.sqlite")]);
   expect(missing.code).toBe(1);
-  expect(missing.stderr).toContain("No collection database at --db path.");
+  expect(missing.stderr.trim()).toBe(
+    `No collection database at ${join(dir, "missing.sqlite")}.`,
+  );
   const undiscovered = await cli(dir, []);
   expect(undiscovered.code).toBe(1);
   expect(undiscovered.stderr).toContain("No default collection found");
+  // A configured data directory names the database it expected.
+  const configured = await cli(dir, [], { TEAMS_DATA_DIR: dir });
+  expect(configured.code).toBe(1);
+  expect(configured.stderr.trim()).toBe(
+    `No collection database at ${join(dir, "history.sqlite")} (from TEAMS_DATA_DIR); run collect first, or pass --db.`,
+  );
+});
+
+test("older databases without an image index report image counts as unknown", () => {
+  const lines = statusTable(
+    [
+      {
+        chatId: "19:alpha",
+        label: "Project Alpha",
+        messages: 2,
+        coverage: { from: start, to: start + day },
+        gaps: 0,
+        images: { complete: 0, pending: 0, failed: 0 },
+      },
+    ],
+    { complete: 0, pending: 0, failed: 0 },
+    "/data/history.sqlite",
+    { imagesIndexed: false },
+  );
+  expect(lines[1]).toMatch(/  \?  +19:alpha$/);
+  expect(lines.at(-1)).toBe(
+    "Images are not indexed in this older database yet; run teams images once to index and download them.",
+  );
 });
