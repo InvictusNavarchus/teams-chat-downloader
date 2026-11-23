@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chatTable } from "../src/chat-table.ts";
+import { chatTable, shellQuote } from "../src/chat-table.ts";
 
 // Noon UTC keeps each local calendar date stable across developer timezones.
 
@@ -32,7 +32,7 @@ test("--new shows only unsaved chats and suggests collecting the most recent", (
     "-              Quiet chat  19:none",
     "",
     "2 of 4 chats are not saved. Start collecting one with:",
-    '  teams collect --chat-label "Jane Doe" --all-history --images',
+    "  teams collect --chat-label 'Jane Doe' --all-history --images",
   ]);
 });
 
@@ -64,7 +64,7 @@ test("generic and duplicate labels point to --chat, including the suggestion", (
     }).at(-2),
   ).toBe("1 of 4 chats is not saved. Start collecting one with:");
   expect(lines.at(-1)).toBe(
-    '  teams collect --chat "19:a" --all-history --images',
+    "  teams collect --chat '19:a' --all-history --images",
   );
 });
 
@@ -73,4 +73,25 @@ test("empty and fully saved directories get a plain sentence", () => {
   expect(
     chatTable(chats.slice(0, 1), new Set(["19:old"]), { onlyNew: true }),
   ).toEqual(["Every chat is already saved (1 chat)."]);
+});
+
+test("suggested commands stay literal when pasted into a shell", () => {
+  const suggest = (label: string) =>
+    chatTable(
+      [{ id: "19:x@thread.v2", label, lastActivity: null }],
+      new Set(),
+      { onlyNew: true },
+    ).at(-1);
+  // Single quotes keep $, backticks and ! literal in bash, zsh and fish.
+  expect(suggest("Budget $5k `id` !!")).toBe(
+    "  teams collect --chat-label 'Budget $5k `id` !!' --all-history --images",
+  );
+  // fish interprets \\ and \' inside single quotes, so such labels use the ID.
+  for (const label of ["Jane's chat", "back\\slash"])
+    expect(suggest(label)).toBe(
+      "  teams collect --chat '19:x@thread.v2' --all-history --images",
+    );
+  expect(shellQuote("/data/it's here.sqlite")).toBe(
+    "'/data/it'\\''s here.sqlite'",
+  );
 });

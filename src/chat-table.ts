@@ -7,6 +7,17 @@ const genericLabels = new Set(["untitled chat", "unresolved one-to-one chat"]);
 
 const chatCount = (count: number) => `${count} chat${count === 1 ? "" : "s"}`;
 
+// Suggested commands are pasted into a shell, and labels are chat titles that
+// any participant can set. Single quotes stop bash and zsh from expanding $,
+// backticks or !, but fish still interprets \\ and \' inside them, so labels
+// containing ' or \ are suggested by their raw ID instead.
+const labelIsPasteSafe = (label: string) => !/['\\]/.test(label);
+
+/** Quotes a value for bash, zsh and fish; IDs and paths only, see above. */
+export function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 /**
  * Renders the chat directory for people choosing what to collect: newest
  * activity first, saved status, and a note where --chat-label cannot select.
@@ -60,7 +71,7 @@ export function chatTable(
     );
     if (first)
       lines.push(
-        `  teams collect ${selectable(first) ? `--chat-label ${JSON.stringify(first.label)}` : `--chat ${JSON.stringify(first.id)}`} --all-history --images`,
+        `  teams collect ${selectable(first) && labelIsPasteSafe(first.label) ? `--chat-label '${first.label}'` : `--chat ${shellQuote(first.id)}`} --all-history --images`,
       );
   } else
     lines.push(

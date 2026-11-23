@@ -219,7 +219,7 @@ test("chats marks saved chats from the database, sorts by activity and --new sug
   expect(unsaved.code).toBe(0);
   expect(unsaved.stdout).not.toContain("19:saved");
   expect(unsaved.stdout).toContain(
-    '3 of 4 chats are not saved. Start collecting one with:\n  teams collect --chat-label "Recent chat" --all-history --images',
+    "3 of 4 chats are not saved. Start collecting one with:\n  teams collect --chat-label 'Recent chat' --all-history --images",
   );
   const out = join(f.dir, "chats.json");
   await f.run(["--db", db, "--new", "--out", out], payload);
