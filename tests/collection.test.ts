@@ -369,9 +369,12 @@ test("batch collection rejects empty databases and account mismatch before HTTP"
       throw new Error("No HTTP expected");
     },
   });
+  // Pre-flight failures need a different command, so no resume advice.
   await expect(
     collectChats(options, f.credentials, http, stats, historyProgress()),
-  ).rejects.toThrow("No saved chats");
+  ).rejects.toThrow(
+    /^No saved chats in this database\. Collect a chat with --chat or --chat-label first\.$/,
+  );
   await expect(
     collectChats(
       options,
@@ -380,9 +383,32 @@ test("batch collection rejects empty databases and account mismatch before HTTP"
       stats,
       historyProgress(),
     ),
-  ).rejects.toThrow("different account");
+  ).rejects.toThrow(/different account(?!.*rerun)/);
   expect(stats.total).toBe(0);
   expect(await readdir(f.dir)).toEqual(["history.sqlite"]);
+});
+
+test("catching up a chat without saved coverage asks for an initial range, not a rerun", async () => {
+  const f = await fixture();
+  const stats = requestStats();
+  const http = createHttp({
+    stats,
+    fetch: async () => {
+      throw new Error("No HTTP expected");
+    },
+  });
+  await expect(
+    collectHistory(
+      resolveCollectOptions({ db: f.db, chat: "new", backup: false }, f.to),
+      f.credentials,
+      http,
+      stats,
+      historyProgress(),
+    ),
+  ).rejects.toThrow(
+    /^No completed history for chat "new"\. Choose --all-history or an explicit date range for its initial collection\.$/,
+  );
+  expect(stats.total).toBe(0);
 });
 
 test("batch pacing also applies between chats", async () => {

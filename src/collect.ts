@@ -260,8 +260,15 @@ export async function collectChats(
       ),
     };
   } catch (error) {
+    // Resume advice only fits failures after the collection loop has started.
+    // Earlier failures (no saved chats, no initial range, wrong account, label
+    // lookup) need a different command, so rerunning the same one cannot help.
+    const resume =
+      activeChat === undefined
+        ? ""
+        : `${options.allChats ? ` Active chat: ${JSON.stringify(activeChat)}.` : ""} Completed database checkpoints remain saved; rerun the same collection after resolving the error.`;
     throw new AppError(
-      `${signal?.aborted ? "Collection cancelled." : errorMessage(error)}${options.allChats && activeChat ? ` Active chat: ${JSON.stringify(activeChat)}.` : ""} Completed database checkpoints remain saved; rerun the same collection after resolving the error.`,
+      `${signal?.aborted ? "Collection cancelled." : errorMessage(error)}${resume}`,
     );
   } finally {
     store?.close();
