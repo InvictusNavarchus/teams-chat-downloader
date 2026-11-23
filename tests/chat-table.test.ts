@@ -1,13 +1,15 @@
 import { expect, test } from "bun:test";
+import dayjs from "dayjs";
 import { chatTable, shellQuote } from "../src/chat-table.ts";
 
-// Noon UTC keeps each local calendar date stable across developer timezones.
+// The table shows local dates, so fixtures are local noon on each date.
+const noon = (date: string) => dayjs(`${date}T12:00`).toISOString();
 
 const chats = [
-  { id: "19:old", label: "Old project", lastActivity: "2026-01-02T12:00:00Z" },
+  { id: "19:old", label: "Old project", lastActivity: noon("2026-01-02") },
   { id: "19:none", label: "Quiet chat", lastActivity: null },
-  { id: "19:new", label: "Project Beta", lastActivity: "2026-11-23T12:00:00Z" },
-  { id: "19:mid", label: "Jane Doe", lastActivity: "2026-06-01T12:00:00Z" },
+  { id: "19:new", label: "Project Beta", lastActivity: noon("2026-11-23") },
+  { id: "19:mid", label: "Jane Doe", lastActivity: noon("2026-06-01") },
 ];
 
 test("lists newest activity first, marks saved chats and counts them", () => {
@@ -42,10 +44,10 @@ test("generic and duplicate labels point to --chat, including the suggestion", (
       {
         id: "19:a",
         label: "Untitled chat",
-        lastActivity: "2026-11-23T12:00:00Z",
+        lastActivity: noon("2026-11-23"),
       },
-      { id: "19:b", label: "Team", lastActivity: "2026-11-22T12:00:00Z" },
-      { id: "19:c", label: "TEAM", lastActivity: "2026-11-21T12:00:00Z" },
+      { id: "19:b", label: "Team", lastActivity: noon("2026-11-22") },
+      { id: "19:c", label: "TEAM", lastActivity: noon("2026-11-21") },
     ],
     new Set(),
     { onlyNew: true },

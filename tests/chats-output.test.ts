@@ -73,6 +73,8 @@ async function fixture() {
           ...process.env,
           FIXTURE_RESPONSE: response,
           FIXTURE_STATUS: String(status),
+          // Activity dates are shown in local time; pin it for the fixtures.
+          TZ: "UTC",
           // chats reads the default collection; keep it inside the fixture.
           TEAMS_DATA_DIR: "",
           XDG_STATE_HOME: join(dir, "state"),
