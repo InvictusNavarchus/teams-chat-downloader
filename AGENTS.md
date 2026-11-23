@@ -38,6 +38,7 @@ teams-chat-download/
 │   ├── archive.ts        # Version 1 JSON archive schema, serialization, and validation
 │   ├── archive-media.ts  # Media download coordination for archives (inline and post-export)
 │   ├── chat-selection.ts # Shared exact label matching, fallback rejection, and duplicate diagnostics
+│   ├── chat-table.ts     # Chat directory table: activity order, saved status, --new suggestions
 │   ├── cli.ts            # CAC argument parsing, command dispatch, terminal progress, and exit handling
 │   ├── cli-summary.ts    # Readable final summaries for download, collect, export, and images
 │   ├── cli-help.ts       # Common workflow examples and grouped help from registered CAC options
@@ -70,6 +71,7 @@ teams-chat-download/
 │   └── teams.ts          # Teams API client (raw directory, validated page iterator, full history, pacing)
 ├── tests/                # Bun test suites (unit, mock HTTP, and integration flows)
 │   ├── archive-media.test.ts
+│   ├── chat-table.test.ts
 │   ├── chats-output.test.ts
 │   ├── cli-errors.test.ts # Unknown command/flag suggestions and option-format errors before HTTP
 │   ├── cli-summary.test.ts # Final summary wording, pluralization, labels, and export folders
@@ -194,7 +196,7 @@ When modifying or extending this codebase, agents **must** respect these domain 
 
 `package.json` exposes `teams` through the executable Bun-shebang entry point `src/cli.ts`. After dependency installation, `bun link` makes it available through Bun's global executable directory on `PATH`; `bun unlink` removes the registration. Preserve the caller's working directory for explicit relative paths. Default exports, `convert-all` discovery, and smoke fixture discovery use `TEAMS_DATA_DIR/exports/` when configured and the caller's `exports/` otherwise. The linked command requires Bun and the checkout's dependencies and runs current source directly.
 
-`src/config.ts` owns shared command defaults and limits. Import those values in command validation, CLI help, and runtime fallbacks rather than duplicating literals. `src/command-validation.ts` owns all command input schemas, their types, and option resolution; `src/cli.ts` owns argument parsing and dispatch. Explain invalid options by the kebab-case flag the user typed, with a format hint when the shape is not obvious, and never echo option values; selector errors list only the selectors that command accepts. Unknown commands and flags name the typed input and suggest a close registered match. On `collect`, `download`, and `export`, `--since`/`--from`/`--to` accept `YYYY-MM-DD` as local midnight, converted during validation into an offset timestamp so later parsing and logs are unambiguous; `--to` stays exclusive. Live smoke windows still require timezone-qualified timestamps. `src/date-window.ts` owns the shared window contract so the Teams client does not depend on command validation. Resolve environment-dependent credential and media paths at invocation time in their existing helpers. Keep protocol constants in their domain modules.
+`src/config.ts` owns shared command defaults and limits. Import those values in command validation, CLI help, and runtime fallbacks rather than duplicating literals. `src/command-validation.ts` owns all command input schemas, their types, and option resolution; `src/cli.ts` owns argument parsing and dispatch. Explain invalid options by the kebab-case flag the user typed, with a format hint when the shape is not obvious, and never echo option values; selector errors list only the selectors that command accepts. Unknown commands and flags name the typed input and suggest a close registered match. `chats` prints a table from `src/chat-table.ts`, newest `lastActivity` first (parsed loosely from the directory `lastMessage` preview; an unexpected shape becomes `null` and never fails the listing), and marks chats saved in the default or `--db` collection, opened read-only after an account check; a missing default database means nothing is saved. `--new` filters to unsaved chats; `--out` still writes the full directory as JSON. On `collect`, `download`, and `export`, `--since`/`--from`/`--to` accept `YYYY-MM-DD` as local midnight, converted during validation into an offset timestamp so later parsing and logs are unambiguous; `--to` stays exclusive. Live smoke windows still require timezone-qualified timestamps. `src/date-window.ts` owns the shared window contract so the Teams client does not depend on command validation. Resolve environment-dependent credential and media paths at invocation time in their existing helpers. Keep protocol constants in their domain modules.
 
 `bun run teams` and `bun run test:live` load optional checkout settings from the ignored `.env.teams` file. This lets ordinary test runs use fixture paths independently of the local data directory.
 

@@ -58,13 +58,16 @@ Manual input is supported using the [credential template](../examples/credential
 
 ```sh
 bun run teams chats
+bun run teams chats --new
 bun run teams chats --out .private/chats.json
 bun run teams chats --refresh-names
 ```
 
-`chats` prints IDs and labels. Named groups keep their titles; one-to-one chats use the other participant's name when available. Names are cached for 24 hours. Use `--refresh-names` after a rename. Without profile credentials, listing can still work with unresolved names; profile authentication failures and incomplete directory responses fail explicitly.
+`chats` prints a table of chats, newest activity first: the local date of each chat's last message (`-` when Teams gives none), whether the chat is already saved in your collection database, its label, and its raw ID. `--new` shows only chats that are not saved yet and suggests a `collect` command for the most recent one; use it to spot new chats, since `collect --all-chats` only catches up chats already saved. Labels that are generic or shared by several chats are marked "select with --chat" because `--chat-label` cannot select them.
 
-`--out` saves a clean JSON array, replacing an earlier chat list only after a successful write. Saved lists are reference snapshots: selection always uses the current directory and does not read this file. Terminal output includes progress and summaries, so use the saved file for machine-readable JSON.
+Saved status comes from the same default database as `collect` (`TEAMS_DATA_DIR/history.sqlite` or the account database), opened read-only; `--db <file>` selects another. A missing default database simply means nothing is saved yet, while a missing explicit `--db` or another account's database fails. Listing still needs credentials and one directory request. Named groups keep their titles; one-to-one chats use the other participant's name when available. Names are cached for 24 hours. Use `--refresh-names` after a rename. Without profile credentials, listing can still work with unresolved names; profile authentication failures and incomplete directory responses fail explicitly.
+
+`--out` also saves the full directory as a clean JSON array, including saved chats and each chat's `lastActivity` (ISO time or `null`), even with `--new`. It replaces an earlier chat list only after a successful write. Saved lists are reference snapshots: selection always uses the current directory and does not read this file. Terminal output is the table, so use the saved file for machine-readable JSON.
 
 For `download` and `collect`, choose exactly one selector:
 

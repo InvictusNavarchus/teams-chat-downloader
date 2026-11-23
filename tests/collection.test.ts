@@ -373,7 +373,7 @@ test("batch collection rejects empty databases and account mismatch before HTTP"
   await expect(
     collectChats(options, f.credentials, http, stats, historyProgress()),
   ).rejects.toThrow(
-    /^No saved chats in this database\. Collect a chat with --chat or --chat-label first\.$/,
+    /^No saved chats in this database\. Run teams chats --new to pick one, then collect it with --chat-label and --all-history\.$/,
   );
   await expect(
     collectChats(

@@ -535,6 +535,8 @@ const chatsOptionsSchema = z.object({
   credentials: z.string().min(1).optional(),
   out: z.string().min(1).optional(),
   refreshNames: z.boolean().optional(),
+  db: z.string().min(1).optional(),
+  new: z.boolean().default(false),
 });
 
 export type ChatsOptions = z.infer<typeof chatsOptionsSchema>;

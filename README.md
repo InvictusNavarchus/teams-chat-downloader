@@ -15,7 +15,7 @@ bun run teams collect --chat-label 'Project Alpha' --last 7d --images
 bun run teams export --chat-label 'Project Alpha' --last 7d
 ```
 
-Sign in and complete verification in the browser opened by `login`. Later commands use direct HTTP and do not need an open browser. Replace `Project Alpha` with a label from `chats`.
+Sign in and complete verification in the browser opened by `login`. Later commands use direct HTTP and do not need an open browser. Replace `Project Alpha` with a label from `chats`, which lists chats by recent activity and marks those already saved. Later, `teams chats --new` shows chats you have not collected yet; `collect --all-chats` only catches up saved ones.
 
 `collect --images` saves missing history in SQLite and downloads pending images beside the database. `export` separately writes `chat.json` and `chat.md` offline; `download` remains a convenience command that runs all three stages. `--last 7d` means seven local calendar days including today. Export writes one folder per day under `exports/<chat-label>/`; rerunning export regenerates matching bundles from saved history.
 

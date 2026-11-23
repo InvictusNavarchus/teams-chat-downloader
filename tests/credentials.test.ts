@@ -105,7 +105,7 @@ test("chats and download load user state without a flag from an unrelated cwd", 
   await f.credentials(f.fallback, "wrong-account");
   const chats = await f.run(["chats"]);
   expect(chats.code).toBe(0);
-  expect(JSON.parse(chats.stdout.split("\nHTTP attempts:")[0]!)).toEqual([]);
+  expect(chats.stdout).toStartWith("No chats found.\nHTTP attempts:");
   const exported = await f.run([
     "download",
     "--chat",
@@ -125,7 +125,7 @@ test("existing installation-private credentials work when user state is absent",
   await f.credentials(f.fallback, "fallback");
   const result = await f.run(["chats"], "fallback");
   expect(result.code).toBe(0);
-  expect(JSON.parse(result.stdout.split("\nHTTP attempts:")[0]!)).toEqual([]);
+  expect(result.stdout).toStartWith("No chats found.\nHTTP attempts:");
 });
 
 test("explicit override wins and a missing explicit path never falls back", async () => {

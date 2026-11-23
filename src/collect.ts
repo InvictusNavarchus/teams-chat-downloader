@@ -103,7 +103,7 @@ export async function collectChats(
     if (selected.length === 0)
       throw new AppError(
         options.allChats
-          ? "No saved chats in this database. Collect a chat with --chat or --chat-label first."
+          ? "No saved chats in this database. Run teams chats --new to pick one, then collect it with --chat-label and --all-history."
           : "Choose exactly one of --chat <id> or --chat-label <label>.",
       );
     const chats: {

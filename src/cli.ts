@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { lstat } from "node:fs/promises";
 import { cac } from "cac";
 import { configureCliHelp } from "./cli-help.ts";
 import { downloadArchiveMedia } from "./archive-media.ts";
@@ -44,6 +45,7 @@ import {
   imagesSummary,
   savedChatsExportSummary,
 } from "./cli-summary.ts";
+import { chatTable } from "./chat-table.ts";
 import { AppError, errorMessage } from "./errors.ts";
 import { HistoryStore } from "./history-store.ts";
 import type { ExportProgressEvent } from "./export.ts";
@@ -286,9 +288,11 @@ export async function runCli(argv = process.argv): Promise<number> {
         );
     });
   cli
-    .command("chats", "List chat names and IDs as JSON")
+    .command("chats", "List chats by recent activity and show which are saved")
+    .option("--new", "Show only chats not saved in the database yet")
+    .option("--db <file>", "Override the account or TEAMS_DATA_DIR database")
     .option("--credentials <file>", "Override automatic credential file lookup")
-    .option("--out <file>", "Save or refresh the chat list as JSON")
+    .option("--out <file>", "Also save the full chat list as JSON")
     .option(
       "--refresh-names",
       "Refresh participant names instead of using cached profiles",
@@ -296,6 +300,12 @@ export async function runCli(argv = process.argv): Promise<number> {
     .action(async (raw: Record<string, unknown>) => {
       const options = resolveChatsOptions(raw);
       const credentials = await loadCredentials(options.credentials);
+      // Check the database first so a wrong --db fails before any request.
+      const saved = await savedChatIds(
+        options.db ?? defaultCollectionPath(credentials.accountId),
+        credentials.accountId,
+        options.db !== undefined,
+      );
       const chats = await listChats(http, credentials, {
         refresh: options.refreshNames === true,
         warn: (message) => console.warn(message),
@@ -305,7 +315,8 @@ export async function runCli(argv = process.argv): Promise<number> {
         const path = await writeChatList(options.out, chats, controller.signal);
         console.log(`Saved chat list to ${path}.`);
       }
-      console.log(JSON.stringify(chats, null, 2));
+      for (const line of chatTable(chats, saved, { onlyNew: options.new }))
+        console.log(line);
     });
   cli
     .command("download", "Collect messages and images, then export in one step")
@@ -706,6 +717,34 @@ export async function runCli(argv = process.argv): Promise<number> {
         `HTTP attempts: ${stats.total} (history: ${stats.history}, directory: ${stats.directory}, profiles: ${stats.profiles}, media: ${stats.media}); retries: ${stats.retries} included. History pages: ${progress.pages}.`,
       );
     collectionLog?.close();
+  }
+}
+
+/**
+ * Chat IDs already in the collection, read-only. A missing default database
+ * means nothing is saved yet; an explicit --db must exist.
+ */
+async function savedChatIds(
+  db: string,
+  accountId: string,
+  explicit: boolean,
+): Promise<Set<string>> {
+  try {
+    await lstat(db);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (explicit) throw new AppError("No collection database at --db path.");
+    return new Set();
+  }
+  const store = await HistoryStore.open(db);
+  try {
+    if (store.accountId !== accountId)
+      throw new AppError(
+        "This collection database belongs to a different account; pass --db for this account's collection.",
+      );
+    return new Set(store.savedChatIds());
+  } finally {
+    store.close();
   }
 }
 

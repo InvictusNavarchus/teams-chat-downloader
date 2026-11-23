@@ -24,6 +24,15 @@ const directorySchema = z.looseObject({
       members: z
         .array(z.looseObject({ mri: z.string().min(1).optional() }))
         .optional(),
+      // Directory previews use their own capitalization (see the protocol notes).
+      // Only used to sort chat listings, so an unexpected shape is ignored.
+      lastMessage: z
+        .looseObject({
+          composeTime: z.string().optional(),
+          originalArrivalTime: z.string().optional(),
+        })
+        .nullish()
+        .catch(undefined),
     }),
   ),
   metadata: z.looseObject({
@@ -256,8 +265,21 @@ export async function readChatDirectory(http: Http, credentials: Credentials) {
       chat.title ||
       (chat.isOneOnOne ? "Unresolved one-to-one chat" : "Untitled chat"),
     isOneOnOne: chat.isOneOnOne ?? null,
+    lastActivity: lastActivity(chat.lastMessage),
     members: chat.members?.map((member) => member.mri) ?? [],
   }));
+}
+
+function lastActivity(
+  message:
+    | { composeTime?: string; originalArrivalTime?: string }
+    | null
+    | undefined,
+): string | null {
+  const time = Date.parse(
+    message?.originalArrivalTime ?? message?.composeTime ?? "",
+  );
+  return Number.isFinite(time) ? new Date(time).toISOString() : null;
 }
 
 export async function listChats(
