@@ -75,7 +75,7 @@ teams collect --all-chats --images
 teams export --all-chats --last 5d
 ```
 
-Overlapping exports are safe: daily export regenerates each matching day folder from saved history, so a routine `--last 7d` covers any days you missed without counting them.
+Overlapping exports are safe: daily export regenerates each matching day folder from saved history, so a routine `--last 7d` also recreates any missed day within those seven days. For older missed days, request a wider range such as `--last 30d`.
 
 Reuse `--db <file>` on collection, image, and export commands if you originally chose a custom database. `--all-chats` uses saved chat IDs without directory/profile lookup; it does not discover new chats. With no date flags, `collect` catches up from each chat’s earliest completed interval through now, retrying gaps within that range. Use `--all-history` to also backfill older history. A chat without completed coverage requires `--all-history` or an explicit date range for its initial collection. The old `--all` flag has been replaced by `--all-history` on both `collect` and `download`. History collection runs sequentially and stops on failure or cancellation. Rerun to resume from saved checkpoints. This selector is available on `collect` and daily `export`; `download` and combined `export --out` still require one chat.
 
@@ -104,7 +104,7 @@ teams download --chat-label 'Project Alpha' \
 teams download --db exports/history.sqlite --chat-label 'Project Alpha' --last 7d
 ```
 
-Choose one date mode: `--last Nd`, `--since <date>`, paired `--from`/`--to`, or `--all-history`. The same date forms work on `collect` (where they are optional) and `export`. Dates such as `2026-11-01` mean local midnight; full timestamps require `Z` or an offset. Start is included and end excluded, so `--from 2026-10-01 --to 2026-11-01` is October. Future ends are refused. Use `--chat '<raw-chat-id>'` when labels are duplicated. Raw-ID downloads skip name lookup and use saved labels or a hashed ID for automatic folders.
+Choose one date mode: `--last Nd`, `--since <date>`, paired `--from`/`--to`, or `--all-history`. `collect` accepts the same modes, all optional. `export` instead takes `--last Nd` for daily folders, or `--out` with optional paired `--from`/`--to`; it has no `--since` or `--all-history`. The date and timestamp forms below apply wherever these flags exist. Dates such as `2026-11-01` mean local midnight; full timestamps require `Z` or an offset. Start is included and end excluded, so `--from 2026-10-01 --to 2026-11-01` is October. Future ends are refused. Use `--chat '<raw-chat-id>'` when labels are duplicated. Raw-ID downloads skip name lookup and use saved labels or a hashed ID for automatic folders.
 
 Without `--out`, `--last Nd` regenerates one folder per day. Other date modes create a combined timestamped snapshot. Explicit `--out` always requires a new directory. `--no-media` skips images; `--no-markdown` omits Markdown.
 

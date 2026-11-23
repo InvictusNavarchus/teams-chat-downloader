@@ -133,7 +133,7 @@ Before implementing date parsing, decide:
 
 Document the choice and display resolved boundaries. Avoid silently interpreting a date-only value differently across machines. A calendar-day window and a rolling 24-hour duration are not interchangeable in all timezones.
 
-**Implemented after user authorization:** full timestamps require `Z` or an offset. On `collect`, `download`, and `export`, a date-only `--since`, `--from`, or `--to` means local midnight in the system timezone (overridable with `TZ`), the same rule as `--last Nd`; there is no separate timezone option. Date-only `--to` marks the beginning of that day and stays exclusive, so `--from 2026-10-01 --to 2026-11-01` selects October. Validation converts each date to an offset timestamp, and commands print the resolved UTC range before requests, so a different machine timezone is visible rather than silent. Live smoke windows still require timezone-qualified timestamps.
+**Implemented after user authorization:** full timestamps require `Z` or an offset. A date-only `--since` (on `collect` and `download`) or `--from`/`--to` (on `collect`, `download`, and combined `export --out`) means local midnight in the system timezone (overridable with `TZ`), the same rule as `--last Nd`; there is no separate timezone option. Date-only `--to` marks the beginning of that day and stays exclusive, so `--from 2026-10-01 --to 2026-11-01` selects October. Validation converts each date to an offset timestamp, and commands print the resolved UTC range before requests, so a different machine timezone is visible rather than silent. Live smoke windows still require timezone-qualified timestamps.
 
 ### 4.5 Timestamp used for filtering
 
