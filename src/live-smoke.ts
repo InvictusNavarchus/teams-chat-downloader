@@ -52,7 +52,7 @@ export async function runLiveSmoke(
   const discovered =
     options.fixture === undefined && !dependencies.signal?.aborted
       ? await discoverSmokeFixture(
-          dependencies.exportsRoot ?? defaultExportRoot,
+          dependencies.exportsRoot ?? defaultExportRoot(),
           credentials.accountId,
           { signal: dependencies.signal, log },
         )

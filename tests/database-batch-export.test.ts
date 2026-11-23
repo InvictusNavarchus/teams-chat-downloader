@@ -36,17 +36,21 @@ async function fixture({
   collision = false,
   empty = false,
   noOverlap = false,
+  useDataDirectory = false,
 } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "teams-batch-export-"));
   directories.push(dir);
   const account = "batch-account";
-  const db = join(
-    dir,
-    "state",
-    "teams-chat-download",
-    "collections",
-    `${createHash("sha256").update(account).digest("hex")}.sqlite`,
-  );
+  const dataDirectory = useDataDirectory ? join(dir, "work data") : "";
+  const db = dataDirectory
+    ? join(dataDirectory, "history.sqlite")
+    : join(
+        dir,
+        "state",
+        "teams-chat-download",
+        "collections",
+        `${createHash("sha256").update(account).digest("hex")}.sqlite`,
+      );
   await mkdir(dirname(db), { recursive: true, mode: 0o700 });
   const store = await HistoryStore.open(db, account);
   for (const chat of empty ? [] : ["a", "b", "c"]) {
@@ -125,7 +129,12 @@ if (process.env.CANCEL_BATCH) {
   );
   const run = async (
     extra: string[] = [],
-    { implicitDb = false, alias = false, cancel = false } = {},
+    {
+      implicitDb = false,
+      alias = false,
+      cancel = false,
+      dataDir = dataDirectory,
+    } = {},
   ) => {
     const child = Bun.spawn(
       [
@@ -147,6 +156,7 @@ if (process.env.CANCEL_BATCH) {
           TZ: "UTC",
           XDG_STATE_HOME: join(dir, "state"),
           XDG_CACHE_HOME: join(dir, "cache"),
+          TEAMS_DATA_DIR: dataDir,
           CANCEL_BATCH: cancel ? "1" : "",
         },
         stdout: "pipe",
@@ -235,6 +245,32 @@ test("batch alias and default database discovery remain offline; reruns can disa
       "not-downloaded",
     );
   }
+});
+
+test("configured data directory supplies the offline database and daily export root", async () => {
+  const f = await fixture({ useDataDirectory: true });
+  const result = await f.run(["--no-log"], { implicitDb: true });
+  expect(result.stderr).toBe("");
+  expect(result.code).toBe(0);
+  const relativeArchive = join(
+    "exports",
+    "project-alpha",
+    "2026-11-11",
+    "chat.json",
+  );
+  expect((await readArchive(join(dirname(f.db), relativeArchive))).chatId).toBe(
+    "a",
+  );
+  expect(await readdir(f.dir)).not.toContain("exports");
+
+  const otherDataDir = join(f.dir, "other data");
+  await mkdir(otherDataDir, { mode: 0o700 });
+  const explicit = await f.run(["--no-log"], { dataDir: otherDataDir });
+  expect(explicit.stderr).toBe("");
+  expect(explicit.code).toBe(0);
+  expect((await readArchive(join(otherDataDir, relativeArchive))).chatId).toBe(
+    "a",
+  );
 });
 
 test.each(["gap", "noOverlap", "empty", "collision"])(

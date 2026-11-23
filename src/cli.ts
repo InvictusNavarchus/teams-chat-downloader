@@ -17,7 +17,6 @@ import {
   commandDefaults,
   collectionBackupSuffix,
   collectionLogSuffix,
-  defaultExportRoot,
   defaultOutputFormat,
   defaultPageDelay,
   loginTimeout,
@@ -247,7 +246,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     )
     .option(
       "--dir <directory>",
-      `Directory of JSON exports (default: ${defaultExportRoot})`,
+      "Directory of JSON exports (default: exports under TEAMS_DATA_DIR or cwd)",
     )
     .option(
       "--recursive",
@@ -293,7 +292,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     });
   cli
     .command("download", "Collect messages and images, then export in one step")
-    .option("--db <file>", "Database file (default: account collection)")
+    .option("--db <file>", "Override the account or TEAMS_DATA_DIR database")
     .option(
       "--no-log",
       `Disable private logs in <database>${collectionLogSuffix}/`,
@@ -384,7 +383,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     });
   cli
     .command("collect", "Save messages; add --images to download images too")
-    .option("--db <file>", "Database file (default: account collection)")
+    .option("--db <file>", "Override the account or TEAMS_DATA_DIR database")
     .option(
       "--no-log",
       `Disable private logs in <database>${collectionLogSuffix}/`,
@@ -498,7 +497,7 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option("--all-chats", "Every saved chat (requires --last Nd)")
     .option(
       "--db <file>",
-      "Database file (default: single saved account collection)",
+      "Override TEAMS_DATA_DIR or single-account database discovery",
     )
     .option(
       "--no-log",
@@ -555,7 +554,7 @@ export async function runCli(argv = process.argv): Promise<number> {
   cli
     .command("images", "Download pending images for saved history")
     .alias("media-db")
-    .option("--db <file>", "Database file (default: account collection)")
+    .option("--db <file>", "Override the account or TEAMS_DATA_DIR database")
     .option(
       "--no-log",
       `Disable private logs in <database>${collectionLogSuffix}/`,

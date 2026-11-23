@@ -31,7 +31,7 @@ teams --help
 teams download --chat-label 'Project Alpha' --last 1d
 ```
 
-The linked command runs current source from this checkout and requires its dependencies and Bun. Relative paths and the default `exports/` directory belong to the invoking working directory. Relink after moving the checkout; `bun unlink` removes the registration.
+The linked command runs current source from this checkout and requires its dependencies and Bun. Explicit relative paths resolve from the invoking working directory. Relink after moving the checkout; `bun unlink` removes the registration.
 
 `teams --help` starts with common catch-up, initial collection, and offline export examples. Use `teams collect --help` or `teams export --help` for grouped options and defaults; advanced options and archive utilities remain listed.
 
@@ -44,7 +44,18 @@ The linked command runs current source from this checkout and requires its depen
 | `images` | Download or repair images referenced by saved history |
 | `export` | Create JSON/Markdown from saved history, completely offline |
 
-All four accept `--db <file>`. Without it, online commands use an account-specific database under `$XDG_STATE_HOME/teams-chat-download/collections/` (default `~/.local/state/teams-chat-download/collections/`). Offline `export` discovers a single default collection without credentials; if several accounts have collections, specify `--db`. Existing custom databases are not moved or automatically discovered.
+All four accept `--db <file>`. With neither `--db` nor `TEAMS_DATA_DIR` set, online commands use an account-specific database under `$XDG_STATE_HOME/teams-chat-download/collections/` (default `~/.local/state/teams-chat-download/collections/`). Offline `export` discovers a single default collection without credentials. If several accounts have collections, specify `--db`.
+
+### Use a project’s data directory
+
+Set `TEAMS_DATA_DIR` in this checkout’s Git-ignored `.env.teams` to use a project’s existing database and exports from `bun run teams` here. Use the absolute path to the existing data directory. Set `TZ` if you need a fixed timezone for daily exports.
+
+```dotenv
+TEAMS_DATA_DIR=/absolute/path/to/project/.data
+TZ=Asia/Jakarta
+```
+
+Commands default to `history.sqlite` and `exports/` under that directory. Media, backups, and logs stay beside the database. `--db` and explicit output paths still take precedence for their respective destinations. Without `TEAMS_DATA_DIR`, the export root is `exports/` in the invoking working directory.
 
 ### Download a period
 

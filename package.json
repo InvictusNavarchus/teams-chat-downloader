@@ -7,10 +7,10 @@
     "teams": "./src/cli.ts"
   },
   "scripts": {
-    "teams": "bun src/cli.ts",
+    "teams": "bun --env-file=.env.teams src/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "test:live": "bun src/live-smoke.ts",
+    "test:live": "bun --env-file=.env.teams src/live-smoke.ts",
     "format": "biome format --write"
   },
   "dependencies": {

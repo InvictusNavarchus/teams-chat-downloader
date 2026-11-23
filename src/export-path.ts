@@ -32,7 +32,7 @@ export function defaultExportDirectory(
     : slug;
   if (options.last === "1d")
     return join(
-      defaultExportRoot,
+      defaultExportRoot(),
       name,
       dayjs(options.window.from).format("YYYY-MM-DD"),
     );
@@ -41,7 +41,7 @@ export function defaultExportDirectory(
   const period = options.last
     ? `last-${options.last}--to-${to}`
     : `${options.since ? "since" : "from"}-${from}--to-${to}`;
-  return join(defaultExportRoot, name, period);
+  return join(defaultExportRoot(), name, period);
 }
 
 function filenameTimestamp(value: number): string {

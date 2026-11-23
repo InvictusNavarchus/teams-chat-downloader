@@ -1,14 +1,25 @@
 import { createHash } from "node:crypto";
 import { readdir, lstat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { configuredDataDirectory } from "./config.ts";
 import { defaultCredentialsPath } from "./credentials.ts";
 import { AppError } from "./errors.ts";
 
 export function defaultCollectionPath(accountId: string): string {
-  return join(
-    collectionRoot(),
-    `${createHash("sha256").update(accountId).digest("hex")}.sqlite`,
+  return (
+    configuredCollectionPath() ??
+    join(
+      collectionRoot(),
+      `${createHash("sha256").update(accountId).digest("hex")}.sqlite`,
+    )
   );
+}
+
+function configuredCollectionPath(): string | undefined {
+  const directory = configuredDataDirectory();
+  return directory === undefined
+    ? undefined
+    : join(directory, "history.sqlite");
 }
 
 function collectionRoot(): string {
@@ -17,6 +28,9 @@ function collectionRoot(): string {
 
 // Offline selection never reads credentials or guesses between accounts.
 export async function findDefaultCollection(): Promise<string> {
+  const configured = configuredCollectionPath();
+  if (configured !== undefined) return configured;
+
   const root = collectionRoot();
   const candidates: string[] = [];
   try {
