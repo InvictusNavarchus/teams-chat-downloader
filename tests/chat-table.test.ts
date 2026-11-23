@@ -95,3 +95,14 @@ test("suggested commands stay literal when pasted into a shell", () => {
     "'/data/it'\\''s here.sqlite'",
   );
 });
+
+test("an explicit --db is repeated in the suggested command", () => {
+  expect(
+    chatTable([{ id: "19:x", label: "Alpha", lastActivity: null }], new Set(), {
+      onlyNew: true,
+      db: "/data/my history.sqlite",
+    }).at(-1),
+  ).toBe(
+    "  teams collect --chat-label 'Alpha' --all-history --images --db '/data/my history.sqlite'",
+  );
+});

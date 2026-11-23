@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { lstat } from "node:fs/promises";
+import { resolve } from "node:path";
 import { cac } from "cac";
 import { configureCliHelp } from "./cli-help.ts";
 import { downloadArchiveMedia } from "./archive-media.ts";
@@ -316,7 +317,10 @@ export async function runCli(argv = process.argv): Promise<number> {
         const path = await writeChatList(options.out, chats, controller.signal);
         console.log(`Saved chat list to ${path}.`);
       }
-      for (const line of chatTable(chats, saved, { onlyNew: options.new }))
+      for (const line of chatTable(chats, saved, {
+        onlyNew: options.new,
+        db: options.db === undefined ? undefined : resolve(options.db),
+      }))
         console.log(line);
     });
   cli
@@ -345,6 +349,7 @@ export async function runCli(argv = process.argv): Promise<number> {
           store.chatSummaries(),
           store.imageCounts(),
           db,
+          { db: options.db },
         ))
           console.log(line);
       } finally {

@@ -486,7 +486,7 @@ export class HistoryStore {
     return selectChatByLabel(
       chats,
       label,
-      "No saved chat matches --chat-label in this database. Run teams status to see saved labels, use --chat <id>, or collect the chat with its current label first.",
+      "No saved chat matches --chat-label in this database. Run teams status (with the same --db, if you used one) to see saved labels, use --chat <id>, or collect the chat with its current label first.",
     ).id;
   }
 

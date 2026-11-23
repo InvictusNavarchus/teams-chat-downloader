@@ -140,8 +140,16 @@ test("status table lists labels, ranges and next steps", () => {
     statusTable([], { complete: 0, pending: 0, failed: 0 }, "/data/h.sqlite"),
   ).toEqual([
     "No saved chats in /data/h.sqlite.",
-    "Run teams chats --new to pick one, then collect it with --chat-label and --all-history.",
+    "Run teams chats --new and follow the collect command it prints.",
   ]);
+  // An explicit --db is repeated so hints act on the same database.
+  expect(
+    statusTable([], { complete: 0, pending: 0, failed: 0 }, "/d/it's.sqlite", {
+      db: "/d/it's.sqlite",
+    })[1],
+  ).toBe(
+    "Run teams chats --new --db '/d/it'\\''s.sqlite' and follow the collect command it prints.",
+  );
 });
 
 async function cli(
@@ -201,9 +209,15 @@ test("status runs offline and read-only on an explicit or configured database", 
   expect((await readdir(f.dir)).sort()).toEqual(
     [...before, "no-http.ts"].sort(),
   );
+  expect(explicit.stdout).toContain(
+    `teams collect --all-chats --db '${f.db}'\n2 images still to download (1 failed before): teams images --db '${f.db}'\n`,
+  );
   const configured = await cli(f.dir, [], { TEAMS_DATA_DIR: f.dir });
   expect(configured.code).toBe(0);
-  expect(configured.stdout).toBe(explicit.stdout);
+  // Without --db the hints rely on the same default lookup.
+  expect(configured.stdout).toBe(
+    explicit.stdout.replaceAll(` --db '${f.db}'`, ""),
+  );
 });
 
 test("status explains a missing database", async () => {

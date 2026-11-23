@@ -13,6 +13,13 @@ const chatCount = (count: number) => `${count} chat${count === 1 ? "" : "s"}`;
 // containing ' or \ are suggested by their raw ID instead.
 const labelIsPasteSafe = (label: string) => !/['\\]/.test(label);
 
+/**
+ * Repeats an explicit --db in suggested commands so they use the database that
+ * was inspected; without one, the default lookup already finds the same file.
+ */
+const dbArg = (db?: string) =>
+  db === undefined ? "" : ` --db ${shellQuote(db)}`;
+
 /** Quotes a value for bash, zsh and fish; IDs and paths only, see above. */
 export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -25,7 +32,7 @@ export function shellQuote(value: string): string {
 export function chatTable(
   chats: ListedChat[],
   saved: ReadonlySet<string>,
-  options: { onlyNew?: boolean } = {},
+  options: { onlyNew?: boolean; db?: string } = {},
 ): string[] {
   const shown = chats
     .filter((chat) => !options.onlyNew || !saved.has(chat.id))
@@ -71,7 +78,7 @@ export function chatTable(
     );
     if (first)
       lines.push(
-        `  teams collect ${selectable(first) && labelIsPasteSafe(first.label) ? `--chat-label '${first.label}'` : `--chat ${shellQuote(first.id)}`} --all-history --images`,
+        `  teams collect ${selectable(first) && labelIsPasteSafe(first.label) ? `--chat-label '${first.label}'` : `--chat ${shellQuote(first.id)}`} --all-history --images${dbArg(options.db)}`,
       );
   } else
     lines.push(
@@ -88,11 +95,13 @@ export function statusTable(
   chats: ChatSummary[],
   images: ImageCounts,
   database: string,
+  options: { db?: string } = {},
 ): string[] {
+  const db = dbArg(options.db);
   if (!chats.length)
     return [
       `No saved chats in ${database}.`,
-      "Run teams chats --new to pick one, then collect it with --chat-label and --all-history.",
+      `Run teams chats --new${db} and follow the collect command it prints.`,
     ];
   const sorted = [...chats].sort(
     (a, b) =>
@@ -126,12 +135,12 @@ export function statusTable(
   ];
   if (chats.some((chat) => chat.gaps))
     lines.push(
-      "Chats with gaps are retried by catch-up: teams collect --all-chats",
+      `Chats with gaps are retried by catch-up: teams collect --all-chats${db}`,
     );
   const toGet = images.pending + images.failed;
   if (toGet)
     lines.push(
-      `${toGet} image${toGet === 1 ? "" : "s"} still to download${images.failed ? ` (${images.failed} failed before)` : ""}: teams images`,
+      `${toGet} image${toGet === 1 ? "" : "s"} still to download${images.failed ? ` (${images.failed} failed before)` : ""}: teams images${db}`,
     );
   return lines;
 }
