@@ -65,14 +65,14 @@ teams download --chat-label 'Project Alpha' --last 1d
 
 # A specific period as one combined bundle in a new folder:
 teams download --chat-label 'Project Alpha' \
-  --from '2026-10-01T00:00:00+07:00' --to '2026-11-01T00:00:00+07:00' \
+  --from 2026-10-01 --to 2026-11-01 \
   --out exports/alpha-october
 
 # Use your existing collection:
 teams download --db exports/history.sqlite --chat-label 'Project Alpha' --last 7d
 ```
 
-Choose one date mode: `--last Nd`, `--since <timestamp>`, paired `--from`/`--to`, or `--all-history`. Timestamps require a timezone, start is included and end excluded, and future ends are refused. Use `--chat '<raw-chat-id>'` when labels are duplicated. Raw-ID downloads skip name lookup and use saved labels or a hashed ID for automatic folders.
+Choose one date mode: `--last Nd`, `--since <date>`, paired `--from`/`--to`, or `--all-history`. Dates such as `2026-11-01` mean local midnight; full timestamps require `Z` or an offset. Start is included and end excluded, so `--from 2026-10-01 --to 2026-11-01` is October. Future ends are refused. Use `--chat '<raw-chat-id>'` when labels are duplicated. Raw-ID downloads skip name lookup and use saved labels or a hashed ID for automatic folders.
 
 Without `--out`, `--last Nd` regenerates one folder per day. Other date modes create a combined timestamped snapshot. Explicit `--out` always requires a new directory. `--no-media` skips images; `--no-markdown` omits Markdown.
 

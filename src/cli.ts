@@ -320,17 +320,14 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option("--all-history", "Backfill all accessible history through now")
     .option("--last <Nd>", "Last N local calendar days, including today")
     .option(
-      "--since <timestamp>",
-      "Start timestamp through now (requires Z or timezone offset)",
+      "--since <date>",
+      "Start date (local midnight) or timestamp with Z or offset, through now",
     )
     .option(
-      "--from <timestamp>",
-      "Start timestamp (inclusive); requires --to and Z or offset",
+      "--from <date>",
+      "Start date or timestamp (inclusive); requires --to",
     )
-    .option(
-      "--to <timestamp>",
-      "End timestamp (exclusive); requires --from and Z or offset",
-    )
+    .option("--to <date>", "End date or timestamp (exclusive); requires --from")
     .option(
       "--page-delay-min <seconds>",
       `Minimum pause between pages and collection windows (default: ${defaultPageDelay.min})`,
@@ -415,17 +412,14 @@ export async function runCli(argv = process.argv): Promise<number> {
     .option("--all-history", "Backfill all accessible history through now")
     .option("--last <Nd>", "Last N local calendar days, including today")
     .option(
-      "--since <timestamp>",
-      "Start timestamp through now (requires Z or timezone offset)",
+      "--since <date>",
+      "Start date (local midnight) or timestamp with Z or offset, through now",
     )
     .option(
-      "--from <timestamp>",
-      "Start timestamp (inclusive); requires --to and Z or offset",
+      "--from <date>",
+      "Start date or timestamp (inclusive); requires --to",
     )
-    .option(
-      "--to <timestamp>",
-      "End timestamp (exclusive); requires --from and Z or offset",
-    )
+    .option("--to <date>", "End date or timestamp (exclusive); requires --from")
     .option(
       "--page-delay-min <seconds>",
       `Minimum pause between pages and collection windows (default: ${defaultPageDelay.min})`,
@@ -527,10 +521,10 @@ export async function runCli(argv = process.argv): Promise<number> {
       "Last N local calendar days as daily folders, including today",
     )
     .option(
-      "--from <timestamp>",
-      "Inclusive start; requires --to (default: full collected range)",
+      "--from <date>",
+      "Start date or timestamp (inclusive); requires --to (default: full collected range)",
     )
-    .option("--to <timestamp>", "Exclusive end; requires --from")
+    .option("--to <date>", "End date or timestamp (exclusive); requires --from")
     .option("--no-markdown", "Skip rendering Markdown", {
       default: commandDefaults.markdown,
     })

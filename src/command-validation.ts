@@ -21,7 +21,17 @@ const timestampSchema = z.iso
   .refine(
     (value) => Number.isFinite(Date.parse(value)) && !/\.\d{4}/.test(value),
   );
+// A calendar date means local midnight, like --last's local calendar days.
+// It becomes an offset timestamp so later parsing and logs stay unambiguous.
+const localDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => dayjs(value).format("YYYY-MM-DD") === value)
+  .transform((value) => dayjs(value).format());
+const dateOrTimestampSchema = z.union([timestampSchema, localDateSchema]);
 const timestampHint = (flag: string) =>
+  `${flag} expects a date such as 2026-11-01 (local midnight) or a timestamp with Z or a UTC offset, such as 2026-11-01T09:00:00+07:00.`;
+const strictTimestampHint = (flag: string) =>
   `${flag} expects a timestamp with Z or a UTC offset, such as 2026-11-01T00:00:00+07:00.`;
 const pageDelayHint = (flag: string) =>
   `${flag} expects seconds from ${pageDelayLimits.min} to ${pageDelayLimits.max}.`;
@@ -45,7 +55,11 @@ function optionFlag(key: string): string {
  * Explains invalid command options by the flag the user typed, never by schema
  * field name. Parsed values are not echoed because some options name credential files.
  */
-function optionsError(input: unknown, error: z.ZodError): AppError {
+function optionsError(
+  input: unknown,
+  error: z.ZodError,
+  hints = optionHints,
+): AppError {
   const values =
     input !== null && typeof input === "object"
       ? (input as Record<string, unknown>)
@@ -61,7 +75,7 @@ function optionsError(input: unknown, error: z.ZodError): AppError {
     // CAC parses a value option given without a value as boolean true.
     if (value === true || (typeof value === "string" && value.trim() === ""))
       return [`${flag} needs a value.`];
-    return [optionHints[key] ?? `${flag} has an invalid value.`];
+    return [hints[key] ?? `${flag} has an invalid value.`];
   });
   return new AppError([...new Set(messages)].join(" "));
 }
@@ -85,9 +99,9 @@ const exportOptionsSchema = z.strictObject({
   refreshMedia: z.boolean().default(commandDefaults.refreshMedia),
   pageDelayMin: pageDelaySchema.default(defaultPageDelay.min),
   pageDelayMax: pageDelaySchema.default(defaultPageDelay.max),
-  from: timestampSchema.optional(),
-  to: timestampSchema.optional(),
-  since: timestampSchema.optional(),
+  from: dateOrTimestampSchema.optional(),
+  to: dateOrTimestampSchema.optional(),
+  since: dateOrTimestampSchema.optional(),
   last: z
     .string()
     .regex(/^[1-9]\d*d$/)
@@ -116,7 +130,13 @@ export function resolveLiveSmokeOptions(
   now = Date.now(),
 ): LiveSmokeOptions {
   const result = liveSmokeOptionsSchema.safeParse(input);
-  if (!result.success) throw optionsError(input, result.error);
+  // The live smoke window stays explicitly timezone-qualified.
+  if (!result.success)
+    throw optionsError(input, result.error, {
+      ...optionHints,
+      from: strictTimestampHint("--from"),
+      to: strictTimestampHint("--to"),
+    });
   const options = result.data;
   if (
     Number(options.chat !== undefined) +
@@ -218,7 +238,7 @@ function resolveHistoryWindow(
     Number(options.from !== undefined);
   if (modes !== 1 || (options.to !== undefined && options.from === undefined)) {
     throw new AppError(
-      "Choose exactly one of --last Nd, --since <timestamp>, or --from <timestamp> --to <timestamp>.",
+      "Choose exactly one of --last Nd, --since <date>, or --from <date> --to <date>.",
     );
   }
   if (options.from !== undefined && options.to === undefined) {
@@ -363,8 +383,8 @@ const databaseExportOptionsSchema = z.strictObject({
   allChats: z.boolean().default(false),
   out: z.string().min(1).optional(),
   last: exportOptionsSchema.shape.last,
-  from: timestampSchema.optional(),
-  to: timestampSchema.optional(),
+  from: dateOrTimestampSchema.optional(),
+  to: dateOrTimestampSchema.optional(),
   markdown: z.boolean().default(commandDefaults.markdown),
   media: z.boolean().default(commandDefaults.media),
 });

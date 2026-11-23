@@ -44,7 +44,7 @@ const examples: Record<string, [string, string][]> = {
 
 const behavior: Record<string, string> = {
   collect:
-    "Without date flags, catch up from each chat's saved coverage through now.\nNew chats need --all-history or a date range. Completed intervals are skipped.\nImages are opt-in with --images. Export JSON/Markdown separately with export.",
+    "Without date flags, catch up from each chat's saved coverage through now.\nNew chats need --all-history or a date range. Completed intervals are skipped.\nImages are opt-in with --images. Export JSON/Markdown separately with export.\nDates such as 2026-11-01 mean local midnight; --to is exclusive.",
   export:
     "Offline: reads saved messages and images without credentials or HTTP.\nUse --all-chats --last Nd for every saved chat, or select one chat.\nChoose --last Nd for daily folders, or --out for one chat's combined bundle.\nJSON and Markdown include saved images by default; no image downloads occur.",
   images:

@@ -85,10 +85,10 @@ Label selection requires a current directory lookup and any needed participant n
 | ------------------------------------- | ------------------------------------------------------------- |
 | `--last 1d`                           | Today from local midnight through invocation time             |
 | `--last 7d`                           | Six days ago at local midnight through invocation time        |
-| `--since <timestamp>`                 | The supplied instant through invocation time                  |
-| `--from <timestamp> --to <timestamp>` | The supplied start, inclusive, to the supplied end, exclusive |
+| `--since <date>`                      | The supplied date or instant through invocation time          |
+| `--from <date> --to <date>`           | The supplied start, inclusive, to the supplied end, exclusive |
 
-`--last Nd` means calendar days, including today, rather than N × 24 hours. The machine's local timezone applies; set `TZ` to override it. Explicit timestamps require `Z` or a timezone offset and at most millisecond precision. Date-only values are rejected. Filtering uses the original message arrival time.
+`--last Nd` means calendar days, including today, rather than N × 24 hours. The machine's local timezone applies; set `TZ` to override it. `--since`, `--from`, and `--to` accept a calendar date such as `2026-11-01`, meaning local midnight in that same timezone, or a full timestamp with `Z` or a timezone offset and at most millisecond precision. Because `--to` is exclusive, `--from 2026-10-01 --to 2026-11-01` selects October. Commands print the resolved UTC range before any requests. Filtering uses the original message arrival time.
 
 ```sh
 bun run teams download --chat-label 'Project Alpha' --last 7d

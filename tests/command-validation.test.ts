@@ -7,6 +7,7 @@ import {
   resolveDatabaseExportOptions,
   resolveDownloadOptions,
   resolveExportOptions,
+  resolveLiveSmokeOptions,
   resolveMediaOptions,
 } from "../src/command-validation.ts";
 import { defaultPageDelay } from "../src/config.ts";
@@ -404,6 +405,56 @@ describe("date options", () => {
     ).toEqual({ from: 1785542400000, to: 1786147200000 });
   });
 
+  test.each([
+    // Local midnight on both bounds; --to stays exclusive.
+    ["Asia/Jakarta", "2026-10-01T00:00:00+07:00", "2026-11-01T00:00:00+07:00"],
+    ["UTC", "2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z"],
+    // 2026-11-01 is the US daylight-saving change; midnight is still -04:00.
+    [
+      "America/New_York",
+      "2026-10-01T00:00:00-04:00",
+      "2026-11-01T00:00:00-04:00",
+    ],
+  ])(
+    "%s calendar dates resolve to local midnight for collect, download and export",
+    async (zone, from, to) => {
+      const module = JSON.stringify(
+        fileURLToPath(new URL("../src/command-validation.ts", import.meta.url)),
+      );
+      const child = Bun.spawn(
+        [
+          process.execPath,
+          "--eval",
+          `import { resolveCollectOptions, resolveDatabaseExportOptions, resolveDownloadOptions } from ${module};
+      const dates = { from: "2026-10-01", to: "2026-11-01" };
+      const now = Date.parse("2026-11-24T00:00:00Z");
+      console.log(JSON.stringify([
+        resolveCollectOptions({ db: "h", chat: "a", ...dates }, now).window,
+        resolveDownloadOptions({ db: "h", chat: "a", ...dates }, now).window,
+        resolveDatabaseExportOptions({ db: "h", chat: "a", out: "o", ...dates }, now).window,
+        resolveCollectOptions({ db: "h", chat: "a", since: dates.from }, now).window.from,
+      ]));`,
+        ],
+        { env: { ...process.env, TZ: zone }, stdout: "pipe", stderr: "pipe" },
+      );
+      const [code, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      expect(stderr).toBe("");
+      expect(code).toBe(0);
+      const window = { from: Date.parse(from), to: Date.parse(to) };
+      expect(JSON.parse(stdout)).toEqual([window, window, window, window.from]);
+    },
+  );
+
+  test("live smoke windows still require timezone-qualified timestamps", () => {
+    expect(() =>
+      resolveLiveSmokeOptions({ from: "2026-08-01", to: "2026-08-02" }, now),
+    ).toThrow("--from expects a timestamp with Z or a UTC offset");
+  });
+
   test("since ends at invocation time", () => {
     expect(
       resolveExportOptions({ ...base, since: "2026-11-01T00:00:00Z" }, now)
@@ -418,7 +469,10 @@ describe("date options", () => {
     { last: "-1d" },
     { last: "9999999999999999999999999d" },
     { from: "2026-08-01T00:00:00Z" },
-    { from: "2026-08-01", to: "2026-08-08" },
+    { from: "2026-02-30", to: "2026-03-05" },
+    { since: "2026-8-1" },
+    { since: "20260801" },
+    { since: "2026-08-01T00:00:00" },
     { from: "2026-08-08T00:00:00Z", to: "2026-08-01T00:00:00Z" },
     { from: "2026-08-01T00:00:00Z", to: "2026-08-01T00:00:00Z" },
     { from: "2026-02-30T00:00:00Z", to: "2026-03-05T00:00:00Z" },

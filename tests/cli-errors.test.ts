@@ -81,7 +81,7 @@ test.each([
   ],
   [
     ["collect", "--chat", "a", "--since", "yesterday"],
-    "--since expects a timestamp",
+    "--since expects a date such as 2026-11-01 (local midnight) or a timestamp",
   ],
   [["collect", "--chat", "a", "--chat-label"], "value is missing"],
   [
